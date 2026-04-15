@@ -35,7 +35,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
-FREE_DELIVERY_THRESHOLD = 500  # Free delivery for orders >= Rs.500
+FREE_DELIVERY_THRESHOLD = 599  # Free delivery for orders >= Rs.599
 DELIVERY_FEE = 49
 
 

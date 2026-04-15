@@ -44,7 +44,7 @@ from app.models.order import Order
 logger = logging.getLogger(__name__)
 
 # Delivery constants — must match cart_service.py
-FREE_DELIVERY_THRESHOLD = 500
+FREE_DELIVERY_THRESHOLD = 599
 DELIVERY_FEE = 49
 
 
