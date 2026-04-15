@@ -292,11 +292,15 @@ function DashboardInner({ token }: { token: string }) {
       pincode: details.pincode,
     };
 
+    const cartPayloadItems = cart
+      .filter((item) => item.quantity > 0)
+      .map((item) => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity }));
+
     if (details.paymentMethod === "cod") {
       const res = await fetch(`${API_BASE}/dashboard/${token}/place-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payment_method: "cod", address }),
+        body: JSON.stringify({ payment_method: "cod", address, cart_items: cartPayloadItems }),
       });
       if (!res.ok) throw new Error("Could not place order. Please try again.");
       setConfirmedItems(cart);
@@ -309,7 +313,7 @@ function DashboardInner({ token }: { token: string }) {
     const createRes = await fetch(`${API_BASE}/dashboard/${token}/create-payment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ payment_method: details.paymentMethod, address }),
+      body: JSON.stringify({ payment_method: details.paymentMethod, address, cart_items: cartPayloadItems }),
     });
     if (!createRes.ok) throw new Error("Could not initiate payment. Please try again.");
     const { razorpay_order_id, amount, currency, key_id, order_db_id } =

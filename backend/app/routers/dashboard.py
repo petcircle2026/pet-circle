@@ -2257,10 +2257,20 @@ async def dashboard_apply_coupon(
     return {"valid": True, "discount_percent": discount, "code": code}
 
 
+class CartItemInput(BaseModel):
+    id: str
+    name: str
+    price: int = Field(..., ge=0)
+    quantity: int = Field(..., ge=1)
+    icon: str | None = None
+    section: str | None = None
+
+
 class PlaceOrderRequest(BaseModel):
     payment_method: str = Field(..., pattern=r"^(upi|card|netbanking|cod)$")
     address: dict | None = None
     coupon: str | None = None
+    cart_items: list[CartItemInput] | None = None
 
 
 @router.post("/{token}/place-order")
@@ -2275,7 +2285,12 @@ async def dashboard_place_order(
         pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
         if not pet:
             raise ValueError("Pet not found.")
-        result = await place_order(db, dt.pet_id, pet.user_id, body.payment_method, body.address, body.coupon)
+        client_items = (
+            [{"id": i.id, "name": i.name, "price": i.price, "quantity": i.quantity}
+             for i in body.cart_items]
+            if body.cart_items else None
+        )
+        result = await place_order(db, dt.pet_id, pet.user_id, body.payment_method, body.address, body.coupon, client_items=client_items)
         # Save checkout preferences so next checkout can prefill these fields.
         # Best-effort — never blocks the order response.
         try:
@@ -2300,6 +2315,7 @@ class CreatePaymentRequest(BaseModel):
     address: dict | None = None
     coupon: str | None = None
     coupon_discount_percent: int = Field(default=0, ge=0, le=100)
+    cart_items: list[CartItemInput] | None = None
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -2327,6 +2343,11 @@ async def dashboard_create_payment(
         pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
         if not pet:
             raise ValueError("Pet not found.")
+        client_items = (
+            [{"id": i.id, "name": i.name, "price": i.price, "quantity": i.quantity}
+             for i in body.cart_items]
+            if body.cart_items else None
+        )
         result = await create_razorpay_payment(
             db,
             pet_id=dt.pet_id,
@@ -2335,6 +2356,7 @@ async def dashboard_create_payment(
             address=body.address,
             coupon=body.coupon,
             coupon_discount_percent=body.coupon_discount_percent,
+            client_items=client_items,
         )
         # Save address and payment method preference eagerly so the next
         # checkout can prefill them even if payment is abandoned.

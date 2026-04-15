@@ -584,26 +584,34 @@ async def place_order(
     payment_method: str,
     address: dict | None = None,
     coupon: str | None = None,
+    client_items: list[dict] | None = None,
 ) -> dict:
     """
     Place an order from items currently in cart (in_cart=True).
 
     Creates an Order record and clears cart items.
+    client_items, when provided, are used for the order totals instead of
+    the DB cart (frontend cart may include care-plan items not synced to DB).
     """
-    in_cart = (
-        db.query(CartItem)
-        .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
-        .all()
-    )
-    if not in_cart:
-        raise ValueError("No items in cart")
-
-    items_desc = "; ".join(
-        f"{item.name} x{item.quantity} (Rs.{item.price * item.quantity})"
-        for item in in_cart
-    )
-
-    subtotal = sum(item.price * item.quantity for item in in_cart)
+    if client_items:
+        items_desc = "; ".join(
+            f"{item['name']} x{item['quantity']} (Rs.{item['price'] * item['quantity']})"
+            for item in client_items
+        )
+        subtotal = sum(item["price"] * item["quantity"] for item in client_items)
+    else:
+        in_cart = (
+            db.query(CartItem)
+            .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
+            .all()
+        )
+        if not in_cart:
+            raise ValueError("No items in cart")
+        items_desc = "; ".join(
+            f"{item.name} x{item.quantity} (Rs.{item.price * item.quantity})"
+            for item in in_cart
+        )
+        subtotal = sum(item.price * item.quantity for item in in_cart)
     discount = round(subtotal * 0.1) if coupon else 0
     delivery = 0 if subtotal >= FREE_DELIVERY_THRESHOLD else DELIVERY_FEE
     total = subtotal - discount + delivery
