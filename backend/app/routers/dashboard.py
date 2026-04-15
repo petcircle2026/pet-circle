@@ -2272,11 +2272,14 @@ async def dashboard_place_order(
     """Place a COD order. For UPI/card/netbanking use /create-payment instead."""
     try:
         dt = validate_dashboard_token(db, token)
-        result = await place_order(db, dt.pet_id, dt.user_id, body.payment_method, body.address, body.coupon)
+        pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
+        if not pet:
+            raise ValueError("Pet not found.")
+        result = await place_order(db, dt.pet_id, pet.user_id, body.payment_method, body.address, body.coupon)
         # Save checkout preferences so next checkout can prefill these fields.
         # Best-effort — never blocks the order response.
         try:
-            user = db.query(User).filter(User.id == dt.user_id).first()
+            user = db.query(User).filter(User.id == pet.user_id).first()
             if user:
                 if body.address and body.address.get("address"):
                     user.delivery_address = body.address["address"]
@@ -2321,10 +2324,13 @@ async def dashboard_create_payment(
     """
     try:
         dt = validate_dashboard_token(db, token)
+        pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
+        if not pet:
+            raise ValueError("Pet not found.")
         result = await create_razorpay_payment(
             db,
             pet_id=dt.pet_id,
-            user_id=dt.user_id,
+            user_id=pet.user_id,
             payment_method=body.payment_method,
             address=body.address,
             coupon=body.coupon,
@@ -2334,7 +2340,7 @@ async def dashboard_create_payment(
         # checkout can prefill them even if payment is abandoned.
         # Best-effort — never blocks the response.
         try:
-            user = db.query(User).filter(User.id == dt.user_id).first()
+            user = db.query(User).filter(User.id == pet.user_id).first()
             if user:
                 if body.address and body.address.get("address"):
                     user.delivery_address = body.address["address"]
@@ -2369,6 +2375,9 @@ async def dashboard_verify_payment(
     """
     try:
         dt = validate_dashboard_token(db, token)
+        pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
+        if not pet:
+            raise ValueError("Pet not found.")
         result = await verify_razorpay_payment(
             db,
             pet_id=dt.pet_id,
@@ -2386,7 +2395,7 @@ async def dashboard_verify_payment(
                 )
                 payment_details = rzp_client.payment.fetch(body.razorpay_payment_id)
                 if payment_details.get("method") == "upi" and payment_details.get("vpa"):
-                    user = db.query(User).filter(User.id == dt.user_id).first()
+                    user = db.query(User).filter(User.id == pet.user_id).first()
                     if user:
                         user.saved_upi_id = encrypt_field(payment_details["vpa"])
                         db.commit()
