@@ -2298,6 +2298,8 @@ async def dashboard_place_order(
             if user:
                 if body.address and body.address.get("address"):
                     user.delivery_address = body.address["address"]
+                if body.address and body.address.get("pincode"):
+                    user.pincode = encrypt_field(str(body.address["pincode"]))
                 user.payment_method_pref = "cod"
                 db.commit()
         except Exception as pref_err:
@@ -2366,6 +2368,8 @@ async def dashboard_create_payment(
             if user:
                 if body.address and body.address.get("address"):
                     user.delivery_address = body.address["address"]
+                if body.address and body.address.get("pincode"):
+                    user.pincode = encrypt_field(str(body.address["pincode"]))
                 user.payment_method_pref = body.payment_method
                 db.commit()
         except Exception as pref_err:

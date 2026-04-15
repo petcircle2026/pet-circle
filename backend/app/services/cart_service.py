@@ -593,6 +593,13 @@ async def place_order(
     client_items, when provided, are used for the order totals instead of
     the DB cart (frontend cart may include care-plan items not synced to DB).
     """
+    # Always load DB cart items for cleanup and preference tracking
+    in_cart = (
+        db.query(CartItem)
+        .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
+        .all()
+    )
+
     if client_items:
         items_desc = "; ".join(
             f"{item['name']} x{item['quantity']} (Rs.{item['price'] * item['quantity']})"
@@ -600,11 +607,6 @@ async def place_order(
         )
         subtotal = sum(item["price"] * item["quantity"] for item in client_items)
     else:
-        in_cart = (
-            db.query(CartItem)
-            .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
-            .all()
-        )
         if not in_cart:
             raise ValueError("No items in cart")
         items_desc = "; ".join(
@@ -635,18 +637,31 @@ async def place_order(
     )
     db.add(order)
 
-    # Build response items before clearing
-    order_items = [
-        {
-            "product_id": item.product_id,
-            "name": item.name,
-            "icon": item.icon,
-            "price": item.price,
-            "quantity": item.quantity,
-            "total": item.price * item.quantity,
-        }
-        for item in in_cart
-    ]
+    # Build response items — prefer client_items so the frontend sees what it sent
+    if client_items:
+        order_items = [
+            {
+                "product_id": None,
+                "name": item["name"],
+                "icon": None,
+                "price": item["price"],
+                "quantity": item["quantity"],
+                "total": item["price"] * item["quantity"],
+            }
+            for item in client_items
+        ]
+    else:
+        order_items = [
+            {
+                "product_id": item.product_id,
+                "name": item.name,
+                "icon": item.icon,
+                "price": item.price,
+                "quantity": item.quantity,
+                "total": item.price * item.quantity,
+            }
+            for item in in_cart
+        ]
 
     # Record each ordered item into pet_preferences so purchase history is tracked.
     # Look up the SKU to tag the preference category; fall back to "dashboard_order".
