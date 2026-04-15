@@ -18,7 +18,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -279,7 +279,7 @@ async def get_nutrition_targets(
             .first()
         )
         if cached:
-            staleness_cutoff = datetime.utcnow() - timedelta(days=NUTRITION_CACHE_STALENESS_DAYS)
+            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=NUTRITION_CACHE_STALENESS_DAYS)
             if cached.created_at.replace(tzinfo=None) > staleness_cutoff:
                 logger.info(
                     "Nutrition target cache hit: %s %s %s",
@@ -776,7 +776,7 @@ async def estimate_complete_meal_nutrition(
             .first()
         )
         if cached:
-            staleness_cutoff = datetime.utcnow() - timedelta(days=FOOD_CACHE_STALENESS_DAYS)
+            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=FOOD_CACHE_STALENESS_DAYS)
             if cached.created_at.replace(tzinfo=None) > staleness_cutoff:
                 logger.info("Combined meal cache hit: %s", cache_key)
                 return cached.nutrition_json

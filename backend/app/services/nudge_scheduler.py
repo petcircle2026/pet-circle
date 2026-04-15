@@ -25,7 +25,7 @@ Rules:
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func
@@ -131,7 +131,7 @@ async def run_nudge_scheduler(db: Session) -> dict:
             # --- Guard: nudge sent recently (48h gap)? ---
             last_nudge_at = _last_nudge_sent_at(db, user.id)
             if last_nudge_at:
-                gap = datetime.utcnow() - last_nudge_at
+                gap = datetime.now(timezone.utc) - last_nudge_at
                 if gap.total_seconds() < NUDGE_MIN_GAP_HOURS * 3600:
                     logger.info("Nudge skipped for user %s: reason=%s", str(user.id), "min_gap_48h")
                     skipped += 1
@@ -792,7 +792,7 @@ def _get_or_generate_nudge_insight(db: Session, user: User, pet: Pet) -> str | N
     )
 
     if existing:
-        age = (datetime.utcnow() - existing.created_at).days
+        age = (datetime.now(timezone.utc) - existing.created_at).days
         if age < CACHE_DAYS:
             return existing.insight_text
 
@@ -931,7 +931,7 @@ def _has_reminder_scheduled_today(db: Session, user_id: UUID, today: date) -> bo
 
 def _count_nudges_in_window(db: Session, user_id: UUID, window_days: int = 7) -> int:
     """Return sent nudge count in a rolling UTC window for this user."""
-    window_start = datetime.utcnow() - timedelta(days=window_days)
+    window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
     return (
         db.query(func.count(NudgeDeliveryLog.id))
         .filter(
@@ -972,7 +972,7 @@ def _check_inactivity_trigger(db: Session, user: User) -> bool:
     if not last_activity_at:
         return True
 
-    inactivity_gap = datetime.utcnow() - last_activity_at
+    inactivity_gap = datetime.now(timezone.utc) - last_activity_at
     return inactivity_gap.total_seconds() >= NUDGE_INACTIVITY_TRIGGER_HOURS * 3600
 
 

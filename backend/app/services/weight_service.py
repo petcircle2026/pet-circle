@@ -11,7 +11,7 @@ age_category) combo to minimize API costs.
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import desc
@@ -177,7 +177,7 @@ async def get_ideal_range(
         )
 
         if cached:
-            staleness_cutoff = datetime.utcnow() - timedelta(days=WEIGHT_CACHE_STALENESS_DAYS)
+            staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=WEIGHT_CACHE_STALENESS_DAYS)
             if cached.created_at.replace(tzinfo=None) > staleness_cutoff:
                 logger.info(
                     "Weight range cache hit: %s %s %s %s → %.1f-%.1f kg",

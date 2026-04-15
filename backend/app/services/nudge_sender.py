@@ -11,7 +11,7 @@ Entry points:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -32,7 +32,7 @@ def check_inactivity_nudges(db: Session) -> dict:
     Inactivity threshold is configured via nudge_config table.
     """
     threshold_days = get_nudge_config_int(db, "inactivity_threshold_days", 30)
-    cutoff = datetime.utcnow() - timedelta(days=threshold_days)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
 
     pets = (
         db.query(Pet)
@@ -56,7 +56,7 @@ def check_inactivity_nudges(db: Session) -> dict:
         if engagement:
             if engagement.last_engagement_at and engagement.last_engagement_at > cutoff:
                 continue
-            if engagement.paused_until and engagement.paused_until > datetime.utcnow():
+            if engagement.paused_until and engagement.paused_until > datetime.now(timezone.utc):
                 continue
 
         # Check if we already have a recent inactivity nudge
@@ -109,14 +109,14 @@ def record_nudge_engagement(db: Session, user_id, pet_id):
     )
 
     if engagement:
-        engagement.last_engagement_at = datetime.utcnow()
+        engagement.last_engagement_at = datetime.now(timezone.utc)
         engagement.paused_until = None
         engagement.total_acted_on = (engagement.total_acted_on or 0) + 1
     else:
         engagement = NudgeEngagement(
             user_id=user_id,
             pet_id=pet_id,
-            last_engagement_at=datetime.utcnow(),
+            last_engagement_at=datetime.now(timezone.utc),
             total_acted_on=1,
         )
         db.add(engagement)

@@ -424,7 +424,7 @@ def _has_pending_deferred_care_plan(db: Session, pet_id, user=None) -> bool:
         # Auto-clear stale marker: if it's been more than the threshold and
         # there are no pending documents left, the extraction pipeline is done
         # (success, failure, or lost) — unblock the user.
-        stale_cutoff = datetime.utcnow() - timedelta(minutes=_DEFERRED_MARKER_STALE_MINUTES)
+        stale_cutoff = datetime.now(UTC) - timedelta(minutes=_DEFERRED_MARKER_STALE_MINUTES)
         if marker.created_at and marker.created_at < stale_cutoff:
             pending_doc_count = (
                 db.query(Document)
@@ -438,7 +438,7 @@ def _has_pending_deferred_care_plan(db: Session, pet_id, user=None) -> bool:
                 )
                 try:
                     marker.is_cleared = True
-                    marker.cleared_at = datetime.utcnow()
+                    marker.cleared_at = datetime.now(UTC)
                     db.commit()
                 except Exception as _clr_err:
                     logger.warning("Failed to auto-clear stale marker: %s", _clr_err)
@@ -489,7 +489,7 @@ def _clear_deferred_care_plan_marker(db: Session, pet_id, user=None) -> int:
         .update(
             {
                 DeferredCarePlanPending.is_cleared: True,
-                DeferredCarePlanPending.cleared_at: datetime.utcnow(),
+                DeferredCarePlanPending.cleared_at: datetime.now(UTC),
             },
             synchronize_session=False,
         )
@@ -1555,7 +1555,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
 
     # Secondary dedup: check by filename or media_id as fallback.
     from datetime import datetime, timedelta
-    dedup_cutoff = datetime.utcnow() - timedelta(hours=24)
+    dedup_cutoff = datetime.now(UTC) - timedelta(hours=24)
 
     if original_filename:
         existing_doc = (
@@ -2369,7 +2369,7 @@ async def _send_dashboard_links(db, user) -> None:
             token_record = token_by_pet.get(pet.id)
 
             # Auto-refresh if token is expired or missing.
-            if token_record and token_record.expires_at and datetime.utcnow() > token_record.expires_at:
+            if token_record and token_record.expires_at and datetime.now(UTC) > token_record.expires_at:
                 new_token = refresh_dashboard_token(db, pet.id)
                 dashboard_url = f"{settings.FRONTEND_URL}/dashboard/{new_token}"
             elif token_record:
@@ -2449,7 +2449,7 @@ def _get_dashboard_link(db: Session, pet) -> str | None:
             return None
 
         # Auto-refresh expired tokens.
-        if token_record.expires_at and datetime.utcnow() > token_record.expires_at:
+        if token_record.expires_at and datetime.now(UTC) > token_record.expires_at:
             new_token = refresh_dashboard_token(db, pet.id)
             return f"{settings.FRONTEND_URL}/dashboard/{new_token}"
 

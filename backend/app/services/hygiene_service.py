@@ -10,7 +10,7 @@ Generates AI-powered one-line tips per hygiene activity (cached by breed).
 import json
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -105,7 +105,7 @@ async def _generate_hygiene_tips(
     tips: dict[str, str] = {}
 
     # Batch cache lookup — one query for all items instead of N queries
-    cutoff = datetime.utcnow() - timedelta(days=HYGIENE_TIP_CACHE_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HYGIENE_TIP_CACHE_DAYS)
     item_ids = [item_id for item_id, _ in item_ids_and_names]
     cached_rows = (
         db.query(HygieneTipCache)

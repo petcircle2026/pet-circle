@@ -20,7 +20,7 @@ Retry policy:
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -72,7 +72,7 @@ def _calculate_age_range(dob) -> str:
     if not dob:
         return "unknown"
 
-    now = datetime.utcnow().date()
+    now = datetime.now(timezone.utc).date()
     age_days = (now - dob).days
 
     if age_days < 60:  # ~2 months
@@ -530,7 +530,7 @@ def record_preference(
 
         if existing:
             existing.used_count = (getattr(existing, "used_count", 0) or 0) + 1  # type: ignore[assignment]
-            existing.updated_at = datetime.utcnow()  # type: ignore[assignment]
+            existing.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
         else:
             preference = PetPreference(
                 pet_id=pet_id,

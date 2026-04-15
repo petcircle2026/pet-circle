@@ -3,9 +3,11 @@
 -- Errors addressed:
 --   1. column conflict_flags.new_date does not exist
 --   2. column diagnostic_test_results.created_at does not exist
+--   3. documents.document_category NOT NULL rejects all new uploads
+--      (category is NULL on insert; GPT assigns it during extraction)
 --
 -- Run once in the Supabase SQL editor after migrate_dashboard_tokens.sql.
--- Safe to re-run: all ALTER TABLE steps use IF NOT EXISTS.
+-- Safe to re-run: all ALTER TABLE steps use IF NOT EXISTS / DROP NOT NULL.
 -- =============================================================================
 
 BEGIN;
@@ -26,8 +28,15 @@ UPDATE diagnostic_test_results
 SET created_at = COALESCE(updated_at, NOW())
 WHERE created_at IS NULL;
 
+-- 3. documents — drop NOT NULL on document_category.
+--    Every upload inserts document_category=NULL (pending extraction);
+--    GPT assigns the category later.  The model correctly marks it nullable=True.
+ALTER TABLE documents
+    ALTER COLUMN document_category DROP NOT NULL;
+
 COMMIT;
 
 -- Verify:
--- SELECT column_name FROM information_schema.columns WHERE table_name = 'conflict_flags' ORDER BY ordinal_position;
--- SELECT column_name FROM information_schema.columns WHERE table_name = 'diagnostic_test_results' ORDER BY ordinal_position;
+-- SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'conflict_flags' ORDER BY ordinal_position;
+-- SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'diagnostic_test_results' ORDER BY ordinal_position;
+-- SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'documents' WHERE column_name = 'document_category';
