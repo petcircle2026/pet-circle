@@ -75,6 +75,8 @@ dashboard/
 !frontend/src/components/dashboard/
 !frontend/src/components/dashboard/*.ts
 !frontend/src/components/dashboard/*.tsx
+!frontend/src/app/dashboard/
+!frontend/src/app/dashboard/**/
 
 # === Claude Code (personal workflow — not for client) ===
 .claude/
