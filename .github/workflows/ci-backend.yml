@@ -1,0 +1,43 @@
+name: CI — Backend
+
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - "backend/**"
+  push:
+    branches: [dev, main]
+    paths:
+      - "backend/**"
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check app/ tests/
+
+      - name: Run tests
+        env:
+          APP_ENV: test
+        run: |
+          # Run only unit tests and isolated integration tests.
+          # test_dashboard_endpoints.py needs a live server + .tokens file.
+          # test_extraction_local.py needs OpenAI API + sample report files.
+          # Both are excluded here and run manually outside of CI.
+          pytest tests/unit/ tests/test_message_router_error_throttle.py -v --tb=short
