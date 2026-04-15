@@ -153,12 +153,9 @@ export default function CartView({
       : (product?.product_name || product?.brand_name || skuId);
     const price = product?.discounted_price ?? 0;
     const mrp = product?.mrp ?? price;
-    // For supplements/medicines: sub = "Brand · pack_size"; for food sub = pack_size
-    const sub = product?.category === "food"
-      ? product?.pack_size
-      : (product?.brand_name && product?.pack_size
-          ? `${product.brand_name} · ${product.pack_size}`
-          : product?.pack_size);
+    const sub = product?.brand_name && product?.pack_size
+      ? `${product.brand_name} · ${product.pack_size}`
+      : product?.pack_size;
     onAddBySku(skuId, name, price, mrp, icon, "Search", quantity, product?.medicine_type, sub);
     setSelectorOpen(false);
     setSearchQuery("");
@@ -380,11 +377,6 @@ export default function CartView({
                       Rs {item.price.toLocaleString("en-IN")}
                     </span>
                   </div>
-                  {item.quantity > 0 && (
-                    <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 3 }}>
-                      Qty: {item.quantity}
-                    </div>
-                  )}
                 </div>
                 <div className="qty">
                   <button className="qty-btn" type="button" onClick={() => changeQuantity(item.id, item.quantity - 1)}>
