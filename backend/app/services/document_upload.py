@@ -250,13 +250,31 @@ async def upload_to_supabase(
     bucket_name = settings.SUPABASE_BUCKET_NAME
 
     def _sync_upload():
-        """Run the sync Supabase SDK upload in a thread."""
+        """Run the sync Supabase SDK upload in a thread, with retries."""
+        import time
+
         supabase_client = _get_supabase_client()
-        supabase_client.storage.from_(bucket_name).upload(
-            path=storage_path,
-            file=file_content,
-            file_options={"content-type": mime_type},
-        )
+        last_exc: Exception | None = None
+        for attempt in range(1, 4):  # 3 attempts: 0s, 2s, 4s
+            try:
+                supabase_client.storage.from_(bucket_name).upload(
+                    path=storage_path,
+                    file=file_content,
+                    file_options={"content-type": mime_type},
+                )
+                return  # success
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 3:
+                    logger.warning(
+                        "Supabase upload attempt %d/3 failed (retrying): bucket=%s, path=%s, error=%s",
+                        attempt,
+                        bucket_name,
+                        storage_path,
+                        str(exc),
+                    )
+                    time.sleep(attempt * 2)  # 2s, 4s
+        raise last_exc  # re-raise after all attempts exhausted
 
     try:
         # Run sync upload in thread pool to avoid blocking the event loop.
