@@ -457,7 +457,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             own_db.close()
 
     def _fetch_insights_sync():
-        _now_q = datetime.utcnow()
+        _now_q = datetime.now(timezone.utc)
         own_db = SessionLocal()
         try:
             rows = (
