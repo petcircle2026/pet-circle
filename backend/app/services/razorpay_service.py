@@ -73,6 +73,7 @@ async def create_razorpay_payment(
     address: dict | None,
     coupon: str | None,
     coupon_discount_percent: int = 0,
+    client_items: list[dict] | None = None,
 ) -> dict:
     """
     Create a Razorpay order for the cart items and persist a pending Order row.
@@ -103,16 +104,29 @@ async def create_razorpay_payment(
         ValueError: If cart is empty.
         RuntimeError: If Razorpay credentials are missing.
     """
-    in_cart = (
-        db.query(CartItem)
-        .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
-        .all()
-    )
-    if not in_cart:
-        raise ValueError("No items in cart")
+    # Use client-provided cart items when available (they reflect the user's
+    # actual basket, which may include care-plan items not yet in the DB).
+    # Fall back to DB cart if no client items were sent.
+    if client_items:
+        subtotal = sum(item["price"] * item["quantity"] for item in client_items)
+        items_desc = "; ".join(
+            f"{item['name']} x{item['quantity']} (Rs.{item['price'] * item['quantity']})"
+            for item in client_items
+        )
+    else:
+        in_cart = (
+            db.query(CartItem)
+            .filter(CartItem.pet_id == pet_id, CartItem.in_cart == True)
+            .all()
+        )
+        if not in_cart:
+            raise ValueError("No items in cart")
+        subtotal = sum(item.price * item.quantity for item in in_cart)
+        items_desc = "; ".join(
+            f"{item.name} x{item.quantity} (Rs.{item.price * item.quantity})"
+            for item in in_cart
+        )
 
-    # Calculate totals
-    subtotal = sum(item.price * item.quantity for item in in_cart)
     discount = round(subtotal * coupon_discount_percent / 100) if coupon else 0
     delivery = 0 if subtotal >= FREE_DELIVERY_THRESHOLD else DELIVERY_FEE
     total = subtotal - discount + delivery
@@ -134,12 +148,6 @@ async def create_razorpay_payment(
     })
 
     razorpay_order_id = rzp_order["id"]
-
-    # Build items description for Order row
-    items_desc = "; ".join(
-        f"{item.name} x{item.quantity} (Rs.{item.price * item.quantity})"
-        for item in in_cart
-    )
 
     order_db_id = uuid.uuid4()
     order = Order(
