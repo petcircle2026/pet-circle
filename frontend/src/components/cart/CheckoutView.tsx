@@ -33,8 +33,16 @@ export default function CheckoutView({
   onBack,
   onPlaceOrder,
 }: CheckoutViewProps) {
+  // Strip country code prefix (WhatsApp numbers are stored with "91" prefix, e.g. "919876543210")
+  const normalizePhone = (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+    if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+    return digits.slice(0, 10);
+  };
+
   const [name, setName] = useState(initialName || "");
-  const [phone, setPhone] = useState(initialPhone || "");
+  const [phone, setPhone] = useState(normalizePhone(initialPhone || ""));
   const [address, setAddress] = useState(initialAddress || "");
   const [pincode, setPincode] = useState(initialPincode || "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialPaymentMethod || "cod");
@@ -175,7 +183,13 @@ export default function CheckoutView({
           {submitError && (
             <p style={{ marginTop: 10, fontSize: 12, color: "var(--red)" }}>{submitError}</p>
           )}
-          <button className="btn btn-or" type="button" disabled={!canPlaceOrder || submitting} onClick={submit}>
+          <button
+            className="btn btn-or"
+            type="button"
+            disabled={!canPlaceOrder || submitting}
+            onClick={submit}
+            style={{ opacity: (!canPlaceOrder || submitting) ? 0.45 : 1, cursor: (!canPlaceOrder || submitting) ? "not-allowed" : "pointer" }}
+          >
             {submitting ? "Placing Order..." : "Place Order"}
           </button>
         </div>
