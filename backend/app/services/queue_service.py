@@ -115,6 +115,14 @@ async def connect() -> None:
 async def close() -> None:
     """Close the RabbitMQ connection on FastAPI shutdown."""
     global _connection, _channel
+    # Close channel first so RobustChannel._on_close callbacks fire while the
+    # transport is still alive, avoiding ChannelInvalidStateError on teardown.
+    if _channel and not _channel.is_closed:
+        try:
+            await _channel.close()
+        except Exception:
+            pass
+    _channel = None
     if _connection and not _connection.is_closed:
         try:
             await _connection.close()
@@ -122,7 +130,6 @@ async def close() -> None:
         except Exception as exc:
             logger.warning("[queue] Error closing RabbitMQ connection: %s", exc)
     _connection = None
-    _channel = None
 
 
 def is_connected() -> bool:
