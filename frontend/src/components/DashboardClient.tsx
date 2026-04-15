@@ -296,6 +296,18 @@ function DashboardInner({ token }: { token: string }) {
       .filter((item) => item.quantity > 0)
       .map((item) => ({ id: item.id, name: item.name, price: item.price, quantity: item.quantity }));
 
+    const updateOwnerFromCheckout = () => {
+      setData((prev) => prev ? {
+        ...prev,
+        owner: {
+          ...prev.owner,
+          pincode: details.pincode || prev.owner.pincode,
+          delivery_address: details.address || prev.owner.delivery_address,
+          payment_method_pref: details.paymentMethod as "cod" | "upi" | "card",
+        },
+      } : prev);
+    };
+
     if (details.paymentMethod === "cod") {
       const res = await fetch(`${API_BASE}/dashboard/${token}/place-order`, {
         method: "POST",
@@ -303,6 +315,7 @@ function DashboardInner({ token }: { token: string }) {
         body: JSON.stringify({ payment_method: "cod", address, cart_items: cartPayloadItems }),
       });
       if (!res.ok) throw new Error("Could not place order. Please try again.");
+      updateOwnerFromCheckout();
       setConfirmedItems(cart);
       setConfirmedTotal(cartTotal);
       setView("confirm");
@@ -365,6 +378,7 @@ function DashboardInner({ token }: { token: string }) {
               }
             );
             if (!verifyRes.ok) throw new Error("Payment verification failed.");
+            updateOwnerFromCheckout();
             setConfirmedItems(cart);
             setConfirmedTotal(cartTotal);
             setView("confirm");
@@ -501,7 +515,30 @@ function DashboardInner({ token }: { token: string }) {
             initialPincode={data.owner.pincode || ""}
             initialAddress={data.owner.delivery_address || ""}
             initialPaymentMethod={data.owner.payment_method_pref || undefined}
-            onBack={() => setView("cart")}
+            onBack={(current) => {
+              setView("cart");
+              // Best-effort: persist whatever the user typed so it pre-populates next time
+              if (current.address || current.pincode) {
+                setData((prev) => prev ? {
+                  ...prev,
+                  owner: {
+                    ...prev.owner,
+                    pincode: current.pincode || prev.owner.pincode,
+                    delivery_address: current.address || prev.owner.delivery_address,
+                    payment_method_pref: current.paymentMethod,
+                  },
+                } : prev);
+                fetch(`${API_BASE}/dashboard/${token}/save-address`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    address: current.address,
+                    pincode: current.pincode,
+                    payment_method: current.paymentMethod,
+                  }),
+                }).catch(() => {/* best-effort, ignore errors */});
+              }
+            }}
             onPlaceOrder={handlePlaceOrder}
           />
         );
@@ -526,6 +563,7 @@ function DashboardInner({ token }: { token: string }) {
               setConfirmedItems([]);
               setConfirmedTotal(0);
               setView("dashboard");
+              void load();
             }}
           />
         );
