@@ -2449,7 +2449,9 @@ def _get_dashboard_link(db: Session, pet) -> str | None:
             return None
 
         # Auto-refresh expired tokens.
-        if token_record.expires_at and datetime.now(UTC) > token_record.expires_at:
+        # expires_at is stored as naive UTC (Column(DateTime)); compare with utcnow() to avoid
+        # "can't compare offset-naive and offset-aware datetimes" TypeError.
+        if token_record.expires_at and datetime.utcnow() > token_record.expires_at:
             new_token = refresh_dashboard_token(db, pet.id)
             return f"{settings.FRONTEND_URL}/dashboard/{new_token}"
 
