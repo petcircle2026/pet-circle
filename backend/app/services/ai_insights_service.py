@@ -24,7 +24,7 @@ sensible default payload is returned so the dashboard never crashes.
 import json
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, TypedDict
 from uuid import UUID
 
@@ -816,7 +816,7 @@ async def get_or_generate_insight(
     Returns:
         content_json dict (structure depends on insight_type).
     """
-    stale_cutoff = datetime.utcnow() - timedelta(days=AI_INSIGHT_CACHE_DAYS)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(days=AI_INSIGHT_CACHE_DAYS)
 
     # Check cache
     if not force:
@@ -956,7 +956,7 @@ async def get_or_generate_nutrition_importance(db: Session, pet_id: UUID) -> dic
     Returns:
         {"note": "<plain-text nutrition importance note>"}
     """
-    stale_cutoff = datetime.utcnow() - timedelta(days=NUTRITION_IMPORTANCE_CACHE_DAYS)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(days=NUTRITION_IMPORTANCE_CACHE_DAYS)
 
     existing = (
         db.query(PetAiInsight)
@@ -1157,7 +1157,7 @@ async def generate_care_plan_reasons(
     _CARE_PLAN_REASONS_INSIGHT_TYPE = "care_plan_reasons"
 
     # --- Cache check (1-hour TTL) ---
-    stale_cutoff = datetime.utcnow() - timedelta(hours=_CARE_PLAN_REASONS_CACHE_HOURS)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=_CARE_PLAN_REASONS_CACHE_HOURS)
     try:
         cached = (
             db.query(PetAiInsight)

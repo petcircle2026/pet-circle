@@ -11,7 +11,7 @@ Two entry points:
 
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -474,7 +474,7 @@ def generate_nudges(db: Session, pet_id) -> list[dict]:
     Returns cached nudges if fresh (< NUDGE_CACHE_HOURS old),
     otherwise regenerates from all 7 category generators.
     """
-    cache_cutoff = datetime.utcnow() - timedelta(hours=NUDGE_CACHE_HOURS)
+    cache_cutoff = datetime.now(timezone.utc) - timedelta(hours=NUDGE_CACHE_HOURS)
 
     # Check for fresh cached nudges
     fresh_count = (

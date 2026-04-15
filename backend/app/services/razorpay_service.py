@@ -32,7 +32,7 @@ import hashlib
 import hmac
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import razorpay
 from sqlalchemy.orm import Session
@@ -254,7 +254,7 @@ async def verify_razorpay_payment(
     order.razorpay_payment_id = razorpay_payment_id
     order.payment_status = "paid"
     order.status = "confirmed"
-    order.updated_at = datetime.utcnow()
+    order.updated_at = datetime.now(timezone.utc)
 
     # Clear cart
     for item in in_cart:

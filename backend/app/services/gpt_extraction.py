@@ -546,6 +546,13 @@ def _resolve_document_category(
     # Filename-only normalised string for word-boundary checks (standalone "blood").
     filename_norm = re.sub(r"[_\-]", " ", os.path.basename(file_path or "").lower())
 
+    # Filename "prescription" keyword — stronger than any GPT-assigned document_name.
+    # Must come before the urine/blood combined_norm guards so a prescription that
+    # orders urine/blood tests is not misclassified because GPT named it "Urine Report".
+    # (Mirrors the \bblood\b filename guard below for Blood Report.)
+    if re.search(r'\bprescription\b', filename_norm):
+        return "Prescription"
+
     # Rule 0: If GPT explicitly said "Prescription", protect it from most overrides.
     # Only allow DIAGNOSTIC TESTS (not "blood" which could be an ordered test) to override.
     if raw_category == "Prescription":

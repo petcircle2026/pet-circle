@@ -18,7 +18,7 @@ Key design:
 import asyncio
 import logging
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func as sqlfunc
 from sqlalchemy.orm import Session
@@ -102,7 +102,7 @@ async def get_cart(db: Session, pet_id) -> dict:
             "resume_prompt": str | None
         }
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     items = (
         db.query(CartItem)
         .filter(
@@ -168,7 +168,7 @@ async def add_to_cart(
         tag_color=tag_color,
         in_cart=True,
         quantity=1,
-        cart_expires_at=datetime.utcnow() + timedelta(hours=72),
+        cart_expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
     )
     db.add(item)
     db.commit()
@@ -213,7 +213,7 @@ async def toggle_cart_item(db: Session, pet_id, product_id: str) -> dict:
         tag_color=None,
         in_cart=True,
         quantity=1,
-        cart_expires_at=datetime.utcnow() + timedelta(hours=72),
+        cart_expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
     )
     db.add(new_item)
     db.commit()
@@ -697,7 +697,7 @@ async def _send_order_confirmation(
             product_names += f" and {len(order_items) - 3} more"
 
         # Expected delivery: 3–5 business days
-        delivery_date = (datetime.utcnow() + timedelta(days=5)).strftime("%d %b %Y")
+        delivery_date = (datetime.now(timezone.utc) + timedelta(days=5)).strftime("%d %b %Y")
 
         message = (
             f"Your {product_names} for {pet_name} has been ordered! "
