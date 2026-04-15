@@ -61,6 +61,42 @@ def _upsert_insight(db: Session, pet_id: UUID, insight_type: str, content: dict 
         db.rollback()
 
 
+async def refresh_recognition_bullets(pet_id: UUID) -> None:
+    """Recompute and cache recognition_bullets for a pet. Pure-DB, no GPT."""
+    from app.database import SessionLocal
+    from app.models.pet import Pet
+    db: Session = SessionLocal()
+    try:
+        pet = db.query(Pet).filter(Pet.id == pet_id).first()
+        if not pet:
+            return
+        from app.services.ai_insights_service import generate_recognition_bullets
+        bullets = await generate_recognition_bullets(db, pet)
+        _upsert_insight(db, pet_id, "recognition_bullets", bullets)
+        logger.info("precompute: recognition_bullets cached for pet=%s", pet_id)
+    except Exception as exc:
+        logger.warning("precompute: recognition_bullets failed for pet=%s: %s", pet_id, exc)
+    finally:
+        db.close()
+
+
+async def refresh_nutrition_analysis(pet_id: UUID) -> dict:
+    """Compute and cache nutrition_analysis for a pet. Returns the analysis dict."""
+    from app.database import SessionLocal
+    from app.services.nutrition_service import analyze_nutrition
+    db: Session = SessionLocal()
+    try:
+        analysis = await analyze_nutrition(db, pet_id)
+        _upsert_insight(db, pet_id, "nutrition_analysis", analysis)
+        logger.info("precompute: nutrition_analysis cached for pet=%s", pet_id)
+        return analysis
+    except Exception as exc:
+        logger.warning("precompute: nutrition_analysis failed for pet=%s: %s", pet_id, exc)
+        return {}
+    finally:
+        db.close()
+
+
 async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
     """
     Warm all dashboard enrichments for a pet into the pet_ai_insights cache.
@@ -102,7 +138,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
     async def _run_diet_summary(analysis: dict) -> dict:
         """Reformat a pre-computed nutrition analysis into the diet_summary shape.
 
-        Accepts the already-computed analysis dict from _run_nutrition_analysis so
+        Accepts the already-computed analysis dict from refresh_nutrition_analysis so
         analyze_nutrition() is not called a second time.
         """
         db: Session = SessionLocal()
@@ -118,36 +154,6 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
         except Exception as exc:
             logger.warning("precompute: diet_summary failed for pet=%s: %s", pet_id_str, exc)
             return {"macros": [], "missing_micros": []}
-        finally:
-            db.close()
-
-    async def _run_recognition_bullets() -> None:
-        db: Session = SessionLocal()
-        try:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
-            if not pet:
-                return
-            from app.services.ai_insights_service import generate_recognition_bullets
-            bullets = await generate_recognition_bullets(db, pet)
-            _upsert_insight(db, pet_id, "recognition_bullets", bullets)
-            logger.info("precompute: recognition_bullets cached for pet=%s", pet_id_str)
-        except Exception as exc:
-            logger.warning("precompute: recognition_bullets failed for pet=%s: %s", pet_id_str, exc)
-        finally:
-            db.close()
-
-    async def _run_nutrition_analysis() -> dict:
-        """Compute and cache nutrition_analysis; returns the analysis for reuse by _run_diet_summary."""
-        db: Session = SessionLocal()
-        try:
-            from app.services.nutrition_service import analyze_nutrition
-            analysis = await analyze_nutrition(db, pet_id)
-            _upsert_insight(db, pet_id, "nutrition_analysis", analysis)
-            logger.info("precompute: nutrition_analysis cached for pet=%s", pet_id_str)
-            return analysis
-        except Exception as exc:
-            logger.warning("precompute: nutrition_analysis failed for pet=%s: %s", pet_id_str, exc)
-            return {}
         finally:
             db.close()
 
@@ -314,11 +320,11 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
 
     try:
         # Phase 1: run all independent AI enrichments in parallel.
-        # _run_nutrition_analysis returns the analysis dict so Phase 2 can reuse it
+        # refresh_nutrition_analysis returns the analysis dict so Phase 2 can reuse it
         # without a second analyze_nutrition() call.
         analysis, *_ = await asyncio.gather(
-            _run_nutrition_analysis(),
-            _run_recognition_bullets(),
+            refresh_nutrition_analysis(pet_id),
+            refresh_recognition_bullets(pet_id),
             _run_life_stage(),
             _run_health_conditions_v2(),
             _run_vet_questions(),

@@ -32,7 +32,7 @@ Rules:
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, or_
@@ -324,7 +324,7 @@ def validate_dashboard_token(db: Session, token: str) -> DashboardToken:
         raise ValueError("This dashboard link has been revoked.")
 
     # Expired tokens are rejected — user can regenerate via WhatsApp.
-    if dashboard_token.expires_at and datetime.utcnow() > dashboard_token.expires_at:
+    if dashboard_token.expires_at and datetime.now(timezone.utc) > dashboard_token.expires_at:
         raise ValueError(
             "Dashboard link has expired. Send 'dashboard' in WhatsApp to get a new link."
         )
