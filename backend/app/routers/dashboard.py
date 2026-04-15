@@ -97,8 +97,7 @@ from app.services.diet_service import (
     get_diet_items,
     update_diet_item,
 )
-from app.services.precompute_service import _upsert_insight
-from app.services.ai_insights_service import generate_recognition_bullets
+from app.services.precompute_service import refresh_recognition_bullets, refresh_nutrition_analysis
 from app.services.health_trends_service import get_health_trends as get_health_trends_v2
 from app.services.hygiene_service import (
     add_hygiene_item,
@@ -1742,44 +1741,6 @@ async def dashboard_diet_items(
         raise HTTPException(status_code=503, detail="Could not load diet items.")
 
 
-async def _refresh_recognition_bullets(pet_id) -> None:
-    """Recompute and cache recognition_bullets after a diet item change.
-
-    Opens its own DB session so it can safely run after the request session closes.
-    Pure-DB call — no GPT.
-    """
-    from app.database import SessionLocal
-    from uuid import UUID as _UUID
-    _db = SessionLocal()
-    try:
-        _pet = _db.query(Pet).filter(Pet.id == pet_id).first()
-        if not _pet:
-            return
-        bullets = await generate_recognition_bullets(_db, _pet)
-        _upsert_insight(_db, pet_id, "recognition_bullets", bullets)
-    except Exception as exc:
-        logger.warning("Failed to refresh recognition_bullets for pet=%s: %s", pet_id, exc)
-    finally:
-        _db.close()
-
-
-async def _refresh_nutrition_analysis(pet_id) -> None:
-    """Recompute and cache nutrition_analysis after a diet item change.
-
-    Opens its own DB session so it can safely run after the request session closes.
-    AI-generated — may take up to 30s.
-    """
-    from app.database import SessionLocal
-    from app.services.nutrition_service import analyze_nutrition
-    _db = SessionLocal()
-    try:
-        analysis = await analyze_nutrition(_db, pet_id)
-        _upsert_insight(_db, pet_id, "nutrition_analysis", analysis)
-        logger.info("Refreshed nutrition_analysis cache for pet=%s", pet_id)
-    except Exception as exc:
-        logger.warning("Failed to refresh nutrition_analysis for pet=%s: %s", pet_id, exc)
-    finally:
-        _db.close()
 
 
 @router.post("/{token}/diet-items")
@@ -1792,8 +1753,7 @@ async def dashboard_add_diet_item(
     try:
         dt = validate_dashboard_token(db, token)
         result = await add_diet_item(db, dt.pet_id, body.type, body.label, body.detail, body.icon)
-        asyncio.create_task(_refresh_recognition_bullets(dt.pet_id))
-        asyncio.create_task(_refresh_nutrition_analysis(dt.pet_id))
+        asyncio.create_task(refresh_nutrition_analysis(dt.pet_id))
         return result
     except ValueError as e:
         if "already exists" in str(e).lower():
@@ -1815,8 +1775,8 @@ async def dashboard_update_diet_item(
     try:
         dt = validate_dashboard_token(db, token)
         result = await update_diet_item(db, item_id, dt.pet_id, body.label, body.detail)
-        asyncio.create_task(_refresh_recognition_bullets(dt.pet_id))
-        asyncio.create_task(_refresh_nutrition_analysis(dt.pet_id))
+        asyncio.create_task(refresh_recognition_bullets(dt.pet_id))
+        asyncio.create_task(refresh_nutrition_analysis(dt.pet_id))
         return result
     except ValueError:
         raise HTTPException(status_code=404, detail="Diet item not found.")
@@ -1835,8 +1795,8 @@ async def dashboard_delete_diet_item(
     try:
         dt = validate_dashboard_token(db, token)
         await delete_diet_item(db, item_id, dt.pet_id)
-        asyncio.create_task(_refresh_recognition_bullets(dt.pet_id))
-        asyncio.create_task(_refresh_nutrition_analysis(dt.pet_id))
+        asyncio.create_task(refresh_recognition_bullets(dt.pet_id))
+        asyncio.create_task(refresh_nutrition_analysis(dt.pet_id))
         return {"status": "deleted"}
     except ValueError:
         raise HTTPException(status_code=404, detail="Diet item not found.")
