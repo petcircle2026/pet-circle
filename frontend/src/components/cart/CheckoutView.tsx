@@ -19,7 +19,7 @@ interface CheckoutViewProps {
   initialPincode?: string;
   initialAddress?: string;
   initialPaymentMethod?: PaymentMethod;
-  onBack: () => void;
+  onBack: (current: CheckoutDetails) => void;
   onPlaceOrder: (details: CheckoutDetails) => Promise<void>;
 }
 
@@ -80,7 +80,7 @@ export default function CheckoutView({
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
       <div className="app">
         <div className="vh">
-          <button className="back-btn" onClick={onBack} type="button" aria-label="Back to cart">
+          <button className="back-btn" onClick={() => onBack({ name: name.trim(), phone: phone.trim(), address: address.trim(), pincode: pincode.trim(), paymentMethod })} type="button" aria-label="Back to cart">
             &#8592;
           </button>
           <div className="vh-title">Checkout</div>

@@ -2266,6 +2266,44 @@ class CartItemInput(BaseModel):
     section: str | None = None
 
 
+class SaveAddressRequest(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    pincode: str | None = None
+    payment_method: str | None = None
+
+
+@router.post("/{token}/save-address")
+async def dashboard_save_address(
+    token: str,
+    body: SaveAddressRequest,
+    db: Session = Depends(get_db),
+):
+    """Persist checkout address fields so they pre-populate on the next visit."""
+    try:
+        dt = validate_dashboard_token(db, token)
+        pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
+        if not pet:
+            raise HTTPException(status_code=404, detail="Pet not found.")
+        user = db.query(User).filter(User.id == pet.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+        if body.address:
+            user.delivery_address = body.address
+        if body.pincode:
+            user.pincode = encrypt_field(body.pincode)
+        if body.payment_method:
+            user.payment_method_pref = body.payment_method
+        db.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Save address error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=503, detail="Could not save address.")
+
+
 class PlaceOrderRequest(BaseModel):
     payment_method: str = Field(..., pattern=r"^(upi|card|netbanking|cod)$")
     address: dict | None = None
