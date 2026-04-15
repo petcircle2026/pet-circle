@@ -966,9 +966,10 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     )
     if _deferred_pet and _has_pending_deferred_care_plan(db, _deferred_pet.id, user=user):
         logger.info(
-            "Suppressing user message %r for pet=%s — care plan delivery in progress",
+            "Documents processing — routing query %r directly for pet=%s, skipping other handlers",
             text_lower[:40], str(_deferred_pet.id),
         )
+        await _handle_query(db, user, text)
         return
 
     # --- Check for pending reschedule before any other routing ---
@@ -2449,9 +2450,8 @@ def _get_dashboard_link(db: Session, pet) -> str | None:
             return None
 
         # Auto-refresh expired tokens.
-        # expires_at is stored as naive UTC (Column(DateTime)); compare with utcnow() to avoid
-        # "can't compare offset-naive and offset-aware datetimes" TypeError.
-        if token_record.expires_at and datetime.utcnow() > token_record.expires_at:
+        # Supabase returns expires_at as offset-aware; use datetime.now(UTC) to match.
+        if token_record.expires_at and datetime.now(UTC) > token_record.expires_at:
             new_token = refresh_dashboard_token(db, pet.id)
             return f"{settings.FRONTEND_URL}/dashboard/{new_token}"
 
