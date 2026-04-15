@@ -195,6 +195,8 @@ async def start_consuming() -> None:
     prefetch = _prefetch_count()
 
     connection = None
+    extract_channel = None
+    precompute_channel = None
     try:
         # Separate connection from the publisher so QoS settings are isolated.
         connection = await aio_pika.connect_robust(url)
@@ -226,12 +228,25 @@ async def start_consuming() -> None:
         await _stop_event.wait()
 
         logger.info("[consumer] Shutdown signal received — closing consumer connection.")
+        # Close channels before the connection so RobustChannel._on_close callbacks
+        # fire while the transport is still alive (avoids ChannelInvalidStateError).
+        for ch in (extract_channel, precompute_channel):
+            if ch and not ch.is_closed:
+                try:
+                    await ch.close()
+                except Exception:
+                    pass
         await connection.close()
 
     except asyncio.CancelledError:
         # Task was cancelled during shutdown (e.g. Render redeploy).
-        # Close the connection if it was established before yielding cancellation.
         logger.info("[consumer] Consumer task cancelled — shutting down gracefully.")
+        for ch in (extract_channel, precompute_channel):
+            if ch and not ch.is_closed:
+                try:
+                    await ch.close()
+                except Exception:
+                    pass
         if connection and not connection.is_closed:
             try:
                 await connection.close()

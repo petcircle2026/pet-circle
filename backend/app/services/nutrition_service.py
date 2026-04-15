@@ -280,7 +280,7 @@ async def get_nutrition_targets(
         )
         if cached:
             staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=NUTRITION_CACHE_STALENESS_DAYS)
-            if cached.created_at.replace(tzinfo=None) > staleness_cutoff:
+            if cached.created_at > staleness_cutoff:
                 logger.info(
                     "Nutrition target cache hit: %s %s %s",
                     species_normalized, breed_normalized, age_context_key,
@@ -777,7 +777,7 @@ async def estimate_complete_meal_nutrition(
         )
         if cached:
             staleness_cutoff = datetime.now(timezone.utc) - timedelta(days=FOOD_CACHE_STALENESS_DAYS)
-            if cached.created_at.replace(tzinfo=None) > staleness_cutoff:
+            if cached.created_at > staleness_cutoff:
                 logger.info("Combined meal cache hit: %s", cache_key)
                 return cached.nutrition_json
             else:
