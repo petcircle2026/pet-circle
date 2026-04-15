@@ -78,6 +78,7 @@ dashboard/
 
 # === Claude Code (personal workflow — not for client) ===
 .claude/
+CLAUDE.md
 
 # === Other project ideas (not part of this repo) ===
 other projects/
