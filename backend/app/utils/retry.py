@@ -68,23 +68,44 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return "rate_limit_error" in err_str or "429" in err_str
 
 
-async def retry_openai_call(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+async def retry_openai_call(
+    func: Callable[..., Any],
+    *args: Any,
+    call_timeout: float | None = None,
+    max_retries: int | None = None,
+    rate_limit_backoffs: list[float] | None = None,
+    **kwargs: Any,
+) -> Any:
     """
     Retry wrapper for Claude/Anthropic API calls.
 
-    Retry policy:
+    Default retry policy (background tasks):
         - Attempt 1: immediate (under semaphore)
-        - Attempt 2: after 1s backoff  (10s for 429) — semaphore released during sleep
-        - Attempt 3: after 2s backoff  (20s for 429) — semaphore released during sleep
+        - Attempt 2: after 1s backoff  (10s for 429)
+        - Attempt 3: after 2s backoff  (20s for 429)
         - If all 3 fail, raise the last exception
 
-    The semaphore is acquired per-attempt and released before sleeping.
-    This ensures sleeping retriers do not starve other callers waiting
-    for a concurrency slot.
+    Interactive policy (onboarding steps, set max_retries=1):
+        - Attempt 1: immediate
+        - Attempt 2: after 1s backoff  (3s for 429) — fails fast to fallback
+        - Falls through to caller's fallback/default rather than hanging
+
+    The semaphore is acquired per-attempt and released before sleeping so
+    sleeping retriers do not starve other callers waiting for a slot.
 
     Args:
         func: The async callable that makes the Claude/Anthropic API call.
         *args: Positional arguments passed to func.
+        call_timeout: Per-attempt timeout in seconds. Treats a timeout as a
+            retryable failure. Set this on interactive paths to bound latency.
+        max_retries: Override the number of retry attempts (not counting the
+            first attempt). Defaults to len(OPENAI_RETRY_BACKOFFS). Set to 1
+            for interactive onboarding calls so a 429 storm doesn't queue up
+            users for 30+ seconds each.
+        rate_limit_backoffs: Override the per-retry sleep durations used for
+            429 errors. Defaults to OPENAI_RATE_LIMIT_BACKOFFS ([10, 20]).
+            Interactive callers should pass [3] (matching max_retries=1) so
+            a single 429 retries quickly rather than waiting 10s.
         **kwargs: Keyword arguments passed to func.
 
     Returns:
@@ -93,9 +114,16 @@ async def retry_openai_call(func: Callable[..., Any], *args: Any, **kwargs: Any)
     Raises:
         Exception: The last exception if all retry attempts fail.
     """
+    backoffs = OPENAI_RETRY_BACKOFFS
+    rl_backoffs = rate_limit_backoffs if rate_limit_backoffs is not None else OPENAI_RATE_LIMIT_BACKOFFS
+
+    if max_retries is not None:
+        # Trim backoff lists to match the requested retry count.
+        backoffs = backoffs[:max_retries]
+        rl_backoffs = rl_backoffs[:max_retries]
+
     last_exception = None
-    # Total attempts = 1 (initial) + len(backoffs) retries
-    total_attempts = 1 + len(OPENAI_RETRY_BACKOFFS)
+    total_attempts = 1 + len(backoffs)
     pending_backoff: float | None = None
 
     for attempt in range(total_attempts):
@@ -106,16 +134,31 @@ async def retry_openai_call(func: Callable[..., Any], *args: Any, **kwargs: Any)
 
         async with _get_claude_semaphore():
             try:
+                if call_timeout is not None:
+                    return await asyncio.wait_for(func(*args, **kwargs), timeout=call_timeout)
                 return await func(*args, **kwargs)
+            except asyncio.TimeoutError as e:
+                last_exception = e
+                logger.warning(
+                    "Claude/Anthropic call timed out after %ss (attempt %d/%d)",
+                    call_timeout, attempt + 1, total_attempts,
+                )
+                if attempt < len(backoffs):
+                    pending_backoff = backoffs[attempt]
+                else:
+                    logger.error(
+                        "Claude/Anthropic call timed out after %d attempts",
+                        total_attempts,
+                    )
             except Exception as e:
                 last_exception = e
-                if attempt < len(OPENAI_RETRY_BACKOFFS):
+                if attempt < len(backoffs):
                     # Use longer backoffs for rate-limit errors so the TPM
                     # window has time to reset before we retry.
                     if _is_rate_limit_error(e):
-                        pending_backoff = OPENAI_RATE_LIMIT_BACKOFFS[attempt]
+                        pending_backoff = rl_backoffs[attempt]
                     else:
-                        pending_backoff = OPENAI_RETRY_BACKOFFS[attempt]
+                        pending_backoff = backoffs[attempt]
                     logger.warning(
                         "Claude/Anthropic call failed (attempt %d/%d), retrying in %ss: %s",
                         attempt + 1, total_attempts, pending_backoff, str(e)

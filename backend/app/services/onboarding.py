@@ -25,6 +25,7 @@ Rules:
 """
 
 import calendar
+import asyncio
 import json
 import logging
 import re
@@ -3221,6 +3222,9 @@ async def _ai_clarify_input(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=150,
+            call_timeout=12,
+            max_retries=1,
+            rate_limit_backoffs=[3.0],
         )
         clarification = response.content[0].text.strip()
         if clarification:
@@ -3582,6 +3586,9 @@ async def _ai_parse_food_type(text: str, pet_name: str) -> str | None:
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=100,
+            call_timeout=12,
+            max_retries=1,
+            rate_limit_backoffs=[3.0],
         )
         raw = _strip_json_fences(response.content[0].text.strip())
         data = json.loads(raw)
@@ -5100,14 +5107,14 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     # Fetch diet items for AI supplement recommendation.
     diet_items = db.query(DietItem).filter(DietItem.pet_id == pet.id).all()
 
-    # Pre-generate all AI enrichments (life stage, diet summary, recognition
-    # bullets, care plan reasons) before building the care plan message so the
-    # dashboard is fully populated the moment the user taps the link.
+    # Fire-and-forget: pre-generate all AI enrichments (life stage, diet summary,
+    # recognition bullets, care plan reasons) in the background so the dashboard
+    # is populated without blocking the care-plan message delivery.
     # precompute_dashboard_enrichments opens its own session and handles all
     # upserts; failures are logged but never propagate.
     try:
         from app.services.precompute_service import precompute_dashboard_enrichments
-        await precompute_dashboard_enrichments(str(pet.id))
+        asyncio.create_task(precompute_dashboard_enrichments(str(pet.id)))
     except Exception as _pre_exc:
         logger.warning("finalize: precompute failed for pet=%s: %s", str(pet.id), _pre_exc)
 
