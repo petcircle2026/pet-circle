@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.constants import AI_QUERY_MODEL
 from app.core.encryption import decrypt_field
 from app.models.agent_order_session import AgentOrderSession
 from app.models.order import Order
@@ -344,7 +345,7 @@ async def _call_openai_with_tools(messages: list) -> object:
 
     async def _make_call():
         return await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=AI_QUERY_MODEL,
             temperature=0,
             max_tokens=500,
             tools=_ORDER_TOOLS,
@@ -370,7 +371,7 @@ async def _call_openai_text_only(messages: list) -> object:
     async def _make_call():
         # No tools passed — forces a pure text response (no tool calls possible).
         return await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=AI_QUERY_MODEL,
             temperature=0,
             max_tokens=500,
             system=_SYSTEM_PROMPT,

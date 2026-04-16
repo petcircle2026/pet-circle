@@ -26,6 +26,8 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.constants import AI_QUERY_MODEL
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -329,7 +331,7 @@ async def _call_claude_with_tools(messages: list, system_prompt: str) -> object:
 
     async def _make_call():
         return await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=AI_QUERY_MODEL,
             temperature=0,
             max_tokens=600,
             tools=_EDIT_TOOLS,
@@ -350,7 +352,7 @@ async def _call_claude_text_only(messages: list, system_prompt: str) -> object:
 
     async def _make_call():
         return await client.messages.create(
-            model="claude-sonnet-4-6",
+            model=AI_QUERY_MODEL,
             temperature=0,
             max_tokens=300,
             system=system_prompt,
