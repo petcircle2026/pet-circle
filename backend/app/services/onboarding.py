@@ -5208,6 +5208,8 @@ async def _ai_check_weight(
     weight_kg: float,
 ) -> dict | None:
     """Check weight reasonableness via AI. Return None when AI is unavailable."""
+    from app.core.constants import AI_PROVIDER
+
     species_norm = (species or "").strip().lower() or "unknown"
     breed_norm = (breed or "").strip() or None
 
@@ -5218,8 +5220,13 @@ async def _ai_check_weight(
         age_months = max(0, (today.year - dob.year) * 12 + (today.month - dob.month))
         age_years = round(age_months / 12, 2)
 
-    if not getattr(settings, "ANTHROPIC_API_KEY", None):
-        return None
+    # Check for the appropriate API key based on AI_PROVIDER
+    if AI_PROVIDER == "openai":
+        if not getattr(settings, "OPENAI_API_KEY", None):
+            return None
+    else:
+        if not getattr(settings, "ANTHROPIC_API_KEY", None):
+            return None
 
     try:
         client = _get_openai_onboarding_client()
@@ -5276,8 +5283,15 @@ async def _ai_identify_pet_from_photo(file_bytes: bytes, mime_type: str) -> dict
             - species: "dog", "cat", or None
             - breed: normalized breed string or None
     """
-    if not getattr(settings, "ANTHROPIC_API_KEY", None):
-        return {"species": None, "breed": None}
+    from app.core.constants import AI_PROVIDER
+
+    # Check for the appropriate API key based on AI_PROVIDER
+    if AI_PROVIDER == "openai":
+        if not getattr(settings, "OPENAI_API_KEY", None):
+            return {"species": None, "breed": None}
+    else:
+        if not getattr(settings, "ANTHROPIC_API_KEY", None):
+            return {"species": None, "breed": None}
 
     if mime_type not in {"image/jpeg", "image/png"}:
         return {"species": None, "breed": None}

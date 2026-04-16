@@ -515,14 +515,22 @@ def _get_active_deferred_marker(db: Session, pet_id):
 
 def _should_use_agentic_order() -> bool:
     """
-    Return True when AGENTIC_ORDER_ENABLED='true' and the OpenAI API
-    is reachable. Evaluated per-message so the flag can be toggled via env
-    var update + redeploy without code changes.
+    Return True when AGENTIC_ORDER_ENABLED='true' and the appropriate API key
+    is configured based on AI_PROVIDER. Evaluated per-message so the flag can
+    be toggled via env var update + redeploy without code changes.
 
     Falls back to False (deterministic state machine) on any error.
     """
+    from app.core.constants import AI_PROVIDER
+
     flag = getattr(settings, "AGENTIC_ORDER_ENABLED", "false")
-    has_key = bool(getattr(settings, "ANTHROPIC_API_KEY", None))
+
+    # Check for the appropriate API key based on AI_PROVIDER
+    if AI_PROVIDER == "openai":
+        has_key = bool(getattr(settings, "OPENAI_API_KEY", None))
+    else:  # Default to claude/Anthropic
+        has_key = bool(getattr(settings, "ANTHROPIC_API_KEY", None))
+
     return flag.lower() == "true" and has_key
 
 

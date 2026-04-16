@@ -2,7 +2,8 @@
 PetCircle — Agentic Order Service
 
 An LLM-driven alternative to the deterministic order state machine.
-Activated when AGENTIC_ORDER_ENABLED=true and ANTHROPIC_API_KEY is set.
+Activated when AGENTIC_ORDER_ENABLED=true and the appropriate API key (OPENAI_API_KEY
+or ANTHROPIC_API_KEY) is set based on AI_PROVIDER configuration.
 
 Architecture:
     - One AgentOrderSession row per user stores the full Anthropic message
