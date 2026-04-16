@@ -96,8 +96,10 @@ export default function LineChart({
   const drawW = VW - PAD_L - PAD_R;
 
   // Evenly distribute x positions across the draw width.
+  // When there is only one point, place it at the leftmost position so it
+  // aligns with the cadence charts (which all start from the left edge).
   const xs = points.map((_, i) =>
-    n === 1 ? PAD_L + drawW / 2 : PAD_L + (i / (n - 1)) * drawW
+    n === 1 ? PAD_L : PAD_L + (i / (n - 1)) * drawW
   );
   const ys = points.map((p) => toY(p.val, yMin, yRange));
 

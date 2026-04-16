@@ -274,6 +274,7 @@ _SECTION_META: dict[str, dict[str, str]] = {
     "echo": {"icon": "❤️", "title": "Echocardiogram"},
     "food": {"icon": "🍽️", "title": "Diet & Food"},
     "supplement": {"icon": "💊", "title": "Supplements"},
+    "medication": {"icon": "💊", "title": "Active Medications"},
 }
 _DEFAULT_SECTION_META: dict[str, str] = {"icon": "🏥", "title": "Other Care"}
 
@@ -304,6 +305,7 @@ _SECTION_GROUP: dict[str, str] = {
 
 # Display order for sections within each bucket.
 _SECTION_ORDER: list[str] = [
+    "medication",
     "vaccine",
     "dental",
     "food",
@@ -1334,6 +1336,63 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 it["orderable"] = True
                 it["reason"] = _MEDICINE_REASONS[tt]
 
+        # ── Active clinical prescription medications → Attend To ─────────────
+        # Medications that are actively prescribed but don't map to any preventive
+        # test_type (e.g. antibiotics, anti-nausea, ORS) go directly into the
+        # Attend To section. They don't require a refill_due_date to appear here —
+        # just status="active" and item_type="medicine" is enough.
+        try:
+            all_condition_meds = (
+                db.query(ConditionMedication)
+                .join(Condition, ConditionMedication.condition_id == Condition.id)
+                .options(joinedload(ConditionMedication.condition))
+                .filter(
+                    Condition.pet_id == pet.id,
+                    ConditionMedication.status == "active",
+                    ConditionMedication.item_type == "medicine",
+                )
+                .all()
+            )
+            for clin_med in all_condition_meds:
+                med_test_type = _normalize_item_name(clin_med.name)
+                # Only handle clinical medications (non-preventive types).
+                # Preventive types (vaccine, deworming, tick_flea, etc.) are
+                # already handled by the prescriptions_by_key path above.
+                if med_test_type != "other":
+                    continue
+                clin_key = f"rx_med:{clin_med.id}"
+                clin_condition = clin_med.condition.name if clin_med.condition else None
+                reason_parts: list[str] = []
+                if clin_condition:
+                    reason_parts.append(f"Prescribed for {clin_condition}")
+                if clin_med.dose:
+                    reason_parts.append(clin_med.dose)
+                if clin_med.frequency:
+                    reason_parts.append(clin_med.frequency)
+                # Prefer end_date for the "next due" display; fall back to
+                # refill_due_date and then today + 30 as a generic horizon.
+                clin_due: date | None = (
+                    clin_med.end_date
+                    or clin_med.refill_due_date
+                    or (today + timedelta(days=30))
+                )
+                attend_items[clin_key] = {
+                    "name": clin_med.name,
+                    "test_type": "medication",
+                    "freq": clin_med.frequency or "As prescribed",
+                    "next_due": clin_due.strftime("%d/%m/%y") if clin_due else None,
+                    "status_tag": "Active",
+                    "classification": Classification.PRESCRIPTION_ACTIVE.value,
+                    "reason": " · ".join(reason_parts) if reason_parts else None,
+                    "orderable": False,
+                }
+        except Exception:
+            logger.warning(
+                "Failed to load clinical medications for care plan of pet %s",
+                pet.id,
+                exc_info=True,
+            )
+
         # ── Add orderable food / supplements to Continue bucket ──────────────
         # Requirement 9.12: place ongoing food and supplements in Continue.
         try:
@@ -1361,6 +1420,12 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 # Homemade food: stored in DB and shown in WhatsApp but excluded from dashboard care plan.
                 # Only packaged food and supplements are shown in the care plan (orderable items).
                 if diet_item.type == "homemade":
+                    continue
+
+                # Vet-prescribed temporary diets (e.g. "Oral rehydration and light diet")
+                # are stored in diet_items but are short-term prescriptions, not ongoing
+                # orderable items. Exclude them from the care plan's Continue section.
+                if "vet prescribed" in (diet_item.detail or "").lower():
                     continue
 
                 # Packaged food / supplements — resolve via signal resolver.
