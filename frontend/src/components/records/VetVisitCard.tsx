@@ -97,6 +97,7 @@ export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCar
                 padding: 0,
                 fontSize: 16,
                 lineHeight: "24px",
+                flexShrink: 0,
                 transform: open ? "rotate(180deg)" : "rotate(0deg)",
                 transition: "transform 0.2s ease",
               }}
