@@ -4773,7 +4773,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
     if user.doc_upload_deadline and datetime.now(UTC) > user.doc_upload_deadline:
         try:
             from app.services.message_router import clear_upload_window_extended
-            clear_upload_window_extended(user.id)
+            await clear_upload_window_extended(user.id)
         except Exception:
             pass
         await _finalize_onboarding(db, user, send_fn)
@@ -4783,7 +4783,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
     if _is_doc_skip_intent(text_lower):
         try:
             from app.services.message_router import clear_upload_window_extended
-            clear_upload_window_extended(user.id)
+            await clear_upload_window_extended(user.id)
         except Exception:
             pass
         await _finalize_onboarding(db, user, send_fn, declined_documents=True)
@@ -4851,7 +4851,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
     if _is_add_more_intent(text_lower):
         try:
             from app.services.message_router import mark_upload_window_extended
-            mark_upload_window_extended(user.id)
+            await mark_upload_window_extended(user.id)
         except Exception as e:
             logger.warning("Failed to mark upload window extended: %s", str(e))
     else:
@@ -4877,7 +4877,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
         if intent == "skip":
             try:
                 from app.services.message_router import clear_upload_window_extended
-                clear_upload_window_extended(user.id)
+                await clear_upload_window_extended(user.id)
             except Exception:
                 pass
             await _finalize_onboarding(db, user, send_fn, declined_documents=True)
@@ -4896,7 +4896,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
         if intent == "add_more":
             try:
                 from app.services.message_router import mark_upload_window_extended
-                mark_upload_window_extended(user.id)
+                await mark_upload_window_extended(user.id)
             except Exception as e:
                 logger.warning("Failed to mark upload window extended: %s", str(e))
 

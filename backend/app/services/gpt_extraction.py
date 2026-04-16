@@ -85,6 +85,10 @@ _KNOWN_MEDICATION_BRANDS: set[str] = set()
 
 # Flag to track if mapping has been initialized
 _MEDICINE_MAPPING_INITIALIZED = False
+# Lock that makes the check-then-initialize sequence atomic so concurrent
+# extractions don't both see the flag as False and both run the DB query.
+import threading as _threading
+_medicine_mapping_lock = _threading.Lock()
 
 
 def _initialize_medicine_mapping(db=None) -> None:
@@ -94,89 +98,97 @@ def _initialize_medicine_mapping(db=None) -> None:
     """
     global _MEDICATION_TO_PREVENTIVE_CATEGORIES, _KNOWN_MEDICATION_BRANDS, _MEDICINE_MAPPING_INITIALIZED
 
+    # Fast path (no lock) — already initialized.
     if _MEDICINE_MAPPING_INITIALIZED and _MEDICATION_TO_PREVENTIVE_CATEGORIES:
         return
 
-    # If no DB session provided, try to use default session
-    _db_created_here = False
-    if db is None:
+    # Slow path — acquire lock so only one caller runs the DB query.
+    # Double-checked locking: re-read the flag inside the lock in case another
+    # caller initialized while we were waiting to acquire it.
+    with _medicine_mapping_lock:
+        if _MEDICINE_MAPPING_INITIALIZED and _MEDICATION_TO_PREVENTIVE_CATEGORIES:
+            return
+
+        # If no DB session provided, try to use default session
+        _db_created_here = False
+        if db is None:
+            try:
+                from app.database import SessionLocal
+                db = SessionLocal()
+                _db_created_here = True
+            except Exception:
+                # If we can't get a DB session, use minimal fallback mapping
+                _MEDICATION_TO_PREVENTIVE_CATEGORIES = {
+                    "simparica": frozenset({"flea_tick", "deworming"}),
+                    "nexgard spectra": frozenset({"flea_tick", "deworming"}),
+                    "advocate": frozenset({"flea_tick", "deworming"}),
+                    "drontal": frozenset({"deworming"}),
+                    "nexgard": frozenset({"flea_tick"}),
+                    "bravecto": frozenset({"flea_tick"}),
+                    "frontline": frozenset({"flea_tick"}),
+                }
+                _KNOWN_MEDICATION_BRANDS = set(_MEDICATION_TO_PREVENTIVE_CATEGORIES.keys())
+                _MEDICINE_MAPPING_INITIALIZED = True
+                return
+
         try:
-            from app.database import SessionLocal
-            db = SessionLocal()
-            _db_created_here = True
-        except Exception:
-            # If we can't get a DB session, use minimal fallback mapping
+            from app.models.product_medicines import ProductMedicines
+
+            medicines = db.query(ProductMedicines).filter(
+                ProductMedicines.active == True
+            ).all()
+
+            mapping = {}
+            for med in medicines:
+                categories = set()
+
+                # Parse type field to determine categories
+                type_lower = med.type.lower()
+                if "deworming" in type_lower:
+                    categories.add("deworming")
+                if "flea" in type_lower or "tick" in type_lower:
+                    categories.add("flea_tick")
+
+                if not categories:
+                    continue
+
+                # Normalize product name for matching
+                normalized_name = med.product_name.strip().lower()
+                # Remove weight ranges like "2–3.5 kg"
+                normalized_name = re.sub(r"\s*\d+[–-]?\d*\.?\d*\s*(kg|ml|g|tablets?|pipette|chew|caps?)\s*", "", normalized_name, flags=re.IGNORECASE)
+                normalized_name = normalized_name.strip()
+
+                if normalized_name:
+                    mapping[normalized_name] = frozenset(categories)
+
+                # Also try shorter name (first word or brand)
+                words = normalized_name.split()
+                if words:
+                    mapping[words[0]] = frozenset(categories)
+
+            _MEDICATION_TO_PREVENTIVE_CATEGORIES = mapping
+            _KNOWN_MEDICATION_BRANDS = set(mapping.keys())
+            _MEDICINE_MAPPING_INITIALIZED = True
+
+        except Exception as e:
+            # If mapping fails, use minimal fallback
+            logger.warning("Failed to initialize medicine mapping from product_medicines: %s", str(e))
             _MEDICATION_TO_PREVENTIVE_CATEGORIES = {
                 "simparica": frozenset({"flea_tick", "deworming"}),
                 "nexgard spectra": frozenset({"flea_tick", "deworming"}),
-                "advocate": frozenset({"flea_tick", "deworming"}),
                 "drontal": frozenset({"deworming"}),
                 "nexgard": frozenset({"flea_tick"}),
                 "bravecto": frozenset({"flea_tick"}),
-                "frontline": frozenset({"flea_tick"}),
             }
             _KNOWN_MEDICATION_BRANDS = set(_MEDICATION_TO_PREVENTIVE_CATEGORIES.keys())
             _MEDICINE_MAPPING_INITIALIZED = True
-            return
-
-    try:
-        from app.models.product_medicines import ProductMedicines
-
-        medicines = db.query(ProductMedicines).filter(
-            ProductMedicines.active == True
-        ).all()
-
-        mapping = {}
-        for med in medicines:
-            categories = set()
-
-            # Parse type field to determine categories
-            type_lower = med.type.lower()
-            if "deworming" in type_lower:
-                categories.add("deworming")
-            if "flea" in type_lower or "tick" in type_lower:
-                categories.add("flea_tick")
-
-            if not categories:
-                continue
-
-            # Normalize product name for matching
-            normalized_name = med.product_name.strip().lower()
-            # Remove weight ranges like "2–3.5 kg"
-            normalized_name = re.sub(r"\s*\d+[–-]?\d*\.?\d*\s*(kg|ml|g|tablets?|pipette|chew|caps?)\s*", "", normalized_name, flags=re.IGNORECASE)
-            normalized_name = normalized_name.strip()
-
-            if normalized_name:
-                mapping[normalized_name] = frozenset(categories)
-
-            # Also try shorter name (first word or brand)
-            words = normalized_name.split()
-            if words:
-                mapping[words[0]] = frozenset(categories)
-
-        _MEDICATION_TO_PREVENTIVE_CATEGORIES = mapping
-        _KNOWN_MEDICATION_BRANDS = set(mapping.keys())
-        _MEDICINE_MAPPING_INITIALIZED = True
-
-    except Exception as e:
-        # If mapping fails, use minimal fallback
-        logger.warning("Failed to initialize medicine mapping from product_medicines: %s", str(e))
-        _MEDICATION_TO_PREVENTIVE_CATEGORIES = {
-            "simparica": frozenset({"flea_tick", "deworming"}),
-            "nexgard spectra": frozenset({"flea_tick", "deworming"}),
-            "drontal": frozenset({"deworming"}),
-            "nexgard": frozenset({"flea_tick"}),
-            "bravecto": frozenset({"flea_tick"}),
-        }
-        _KNOWN_MEDICATION_BRANDS = set(_MEDICATION_TO_PREVENTIVE_CATEGORIES.keys())
-        _MEDICINE_MAPPING_INITIALIZED = True
-    finally:
-        # Only close the session if we created it internally
-        if _db_created_here:
-            try:
-                db.close()
-            except Exception:
-                pass
+        finally:
+            # Only close the session if we created it internally
+            if _db_created_here:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
 
 def _build_medicine_coverage_prompt() -> str:

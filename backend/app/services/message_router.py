@@ -108,6 +108,9 @@ _uploads_lock = asyncio.Lock()
 # the same inbound message, while still allowing one apology for a new message.
 # Key: from_number, Value: dedup token for the failed inbound message.
 _error_sent: dict[str, str] = {}
+# Lock that makes the check-and-set on _error_sent atomic so concurrent failures
+# for the same user cannot both decide to send an error message (TOCTOU).
+_error_sent_lock = asyncio.Lock()
 
 # Window in seconds for counting a "batch" of uploads.
 # Files uploaded within this window are considered one batch.
@@ -120,6 +123,9 @@ _UPLOAD_BATCH_WINDOW_SECONDS: int = 120
 # not business state, and need not survive server restarts.
 # Key: mobile_number, Value: {"turns": [...], "last_updated": float}
 _query_history: dict[str, dict] = {}
+# Lock that serialises all read-modify-write operations on _query_history so
+# concurrent queries from the same user cannot overwrite each other's context.
+_query_history_lock = asyncio.Lock()
 
 # Maximum number of prior Q&A pairs to keep per user (user + assistant = 2 messages each).
 _QUERY_HISTORY_MAX_PAIRS: int = 3
@@ -128,41 +134,45 @@ _QUERY_HISTORY_MAX_PAIRS: int = 3
 _QUERY_HISTORY_TTL_SECONDS: int = 3600  # 1 hour
 
 
-def _get_query_history(mobile_number: str) -> list[dict]:
+async def _get_query_history(mobile_number: str) -> list[dict]:
     """
     Return recent conversation turns for a user, or [] if none / expired.
 
     Each entry is {"role": "user"|"assistant", "content": str}.
     Expired entries (idle > TTL) are purged on access.
+    Async so the check-pop sequence is atomic under _query_history_lock.
     """
-    entry = _query_history.get(mobile_number)
-    if not entry:
-        return []
-    if time.time() - entry["last_updated"] > _QUERY_HISTORY_TTL_SECONDS:
-        _query_history.pop(mobile_number, None)
-        return []
-    return list(entry["turns"])
+    async with _query_history_lock:
+        entry = _query_history.get(mobile_number)
+        if not entry:
+            return []
+        if time.time() - entry["last_updated"] > _QUERY_HISTORY_TTL_SECONDS:
+            _query_history.pop(mobile_number, None)
+            return []
+        return list(entry["turns"])
 
 
-def _update_query_history(mobile_number: str, question: str, answer: str) -> None:
+async def _update_query_history(mobile_number: str, question: str, answer: str) -> None:
     """
     Append a user question and assistant answer to the conversation buffer.
 
     Trims the buffer to the most recent _QUERY_HISTORY_MAX_PAIRS pairs
     so memory usage stays bounded.
+    Async so the setdefault-append-trim sequence is atomic under _query_history_lock.
     """
-    entry = _query_history.setdefault(
-        mobile_number, {"turns": [], "last_updated": 0.0}
-    )
-    turns: list[dict] = entry["turns"]
-    turns.append({"role": "user", "content": question})
-    turns.append({"role": "assistant", "content": answer})
-    # Keep only the last N pairs (2 messages per pair).
-    max_messages = _QUERY_HISTORY_MAX_PAIRS * 2
-    if len(turns) > max_messages:
-        turns = turns[-max_messages:]
-    entry["turns"] = turns
-    entry["last_updated"] = time.time()
+    async with _query_history_lock:
+        entry = _query_history.setdefault(
+            mobile_number, {"turns": [], "last_updated": 0.0}
+        )
+        turns: list[dict] = entry["turns"]
+        turns.append({"role": "user", "content": question})
+        turns.append({"role": "assistant", "content": answer})
+        # Keep only the last N pairs (2 messages per pair).
+        max_messages = _QUERY_HISTORY_MAX_PAIRS * 2
+        if len(turns) > max_messages:
+            turns = turns[-max_messages:]
+        entry["turns"] = turns
+        entry["last_updated"] = time.time()
 
 # Debounce timers for batch extraction per pet.
 # Key: str(pet_id), Value: asyncio.Task that waits then extracts.
@@ -202,19 +212,22 @@ _unsupported_format_count: dict[str, int] = {}
 # Key: str(user_id), Value: True if user asked to add more files.
 _upload_window_extended: dict[str, bool] = {}
 
-def mark_upload_window_extended(user_id) -> None:
+async def mark_upload_window_extended(user_id) -> None:
     """Mark that a user explicitly asked to add more documents."""
-    _upload_window_extended[str(user_id)] = True
+    async with _uploads_lock:
+        _upload_window_extended[str(user_id)] = True
 
 
-def is_upload_window_extended(user_id) -> bool:
+async def is_upload_window_extended(user_id) -> bool:
     """Return True if user asked to keep uploading during awaiting_documents."""
-    return _upload_window_extended.get(str(user_id), False)
+    async with _uploads_lock:
+        return _upload_window_extended.get(str(user_id), False)
 
 
-def clear_upload_window_extended(user_id) -> None:
+async def clear_upload_window_extended(user_id) -> None:
     """Clear the 'asked to add more' flag (on finalize or skip)."""
-    _upload_window_extended.pop(str(user_id), None)
+    async with _uploads_lock:
+        _upload_window_extended.pop(str(user_id), None)
 
 
 def get_recent_upload_count(pet_id) -> int:
@@ -312,7 +325,7 @@ async def _auto_finalize_onboarding_after_deadline(user_id, from_number, wait_se
                 return
 
             user._plaintext_mobile = from_number
-            clear_upload_window_extended(user.id)
+            await clear_upload_window_extended(user.id)
             await _finalize_onboarding(bg_db, user, send_text_message)
         finally:
             bg_db.close()
@@ -359,7 +372,7 @@ async def sweep_expired_document_windows_once(batch_size: int = 50) -> int:
             try:
                 from_number = decrypt_field(expired_user.mobile_number)
                 expired_user._plaintext_mobile = from_number
-                clear_upload_window_extended(expired_user.id)
+                await clear_upload_window_extended(expired_user.id)
                 await _finalize_onboarding(bg_db, expired_user, send_text_message)
                 finalized_count += 1
             except Exception as user_err:
@@ -956,9 +969,12 @@ async def route_message(db: Session, message_data: dict) -> None:
             pass
         try:
             dedup_token = _build_error_dedup_token(message_data)
-            should_send = _error_sent.get(from_number) != dedup_token
-            if should_send:
-                _error_sent[from_number] = dedup_token
+            _should_send_err = False
+            async with _error_sent_lock:
+                if _error_sent.get(from_number) != dedup_token:
+                    _error_sent[from_number] = dedup_token
+                    _should_send_err = True
+            if _should_send_err:
                 await send_text_message(
                     db, from_number,
                     "Sorry, something went wrong. Please try again.",
@@ -1083,7 +1099,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # answer → "Glad that helps! Let me know if you need anything else about Max.").
     # If there is no prior context, fall back to the canned reply.
     if text_lower in ACKNOWLEDGMENTS:
-        if _get_query_history(from_number):
+        if await _get_query_history(from_number):
             await _handle_query(db, user, text)
         else:
             await send_text_message(
@@ -1097,7 +1113,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # (e.g. "Bye! Hope Max's vaccination goes well next week! 🐾").
     # No prior context: canned reply is appropriate.
     if text_lower in FAREWELLS:
-        if _get_query_history(from_number):
+        if await _get_query_history(from_number):
             await _handle_query(db, user, text)
         else:
             await send_text_message(
@@ -2237,7 +2253,7 @@ async def _delayed_batch_extraction(
             bool(_batch_is_onboarding.get(pet_key, False))
             and user is not None
             and user.onboarding_state == "awaiting_documents"
-            and not is_upload_window_extended(user.id)
+            and not await is_upload_window_extended(user.id)
         )
         # Read unsupported count before clearing state.
         unsupported_count = _unsupported_format_count.pop(pet_key, 0)
@@ -2256,7 +2272,7 @@ async def _delayed_batch_extraction(
                 from app.services.onboarding import _finalize_onboarding
                 async with _timers_lock:
                     _cancel_document_window_timer(user.id)
-                clear_upload_window_extended(user.id)
+                await clear_upload_window_extended(user.id)
                 await _finalize_onboarding(bg_db, user, send_text_message)
             except Exception as e:
                 logger.warning(
@@ -2372,7 +2388,7 @@ async def _handle_query(db: Session, user, text: str) -> None:
         return
 
     # Retrieve recent conversation turns for context-aware answering.
-    history = _get_query_history(from_number)
+    history = await _get_query_history(from_number)
 
     try:
         # 45s timeout prevents a stuck GPT call from hanging the user's session.
@@ -2384,7 +2400,7 @@ async def _handle_query(db: Session, user, text: str) -> None:
 
         # Persist this exchange so future messages can reference it.
         if result.get("status") == "success":
-            _update_query_history(from_number, text, answer)
+            await _update_query_history(from_number, text, answer)
 
         await send_text_message(db, from_number, answer)
     except TimeoutError:
