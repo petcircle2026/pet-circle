@@ -44,6 +44,7 @@ WHAT CAN BE CHANGED:
 - Pet profile: name, breed, weight (kg), gender, age or birthday, neutered/spayed status
 - Diet: add, update, or remove food items (packaged food, homemade meals, supplements)
 - Preventive health: add or update vaccine records, deworming, flea/tick treatments, custom supplements or medications
+- Contacts: update vet, groomer, or other contact names, clinic names, and phone numbers
 - Owner's name
 
 STYLE:
@@ -235,6 +236,46 @@ _EDIT_TOOLS = [
         },
     },
     {
+        "name": "update_contact",
+        "description": (
+            "Update an existing contact (vet, groomer, specialist, etc.) for the pet. "
+            "Identify by current_name (partial match is fine). "
+            "Can update name, clinic_name, phone, role. "
+            "If a contact matching current_name is not found, creates a new one."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "current_name": {
+                    "type": "string",
+                    "description": "Current name of the contact to find (used to look it up).",
+                },
+                "new_name": {
+                    "type": "string",
+                    "description": "New name for the contact. Optional.",
+                },
+                "clinic_name": {
+                    "type": "string",
+                    "description": "Clinic or hospital name. Optional.",
+                },
+                "phone": {
+                    "type": "string",
+                    "description": "Phone number. Optional.",
+                },
+                "role": {
+                    "type": "string",
+                    "enum": ["veterinarian", "groomer", "trainer", "specialist", "other"],
+                    "description": "Role of the contact. Defaults to 'veterinarian' for new contacts.",
+                },
+                "pet_name": {
+                    "type": "string",
+                    "description": "Name of the pet (only needed when user has multiple pets).",
+                },
+            },
+            "required": ["current_name"],
+        },
+    },
+    {
         "name": "update_owner_name",
         "description": "Update the owner's (user's) full name.",
         "input_schema": {
@@ -409,6 +450,27 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
     else:
         lines.append("\nNo preventive records.")
 
+    # --- Contacts ---
+    from app.models.contact import Contact
+
+    contacts = (
+        db.query(Contact)
+        .filter(Contact.pet_id == pet.id)
+        .order_by(Contact.created_at.asc())
+        .all()
+    )
+    if contacts:
+        lines.append("\nContacts:")
+        for c in contacts:
+            parts = [f"  [{c.role}] {c.name}"]
+            if c.clinic_name:
+                parts.append(f"clinic: {c.clinic_name}")
+            if c.phone:
+                parts.append(f"phone: {c.phone}")
+            lines.append(", ".join(parts))
+    else:
+        lines.append("\nNo contacts recorded.")
+
     # --- Owner ---
     lines.append(f"\nOwner name: {user.full_name or 'Not recorded'}")
 
@@ -458,6 +520,9 @@ async def _dispatch_tool(
 
         elif tool_name == "remove_preventive_record":
             result = _tool_remove_preventive_record(db, pet, tool_input)
+
+        elif tool_name == "update_contact":
+            result = _tool_update_contact(db, pet, tool_input)
 
         elif tool_name == "update_owner_name":
             result = _tool_update_owner_name(db, user, tool_input)
@@ -788,6 +853,67 @@ def _tool_remove_preventive_record(db: Session, pet, tool_input: dict) -> str:
     db.delete(record)
     db.commit()
     return f"Removed custom record '{item_name}'."
+
+
+def _tool_update_contact(db: Session, pet, tool_input: dict) -> str:
+    """Update (or create) a contact for the pet."""
+    from app.models.contact import Contact
+
+    current_name = tool_input.get("current_name", "").strip()
+    new_name = tool_input.get("new_name", "").strip() or None
+    clinic_name = tool_input.get("clinic_name", "").strip() or None
+    phone = tool_input.get("phone", "").strip() or None
+    role = tool_input.get("role", "").strip() or None
+
+    if not current_name:
+        return "current_name is required."
+
+    # Find by partial case-insensitive match
+    name_lower = current_name.lower()
+    contacts = db.query(Contact).filter(Contact.pet_id == pet.id).all()
+    contact = None
+    for c in contacts:
+        if c.name.lower() == name_lower:
+            contact = c
+            break
+    if not contact:
+        for c in contacts:
+            if name_lower in c.name.lower() or c.name.lower() in name_lower:
+                contact = c
+                break
+
+    if contact:
+        old_name = contact.name
+        changes = []
+        if new_name:
+            contact.name = new_name
+            changes.append(f"name → '{new_name}'")
+        if clinic_name:
+            contact.clinic_name = clinic_name
+            changes.append(f"clinic → '{clinic_name}'")
+        if phone:
+            contact.phone = phone
+            changes.append(f"phone → '{phone}'")
+        if role:
+            contact.role = role
+            changes.append(f"role → '{role}'")
+        if not changes:
+            return "No new values provided to update."
+        db.commit()
+        return f"Contact '{old_name}' updated: {', '.join(changes)}."
+    else:
+        # Create new contact
+        new_contact = Contact(
+            pet_id=pet.id,
+            name=new_name or current_name,
+            clinic_name=clinic_name,
+            phone=phone,
+            role=role or "veterinarian",
+            source="manual",
+        )
+        db.add(new_contact)
+        db.commit()
+        return f"Added new contact '{new_contact.name}' as {new_contact.role}."
 
 
 def _tool_update_owner_name(db: Session, user, tool_input: dict) -> str:

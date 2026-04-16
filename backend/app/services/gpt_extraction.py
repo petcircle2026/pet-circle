@@ -39,6 +39,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -3220,18 +3221,39 @@ async def extract_and_process_document(
                     .first()
                 )
                 if existing_condition:
-                    existing_condition.condition_type = condition_type
+                    # condition_type: upgrade-only (chronic > episodic), never downgrade.
+                    # Prevents an older "acute" prescription from overwriting a
+                    # well-established "chronic" classification.
+                    _TYPE_RANK = {"chronic": 2, "episodic": 1}
+                    if _TYPE_RANK.get(condition_type, 0) > _TYPE_RANK.get(existing_condition.condition_type, 0):
+                        existing_condition.condition_type = condition_type
+
+                    # condition_status: only set if currently unset; or allow
+                    # "resolved" to propagate when explicitly stated in the new doc.
                     if condition_status:
-                        existing_condition.condition_status = condition_status
-                    if raw_condition.get("diagnosis"):
+                        if not existing_condition.condition_status:
+                            existing_condition.condition_status = condition_status
+                        elif condition_status == "resolved" and existing_condition.condition_status not in ("resolved",):
+                            existing_condition.condition_status = condition_status
+
+                    # diagnosis: fill in if currently empty — don't overwrite
+                    # an existing, more-established description.
+                    if raw_condition.get("diagnosis") and not existing_condition.diagnosis:
                         existing_condition.diagnosis = str(raw_condition["diagnosis"])[:500]
+
+                    # diagnosed_at: keep the earliest known date (first occurrence).
                     if diagnosed_at:
-                        existing_condition.diagnosed_at = diagnosed_at
-                    # Merge episode_dates: combine existing + new, deduplicate, sort.
+                        if not existing_condition.diagnosed_at or diagnosed_at < existing_condition.diagnosed_at:
+                            existing_condition.diagnosed_at = diagnosed_at
+
+                    # episode_dates: always merge — new dates are additive.
                     existing_dates = existing_condition.episode_dates or []
                     merged_dates = sorted(set(existing_dates) | set(valid_episode_dates))
                     existing_condition.episode_dates = merged_dates
-                    existing_condition.document_id = document.id
+                    # Do NOT overwrite document_id — keep the original document link.
+                    # The records view queries conditions by document_id to populate
+                    # the vet visit card. Overwriting it would break the original
+                    # prescription's card (its conditions/medications would disappear).
                     condition_obj = existing_condition
                 else:
                     condition_obj = Condition(
@@ -3807,6 +3829,26 @@ async def extract_and_process_document(
         if non_diet_recs:
             document.non_diet_recommendations = non_diet_recs
         document.extraction_status = "success"
+
+        # Invalidate health_conditions_v2 AI cache if any conditions were extracted.
+        # This ensures the dashboard immediately falls back to fresh DB data
+        # (health_conditions_summary) while precompute regenerates the AI insight.
+        # Without this, users see stale condition severity/trend_label after upload.
+        if metadata.get("conditions"):
+            try:
+                db.execute(
+                    text(
+                        "DELETE FROM pet_ai_insights "
+                        "WHERE pet_id = :pet_id AND insight_type = 'health_conditions_v2'"
+                    ),
+                    {"pet_id": str(pet.id)},
+                )
+            except Exception as _cache_exc:
+                logger.warning(
+                    "Failed to invalidate health_conditions_v2 cache for pet=%s: %s",
+                    str(pet.id), _cache_exc,
+                )
+
         db.commit()
 
         logger.info(
