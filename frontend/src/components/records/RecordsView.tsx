@@ -260,11 +260,11 @@ export default function RecordsView({ token, petName, onBack }: RecordsViewProps
       }
       return (
         <div>
-          {visits.map((visit, index) => (
+          {visits.map((visit) => (
             <VetVisitCard
               key={visit.id}
               visit={visit}
-              defaultOpen={index === 0}
+              defaultOpen={false}
               onView={handleView}
             />
           ))}
