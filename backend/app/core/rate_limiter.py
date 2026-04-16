@@ -92,9 +92,10 @@ class RateLimiter:
 # WhatsApp message rate limiter — 20 requests/min per phone number.
 rate_limiter = RateLimiter()
 
-# Dashboard endpoint rate limiter — 30 requests/min per IP.
-# Protects against brute-force and abuse on token-based endpoints.
-dashboard_rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
+# Dashboard endpoint rate limiter — 120 requests/min per IP.
+# Raised from 30: Vercel edge nodes share IPs across users, so the lower
+# limit caused legitimate users to hit 429s during normal tab browsing.
+dashboard_rate_limiter = RateLimiter(max_requests=120, window_seconds=60)
 
 # Admin endpoint rate limiter — 10 requests/min per IP.
 # Stricter limit to protect admin key brute-force attempts.
