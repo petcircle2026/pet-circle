@@ -487,7 +487,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
                 own_db.query(Document)
                 .filter(
                     Document.pet_id == pet_id,
-                    Document.extraction_status.in_(["pending", "success", "failed", "rejected"]),
+                    Document.extraction_status.in_(["pending", "success", "failed", "rejected", "partially_extracted"]),
                 )
                 .order_by(Document.created_at.desc())
                 .all()

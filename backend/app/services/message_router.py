@@ -1114,7 +1114,8 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # "order" / "shop" / "buy" command — start product ordering flow.
     # When AGENTIC_ORDER_ENABLED=true and OpenAI is reachable, use the
     # LLM-driven flow; otherwise fall back to the deterministic state machine.
-    if text_lower in ORDER_COMMANDS:
+    # Matches exact commands ("order") or natural language ("I want to order fish oil").
+    if text_lower in ORDER_COMMANDS or any(word in ORDER_COMMANDS for word in text_lower.split()):
         if _should_use_agentic_order():
             user.order_state = "agentic_order"
             db.commit()
