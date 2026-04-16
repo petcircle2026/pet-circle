@@ -1419,7 +1419,8 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
 
                 # Homemade food: stored in DB and shown in WhatsApp but excluded from dashboard care plan.
                 # Only packaged food and supplements are shown in the care plan (orderable items).
-                if diet_item.type == "homemade":
+                item_type_lower = (diet_item.type or "").lower()
+                if item_type_lower == "homemade":
                     continue
 
                 # Vet-prescribed temporary diets (e.g. "Oral rehydration and light diet")
@@ -1432,6 +1433,18 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 signals = _resolve_diet_item_signals(
                     db, diet_item, pet, pet_conditions
                 )
+
+                # Document-extracted supplements with no recommendation (L1 signal) should not
+                # appear in care plan — they need diet analysis backing them up (L2+ signals).
+                # Manually-added supplements always appear, as do analysis-recommended ones.
+                source_lower = (diet_item.source or "").lower()
+                if (
+                    tt == "supplement"
+                    and signals["signal_level"] == SignalLevel.L1.value
+                    and source_lower == "document_extracted"
+                ):
+                    continue
+
                 continue_items[item_key] = {
                     "name": diet_item.label,
                     "test_type": tt,

@@ -3221,6 +3221,9 @@ async def extract_and_process_document(
                     .first()
                 )
                 if existing_condition:
+                    # Ensure the condition is marked as active (re-activation on new documents)
+                    existing_condition.is_active = True
+
                     # condition_type: upgrade-only (chronic > episodic), never downgrade.
                     # Prevents an older "acute" prescription from overwriting a
                     # well-established "chronic" classification.
