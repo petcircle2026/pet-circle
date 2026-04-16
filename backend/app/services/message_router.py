@@ -1558,6 +1558,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
     for the pet are extracted together. This prevents per-file GPT calls
     from exhausting DB connections and API rate limits.
     """
+    global _upload_queue_depth
     from app.services.document_upload import process_document_upload
 
     from_number = _get_mobile(user)

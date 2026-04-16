@@ -1165,25 +1165,28 @@ async def _step_breed_age(db, user, text, send_fn):
     if not explicit_dob and age_years is not None:
         pet.age_text = age_text_raw or f"{age_years} years"
         # Compute approximate DOB for scheduling.
-        # When only age is provided, use first day of current month in the birth year.
-        # This ensures consistent age calculation and avoids day-of-month edge cases.
-        approx_dob = date_type(
-            date_type.today().year - int(age_years),
-            max(1, min(12, date_type.today().month)),
-            1,
-        )
-        if approx_dob > date_type.today():
-            # If age < 1 year, subtract months instead.
-            months = max(1, int(age_years * 12))
+        if age_years < 1:
+            # Sub-year age: subtract months from today to get approximate DOB.
+            months = max(1, round(age_years * 12))
             y = date_type.today().year
             m = date_type.today().month - months
             while m <= 0:
                 m += 12
                 y -= 1
             approx_dob = date_type(y, m, 1)
+        else:
+            # Year-based age: use first day of current month in the birth year.
+            approx_dob = date_type(
+                date_type.today().year - int(age_years),
+                max(1, min(12, date_type.today().month)),
+                1,
+            )
+            if approx_dob > date_type.today():
+                approx_dob = date_type(date_type.today().year - int(age_years) - 1, date_type.today().month, 1)
         pet.dob = approx_dob
-        # Ensure age_text is human-readable from the computed DOB.
-        if pet.dob:
+        # Only recompute age_text from DOB when user didn't provide a readable age string,
+        # to avoid turning "3 months" into "2 weeks" due to approximate DOB rounding.
+        if not age_text_raw and pet.dob:
             pet.age_text = _age_text_from_dob(pet.dob)
 
     # Re-ask ONCE for whichever piece is missing. On the 2nd attempt
