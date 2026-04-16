@@ -1716,10 +1716,12 @@ def _validate_extraction_dict(
                 item["last_done_date"] = filename_date
                 validated.append(item)
             else:
-                logger.warning(
-                    "Skipping extraction item at index %d — missing date, no filename fallback. Item: %s",
+                logger.info(
+                    "Item %d has no date (GPT null, no filename fallback) — keeping with null date. Item: %s",
                     i, str(item),
                 )
+                item["last_done_date"] = None
+                validated.append(item)
             continue
         try:
             parsed_date = parse_date(raw_date_str)
