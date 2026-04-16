@@ -24,9 +24,15 @@ jobs:
     steps:
       - name: Ping /health endpoint
         run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "RENDER_BACKEND_URL secret is not set — skipping ping."
+            exit 0
+          fi
           STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
             --max-time 30 \
-            "${{ secrets.RENDER_BACKEND_URL }}/health")
+            "${BACKEND_URL}/health")
+        env:
+          BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
           echo "HTTP status: $STATUS"
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
             echo "Keepalive ping succeeded."
