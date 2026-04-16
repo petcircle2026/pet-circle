@@ -854,7 +854,15 @@ async def route_message(db: Session, message_data: dict) -> None:
                 # Text input → route to onboarding handler (handles "skip" + rejection).
                 text = (message_data.get("text") or message_data.get("button_payload") or "").strip()
                 if text:
-                    await handle_onboarding_step(db, user, text, send_text_message, message_data=message_data)
+                    try:
+                        await asyncio.wait_for(
+                            handle_onboarding_step(db, user, text, send_text_message, message_data=message_data),
+                            timeout=70,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error("Onboarding step timed out for %s (state=%s)", mask_phone(from_number), user.onboarding_state)
+                        await send_text_message(db, from_number, "Sorry, that took too long. Please try again.")
+                        return
                     if user.onboarding_state == "awaiting_documents":
                         _schedule_document_window_timer(
                             user_id=user.id,
@@ -890,7 +898,15 @@ async def route_message(db: Session, message_data: dict) -> None:
                         "Please send a text message to continue setup.",
                     )
                 return
-            await handle_onboarding_step(db, user, text, send_text_message, message_data=message_data)
+            try:
+                await asyncio.wait_for(
+                    handle_onboarding_step(db, user, text, send_text_message, message_data=message_data),
+                    timeout=60,
+                )
+            except asyncio.TimeoutError:
+                logger.error("Onboarding step timed out for %s (state=%s)", mask_phone(from_number), user.onboarding_state)
+                await send_text_message(db, from_number, "Sorry, that took too long. Please try again.")
+                return
             if user.onboarding_state == "awaiting_documents":
                 _schedule_document_window_timer(
                     user_id=user.id,
