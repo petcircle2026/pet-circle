@@ -31,8 +31,6 @@ jobs:
           STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" \
             --max-time 30 \
             "${BACKEND_URL}/health")
-        env:
-          BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
           echo "HTTP status: $STATUS"
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
             echo "Keepalive ping succeeded."
@@ -40,3 +38,5 @@ jobs:
             echo "Warning: health endpoint returned $STATUS — instance may be degraded."
             exit 0  # non-fatal: don't fail the workflow on a flaky ping
           fi
+        env:
+          BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
