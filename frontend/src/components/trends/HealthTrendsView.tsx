@@ -85,7 +85,8 @@ export default function HealthTrendsView({
   };
 
   const titleEmoji = getSpeciesEmoji(species);
-  const vetName = vetSummary?.name || "your vet";
+  const rawVetName = vetSummary?.name || "your vet";
+  const vetName = rawVetName.replace(/^Dr\.\s*/i, "");
 
   const renderBody = () => {
     if (loading) {

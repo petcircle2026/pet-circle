@@ -627,17 +627,19 @@ def _resolve_document_category(
         return "Prescription"
 
     # Vet-origin signal: if a doctor or clinic name is identified, the document came from a
-    # vet's office. Use this to rescue two failure modes:
+    # vet's office. Use this to rescue three failure modes:
     #   a) GPT returned None/"Other" — almost always a vet visit record.
-    #   b) GPT returned "Blood Report" but extracted zero diagnostic_values — the document
-    #      is ORDERING tests (e.g. "Get CBC done"), not REPORTING results. Actual lab reports
-    #      always produce diagnostic_values rows (parameter values + reference ranges).
+    #   b) GPT returned any lab-report category but extracted zero diagnostic_values — the
+    #      document is ORDERING tests or is a handwritten prescription, not reporting results.
+    #      Actual lab reports always produce diagnostic_values rows (parameter values + reference
+    #      ranges). A vet-origin document with no numeric results is a Prescription.
+    #   c) GPT returned "Other" for a handwritten medication list from a vet clinic.
     has_vet_origin = bool(doctor_name or clinic_name)
     has_actual_results = bool(diagnostic_values)
     if has_vet_origin:
         if raw_category in (None, "Other"):
             return "Prescription"
-        if raw_category == "Blood Report" and not has_actual_results:
+        if raw_category in _LAB_REPORT_CATEGORIES and not has_actual_results:
             return "Prescription"
 
     # If GPT returned a specific known category, trust it.
@@ -1049,12 +1051,24 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- A blood test report counts as 'Preventive Blood Test' --- use the report date.\n"
     "- Do NOT provide medical advice or interpretation.\n"
     "- Do NOT infer dates --- only extract what is explicitly stated in the document.\n"
-    "- DATE EXTRACTION IS CRITICAL: Scan every part of the document — headers, stamps, "
-    "footers, date fields, signature areas, and printed/handwritten text — for explicit dates. "
+    "- DATE EXTRACTION IS CRITICAL: Scan EVERY part of the document — headers, stamps, "
+    "footers, date fields, signature areas, and ALL printed/handwritten text — for explicit dates. "
     "Indian documents commonly use DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY, DD-MM-YY, or "
-    "'DD Month YYYY' formats. Extract ALL dates found and assign them correctly to the "
-    "relevant fields (last_done_date, observed_at, diagnosed_at, etc.). Never leave a date "
-    "field null if a date is visibly present anywhere on the document.\n"
+    "'DD Month YYYY' formats. Handwritten dates may appear near the doctor's signature, "
+    "in the top-right corner, or stamped on the document. Extract ALL dates found and assign "
+    "them correctly to the relevant fields (last_done_date, observed_at, diagnosed_at, etc.). "
+    "Never leave a date field null if a date is visibly present anywhere on the document.\n"
+    "- PRESCRIPTION DATE CASCADE: For Prescription documents, identify the visit/consultation "
+    "date (printed, stamped, or handwritten anywhere — commonly in the top-right corner or near "
+    "the doctor's signature). Set this date as diagnosed_at for every condition extracted AND as "
+    "a reference date for computing medication end_date from duration phrases (e.g. 'for 5 days'). "
+    "Never leave diagnosed_at null when a visit date is visibly present on the document.\n"
+    "- LAB REPORT DATE CASCADE: For Blood Report, Urine Report, and other diagnostic "
+    "documents, identify the single report/collection date (printed, stamped, or handwritten "
+    "anywhere on the document). Set this date as last_done_date in items[] (for 'Preventive "
+    "Blood Test') AND set it as observed_at for EVERY entry in diagnostic_values[] that does "
+    "not have its own individual date. Never leave observed_at null when a report-level date "
+    "is present.\n"
     "- PRESCRIPTION IDENTIFICATION: Set document_category to 'Prescription' whenever the "
     "document is a vet-written record. Prescriptions always classify as 'Prescription' even "
     "when they also contain blood tests to be done, general clinical information, or vaccine "
