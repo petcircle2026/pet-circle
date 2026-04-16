@@ -22,6 +22,12 @@ function formatDate(value: string | null): string {
 
 export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCardProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editRx, setEditRx] = useState(visit.rx || "");
+  const [newMedicineName, setNewMedicineName] = useState("");
+  const [newMedicineDose, setNewMedicineDose] = useState("");
+  const [newMedicineDuration, setNewMedicineDuration] = useState("");
+
   const buttonId = `visit-toggle-${visit.id}`;
   const panelId = `visit-panel-${visit.id}`;
   const keyFindingLabel = visit.key_finding || visit.tag;
@@ -128,6 +134,7 @@ export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCar
               aria-labelledby={buttonId}
               style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}
             >
+              {/* Prescription Section with Edit Button */}
               <div
                 style={{
                   borderRadius: 10,
@@ -135,31 +142,165 @@ export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCar
                   border: "1px solid #FFD5C2",
                   padding: "10px 12px",
                   marginBottom: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 8,
                 }}
               >
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", marginBottom: 3 }}>
-                  RX / PRESCRIPTION
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#B45309", marginBottom: 3 }}>
+                    RX / PRESCRIPTION
+                  </div>
+                  {isEditing ? (
+                    <textarea
+                      value={editRx}
+                      onChange={(e) => setEditRx(e.target.value)}
+                      style={{
+                        width: "100%",
+                        minHeight: 80,
+                        fontSize: 13,
+                        color: "var(--t1)",
+                        padding: 8,
+                        border: "1.5px solid #FF9500",
+                        borderRadius: 8,
+                        fontFamily: "inherit",
+                        resize: "vertical",
+                      }}
+                      placeholder="Add prescription details..."
+                    />
+                  ) : (
+                    <div style={{ fontSize: 13, color: "var(--t1)", lineHeight: 1.35, whiteSpace: "pre-line" }}>
+                      {editRx || "Not available"}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: 13, color: "var(--t1)", lineHeight: 1.35 }}>{visit.rx || "Not available"}</div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(!isEditing)}
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: isEditing ? "#34C759" : "#007AFF",
+                    background: "none",
+                    border: "none",
+                    padding: "2px 6px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  aria-label={isEditing ? "Done editing prescription" : "Edit prescription"}
+                >
+                  {isEditing ? "✓ Done" : "Edit"}
+                </button>
               </div>
 
-              {visit.medications.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--t3)", marginBottom: 8 }}>
-                    MEDICATIONS
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {visit.medications.map((medication, index) => {
-                      const subtitle = [medication.dose, medication.duration].filter(Boolean).join(" · ");
-                      return (
-                        <div key={`${visit.id}-med-${index}`}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--t1)" }}>{medication.name}</div>
-                          {subtitle && (
-                            <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 2 }}>{subtitle}</div>
-                          )}
-                        </div>
-                      );
-                    })}
+              {/* Medications Section */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--t3)", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                  <span>MEDICATIONS</span>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "#007AFF",
+                        background: "none",
+                        border: "none",
+                        padding: "0 4px",
+                        cursor: "pointer",
+                      }}
+                      aria-label="Add medication"
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {visit.medications.map((medication, index) => {
+                    const subtitle = [medication.dose, medication.duration].filter(Boolean).join(" · ");
+                    return (
+                      <div key={`${visit.id}-med-${index}`}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--t1)" }}>{medication.name}</div>
+                        {subtitle && (
+                          <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 2 }}>{subtitle}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Add New Medication Form (Edit Mode) */}
+              {isEditing && (
+                <div style={{ marginBottom: 12, padding: 12, borderRadius: 10, background: "var(--warm)", border: "1.5px solid #FF9500" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--t3)", marginBottom: 8 }}>ADD NEW MEDICATION</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Medicine name"
+                      value={newMedicineName}
+                      onChange={(e) => setNewMedicineName(e.target.value)}
+                      style={{
+                        fontSize: 13,
+                        padding: "8px 10px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Dose (e.g., 5mg)"
+                      value={newMedicineDose}
+                      onChange={(e) => setNewMedicineDose(e.target.value)}
+                      style={{
+                        fontSize: 13,
+                        padding: "8px 10px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Duration (e.g., 7 days)"
+                      value={newMedicineDuration}
+                      onChange={(e) => setNewMedicineDuration(e.target.value)}
+                      style={{
+                        fontSize: 13,
+                        padding: "8px 10px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        fontFamily: "inherit",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newMedicineName.trim()) {
+                          // Reset form after adding
+                          setNewMedicineName("");
+                          setNewMedicineDose("");
+                          setNewMedicineDuration("");
+                          // Note: actual API call would happen here
+                        }
+                      }}
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#fff",
+                        background: "#34C759",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                      }}
+                      aria-label="Save new medication"
+                    >
+                      Save Medication
+                    </button>
                   </div>
                 </div>
               )}

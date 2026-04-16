@@ -401,15 +401,14 @@ export default function RemindersView({ data, token, onBack, onDashboardDataUpda
       return;
     }
 
-    // Apply optimistic update and close editor IMMEDIATELY so the UI never
-    // buffers on the network round-trip. Reconcile (or surface errors) once
-    // the writes settle.
+    // Apply optimistic update and close editor, but keep setSaving = true
+    // until network requests complete to prevent rapid re-submission
     setItems(optimisticItems);
     setEditingId(null);
-    setSaving(false);
 
     Promise.all(updates)
       .then(() => {
+        setSaving(false);
         fetchDashboardFresh(token)
           .then((latest) => {
             setItems(toReminderItems(latest.preventive_records || []));
@@ -420,6 +419,7 @@ export default function RemindersView({ data, token, onBack, onDashboardDataUpda
           });
       })
       .catch((err: unknown) => {
+        setSaving(false);
         onDashboardDataUpdated?.(patchedData());
         setSaveError(
           err instanceof Error
