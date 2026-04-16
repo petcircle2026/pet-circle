@@ -1354,6 +1354,9 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 .all()
             )
             for clin_med in all_condition_meds:
+                # Filter out expired medicines: if end_date is set, it must be today or later
+                if clin_med.end_date and clin_med.end_date < today:
+                    continue
                 med_test_type = _normalize_item_name(clin_med.name)
                 # Only handle clinical medications (non-preventive types).
                 # Preventive types (vaccine, deworming, tick_flea, etc.) are
@@ -1462,6 +1465,68 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         except Exception:
             logger.warning(
                 "Failed to load diet items for care plan of pet %s",
+                pet.id,
+                exc_info=True,
+            )
+
+        # ── Add document-extracted supplements to Attend To ────────────────────
+        # Supplements from uploaded documents that don't match WhatsApp-mentioned
+        # supplements and haven't expired should appear in Attend To.
+        try:
+            # Get all manual supplements (from WhatsApp) to check for duplicates
+            manual_supplement_names: set[str] = set()
+            manual_supplements = (
+                db.query(DietItem)
+                .filter(
+                    DietItem.pet_id == pet.id,
+                    DietItem.type == "supplement",
+                    DietItem.source == "manual",
+                )
+                .all()
+            )
+            for ms in manual_supplements:
+                if ms.label:
+                    manual_supplement_names.add(ms.label.lower().strip())
+
+            # Get document-extracted supplements
+            doc_supplements = (
+                db.query(DietItem)
+                .filter(
+                    DietItem.pet_id == pet.id,
+                    DietItem.type == "supplement",
+                    DietItem.source == "document_extracted",
+                )
+                .all()
+            )
+
+            for doc_supp in doc_supplements:
+                if not doc_supp.label:
+                    continue
+
+                # Skip if this supplement is already mentioned in WhatsApp chat
+                if doc_supp.label.lower().strip() in manual_supplement_names:
+                    continue
+
+                # Skip if end_date has passed
+                if doc_supp.end_date and doc_supp.end_date < today:
+                    continue
+
+                # Add to Attend To
+                supp_key = f"doc_supp_{doc_supp.id}"
+                attend_items[supp_key] = {
+                    "name": doc_supp.label,
+                    "test_type": "supplement",
+                    "freq": "As prescribed",
+                    "next_due": doc_supp.end_date.strftime("%d/%m/%y") if doc_supp.end_date else None,
+                    "status_tag": "Attend",
+                    "classification": Classification.PRESCRIPTION_ACTIVE.value,
+                    "reason": None,
+                    "orderable": False,
+                }
+
+        except Exception:
+            logger.warning(
+                "Failed to load document-extracted supplements for care plan of pet %s",
                 pet.id,
                 exc_info=True,
             )

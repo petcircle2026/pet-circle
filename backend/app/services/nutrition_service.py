@@ -1049,7 +1049,9 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
 
     split_items = split_diet_items_by_type(diet_items)
     food_labels = split_items["foods"] + split_items["other"]
-    supplement_labels = expand_supplement_labels(split_items["supplements"])
+    # Only use manually-added supplements from WhatsApp chat, not document-extracted ones
+    manual_supplements = [s for s in split_items["supplements"] if (s.source or "").lower() == "manual"]
+    supplement_labels = expand_supplement_labels(manual_supplements)
 
     recommendation = await generate_recommendation(
         pet.name,

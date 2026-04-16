@@ -82,7 +82,7 @@ export default function ProductSelectorCard({
             Not available right now
           </div>
           <div style={{ fontSize: 13, color: "var(--t2)", lineHeight: 1.6, maxWidth: 260 }}>
-            This item isn&apos;t in our catalog yet. We&apos;ll have it in stock soon — check back shortly!
+            This item isn&apos;t available right now. We&apos;ll notify you on WhatsApp as soon as it&apos;s back.
           </div>
         </div>
       </BottomSheet>
