@@ -408,9 +408,9 @@ SEED_DATA: list[dict] = [
     # =============================
 
     # --- Kennel Cough / Nobivac KC (Dogs only) ---
-    # Core vaccine covering Bordetella bronchiseptica + Parainfluenza.
+    # Optional vaccine covering Bordetella bronchiseptica + Parainfluenza.
     # Brand: Nobivac KC. Annual recurrence (365 days).
-    # Always shown on dashboard alongside Rabies and DHPPi.
+    # Only shown on dashboard when the user has logged a completion date.
     {
         "item_name": "Kennel Cough (Nobivac KC)",
         "category": "essential",
@@ -421,11 +421,12 @@ SEED_DATA: list[dict] = [
         "reminder_before_days": 30,
         "overdue_after_days": 14,
         "is_core": True,
+        "is_mandatory": False,
     },
     # --- Canine Coronavirus / CCoV (Dogs only) ---
-    # Core vaccine. Annual recurrence (365 days).
+    # Optional vaccine. Annual recurrence (365 days).
     # Protects against canine enteric coronavirus causing gastroenteritis.
-    # Always shown on dashboard alongside Rabies and DHPPi.
+    # Only shown on dashboard when the user has logged a completion date.
     {
         "item_name": "Canine Coronavirus (CCoV)",
         "category": "essential",
@@ -436,6 +437,7 @@ SEED_DATA: list[dict] = [
         "reminder_before_days": 30,
         "overdue_after_days": 14,
         "is_core": True,
+        "is_mandatory": False,
     },
     # --- Leptospirosis (Dogs only) ---
     # Optional vaccine. Annual recurrence (365 days).
@@ -506,6 +508,8 @@ SEED_DATA: list[dict] = [
         "medicine_dependent": False,
         "reminder_before_days": 14,
         "overdue_after_days": 21,
+        "is_core": True,
+        "is_mandatory": True,
     },
     # --- DHPPi 2nd Dose (9–12 weeks) ---
     {
@@ -517,6 +521,8 @@ SEED_DATA: list[dict] = [
         "medicine_dependent": False,
         "reminder_before_days": 14,
         "overdue_after_days": 21,
+        "is_core": True,
+        "is_mandatory": True,
     },
     # --- DHPPi 3rd Dose (12–16 weeks, given together with first Rabies dose) ---
     {
@@ -528,6 +534,8 @@ SEED_DATA: list[dict] = [
         "medicine_dependent": False,
         "reminder_before_days": 14,
         "overdue_after_days": 21,
+        "is_core": True,
+        "is_mandatory": True,
     },
     # --- Puppy Booster (1 year — DHPPi & Rabies combined booster) ---
     # After this booster the pet transitions to the standard annual DHPPi + Rabies cycle.
@@ -540,6 +548,8 @@ SEED_DATA: list[dict] = [
         "medicine_dependent": False,
         "reminder_before_days": 30,
         "overdue_after_days": 14,
+        "is_core": True,
+        "is_mandatory": True,
     },
 
     # =============================

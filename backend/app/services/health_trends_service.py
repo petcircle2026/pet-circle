@@ -299,20 +299,41 @@ def _build_vaccine_cadence(rows: list[tuple[PreventiveRecord, PreventiveMaster]]
     else:
         headline = "No vaccines recorded yet."
 
+    overdue_dates = sorted(
+        record.next_due_date for record, _ in vaccine_rows if record.next_due_date and record.next_due_date < today
+    )
     upcoming_dates = sorted(
         record.next_due_date for record, _ in vaccine_rows if record.next_due_date and record.next_due_date >= today
     )
-    if upcoming_dates:
+
+    DUE_SOON_DAYS = 7
+
+    if overdue_dates:
+        overdue_date = overdue_dates[0]
+        footer_text = f"⚠ Vaccination overdue since {overdue_date.strftime('%b %Y')}. Schedule with your vet."
+        footer_color = "#b52020"
+        footer_bg = "#FFEDED"
+    elif upcoming_dates:
         next_date = upcoming_dates[0]
-        footer_text = f"✓ Next due {next_date.strftime('%b %Y')}"
+        days_until = (next_date - today).days
+        if days_until <= DUE_SOON_DAYS:
+            footer_text = f"⏰ Due soon — {next_date.strftime('%b %Y')}. Book your vet visit."
+            footer_color = "#B45309"
+            footer_bg = "#FFF6E6"
+        else:
+            footer_text = f"✓ Next due {next_date.strftime('%b %Y')}"
+            footer_color = "#166534"
+            footer_bg = "#E8FFF1"
     else:
         footer_text = "No upcoming vaccine due date available"
+        footer_color = "#B45309"
+        footer_bg = "#FFF6E6"
 
     return {
         "headline": headline,
         "rounds": rounds,
         "gaps": gaps,
-        "footer": {"text": footer_text, "color": "green", "bg": "#E8FFF1"},
+        "footer": {"text": footer_text, "color": footer_color, "bg": footer_bg},
     }
 
 
