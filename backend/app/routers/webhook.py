@@ -181,13 +181,18 @@ async def _flush_user_messages(mobile: str) -> None:
 
     Cancelled and restarted each time a new message arrives within the window,
     so only the final message in a rapid burst triggers processing.
+
+    The duration is read before sleeping (safe — just a read). After waking,
+    all dict mutations are done under _debounce_lock so they don't race with
+    a concurrent _enqueue_text_or_dispatch for the same user.
     """
     duration = _USER_DEBOUNCE_DURATIONS.get(mobile, _DEBOUNCE_SECONDS)
     await asyncio.sleep(duration)
 
-    messages = _USER_MSG_BUFFERS.pop(mobile, [])
-    _USER_DEBOUNCE_TASKS.pop(mobile, None)
-    _USER_DEBOUNCE_DURATIONS.pop(mobile, None)
+    async with _debounce_lock:
+        messages = _USER_MSG_BUFFERS.pop(mobile, [])
+        _USER_DEBOUNCE_TASKS.pop(mobile, None)
+        _USER_DEBOUNCE_DURATIONS.pop(mobile, None)
 
     if not messages:
         return

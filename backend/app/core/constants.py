@@ -77,15 +77,17 @@ MAX_QUEUED_UPLOADS: int = 30
 # image, document) before any DB session is opened. Inner semaphores
 # (MAX_CONCURRENT_UPLOAD_PROCESSING, MAX_CONCURRENT_EXTRACTIONS) then apply
 # additional per-stage limits within this outer bound.
-# Sized at 20 to leave 5 connections free for webhook handler sessions and
-# other admin calls within the DB pool ceiling of 25.
-MAX_CONCURRENT_MESSAGE_PROCESSING: int = 20
+# Sized at 30 so all 100 concurrent users can be active: 30 processing + 70 queued
+# = 100 total without any rejections. DB pool (40) is not fully consumed by
+# handlers alone — they hold sessions briefly and release them (not the full
+# handler lifetime), so 30 concurrent handlers fit within 40 pool connections.
+MAX_CONCURRENT_MESSAGE_PROCESSING: int = 30
 
 # Maximum number of messages allowed to queue waiting for the entry-point
 # semaphore. Above this threshold new tasks are rejected immediately rather
 # than queued, preventing event loop overload during traffic spikes.
-# 20 active + 50 queued = 70 max coroutines — well within safe bounds.
-MAX_QUEUED_MESSAGES: int = 50
+# 30 active + 70 queued = 100 max coroutines — covers all 100 concurrent users.
+MAX_QUEUED_MESSAGES: int = 70
 
 # Allowed MIME types for uploaded documents.
 # Only images (JPEG, PNG) and PDF are accepted.
