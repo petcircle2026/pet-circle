@@ -31,6 +31,7 @@ export default function ReturningDashboardView({
   onGoToCart,
   onAddToCart,
   onAddBySku,
+  onDataRefresh,
 }: DashboardViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [floaterUnlocked, setFloaterUnlocked] = useState(false);
