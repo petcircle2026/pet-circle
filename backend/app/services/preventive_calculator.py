@@ -19,6 +19,7 @@ Rules:
 """
 
 import logging
+import re
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -29,6 +30,84 @@ from app.models.preventive_record import PreventiveRecord
 from app.utils.date_utils import get_today_ist
 
 logger = logging.getLogger(__name__)
+
+
+def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int | None:
+    """
+    Look up a medicine in product_medicines and extract recurrence days from repeat_frequency.
+
+    Supports patterns like:
+        - "Every 3 months (12 weeks)" → 90 days
+        - "Every 4 weeks" → 28 days
+        - "Every 12 weeks" → 84 days
+        - "Monthly" → 30 days
+        - "Quarterly" → 90 days
+
+    Args:
+        db: SQLAlchemy session
+        medicine_name: Product name to search for
+
+    Returns:
+        Number of days between doses, or None if not found
+    """
+    if not medicine_name or not db:
+        return None
+
+    try:
+        from app.models.product_medicines import ProductMedicines
+
+        # Case-insensitive lookup
+        product = (
+            db.query(ProductMedicines)
+            .filter(
+                ProductMedicines.active == True,
+                ProductMedicines.product_name.ilike(f"%{medicine_name}%"),
+            )
+            .first()
+        )
+
+        if not product or not product.repeat_frequency:
+            return None
+
+        freq = str(product.repeat_frequency).lower()
+
+        # Extract number and unit from repeat_frequency
+        # Patterns: "Every N weeks", "Every N months", "Monthly", "Quarterly", "Annually"
+
+        # Try "Every N weeks" pattern
+        match = re.search(r"every\s+(\d+)\s+weeks?", freq)
+        if match:
+            weeks = int(match.group(1))
+            return weeks * 7
+
+        # Try "Every N months" pattern
+        match = re.search(r"every\s+(\d+)\s+months?", freq)
+        if match:
+            months = int(match.group(1))
+            return months * 30
+
+        # Try "Every N days" pattern
+        match = re.search(r"every\s+(\d+)\s+days?", freq)
+        if match:
+            return int(match.group(1))
+
+        # Check for common keywords
+        if "monthly" in freq or "once a month" in freq:
+            return 30
+        elif "quarterly" in freq or "3 month" in freq:
+            return 90
+        elif "annually" in freq or "yearly" in freq:
+            return 365
+        elif "fortnightly" in freq or "bi-weekly" in freq or "biweekly" in freq:
+            return 14
+        elif "weekly" in freq:
+            return 7
+
+        return None
+
+    except Exception as exc:
+        logger.warning(f"Could not extract recurrence from medicine '{medicine_name}': {exc}")
+        return None
 
 
 def compute_next_due_date(last_done_date: date, recurrence_days: int) -> date:

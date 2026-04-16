@@ -399,7 +399,11 @@ def _filter_recommendations_against_existing(items: list[dict], existing_names: 
 
 
 def _build_profile_context(db: Session, pet_id, category: str) -> dict:
-    """Build explicit category buckets from current pet profile for prompt safety."""
+    """Build explicit category buckets from current pet profile for prompt safety.
+
+    Filters supplements to exclude document_extracted supplements, which should only
+    be used for diet analysis, not for general recommendations/quick fixes.
+    """
     if not pet_id:
         return {
             "foods": [],
@@ -410,7 +414,16 @@ def _build_profile_context(db: Session, pet_id, category: str) -> dict:
             "existing_names": set(),
         }
 
-    diet_items = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+    # Include only manual and analysis_recommended diet items
+    # Exclude document_extracted supplements from recommendations
+    diet_items = (
+        db.query(DietItem)
+        .filter(
+            DietItem.pet_id == pet_id,
+            DietItem.source.in_(["manual", "analysis_recommended", None])
+        )
+        .all()
+    )
     split_items = split_diet_items_by_type(diet_items)
 
     active_conditions = (

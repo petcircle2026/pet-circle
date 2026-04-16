@@ -2327,6 +2327,9 @@ async def _save_supplement_as_diet_item(
     Converts a medication dict (with item_type="supplement") to a DietItem record
     by delegating to the existing _save_vet_diet_items function.
 
+    Supplements extracted from documents are marked with source="document_extracted"
+    so they are only used for diet analysis, not for general recommendations/quick fixes.
+
     Args:
         db: SQLAlchemy session
         pet: Pet object
@@ -2351,7 +2354,7 @@ async def _save_supplement_as_diet_item(
 
     detail = " · ".join(parts) if parts else ""
 
-    # Delegate to existing diet item saving function
+    # Delegate to existing diet item saving function with source tracking
     await _save_vet_diet_items(
         db=db,
         pet=pet,
@@ -2361,6 +2364,7 @@ async def _save_supplement_as_diet_item(
             "food_type": "supplement",
             "detail": detail,
         }],
+        source="document_extracted",
     )
 
 
@@ -2369,6 +2373,7 @@ async def _save_vet_diet_items(
     pet: Pet,
     document: Document,
     vet_diet_recommendations: list[dict],
+    source: str = "manual",
 ) -> None:
     """
     Persist vet-prescribed dietary recommendations as DietItem records.
@@ -2379,6 +2384,10 @@ async def _save_vet_diet_items(
 
     food_type='avoid' entries are stored with type='homemade' and a detail
     prefix of 'Avoid –' so they appear in the diet list as a visible warning.
+
+    Args:
+        source: "manual" (default), "document_extracted" (from document supplements),
+                or "analysis_recommended" (from diet analysis)
 
     Silently skips malformed entries. Does not commit — the caller's
     surrounding transaction handles commit/rollback.
@@ -2419,10 +2428,17 @@ async def _save_vet_diet_items(
             detail = f"{raw_detail} · Vet prescribed ({doc_ref})"[:200] if raw_detail else f"Vet prescribed ({doc_ref})"[:200]
 
         try:
-            await add_diet_item(db=db, pet_id=pet.id, food_type=item_type, label=food_label, detail=detail)
+            await add_diet_item(
+                db=db,
+                pet_id=pet.id,
+                food_type=item_type,
+                label=food_label,
+                detail=detail,
+                source=source,
+            )
             logger.info(
-                "Vet diet item saved for pet=%s: '%s' (%s) from document=%s",
-                pet.id, food_label, item_type, document.id,
+                "Vet diet item saved for pet=%s: '%s' (%s) from document=%s (source=%s)",
+                pet.id, food_label, item_type, document.id, source,
             )
         except Exception as exc:
             logger.warning(

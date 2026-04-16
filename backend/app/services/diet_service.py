@@ -375,11 +375,23 @@ async def get_diet_items(db: Session, pet_id) -> list[dict]:
     ]
 
 
-async def add_diet_item(db: Session, pet_id, food_type: str, label: str, detail: str = None, icon: str = None) -> dict:
+async def add_diet_item(
+    db: Session,
+    pet_id,
+    food_type: str,
+    label: str,
+    detail: str = None,
+    icon: str = None,
+    source: str = "manual",
+) -> dict:
     """Add a food or supplement item to a pet's diet.
 
     Idempotent: if a diet item with the same (pet_id, label, type) already
     exists the existing record is returned without modification.
+
+    Args:
+        source: "manual" (user-added), "document_extracted" (from documents),
+                or "analysis_recommended" (from diet analysis)
     """
     classified_type, default_icon = classify_food(label, food_type)
 
@@ -404,6 +416,7 @@ async def add_diet_item(db: Session, pet_id, food_type: str, label: str, detail:
             "icon": existing.icon,
             "label": existing.label,
             "detail": existing.detail,
+            "source": existing.source,
         }
 
     item = DietItem(
@@ -412,6 +425,7 @@ async def add_diet_item(db: Session, pet_id, food_type: str, label: str, detail:
         icon=icon or default_icon,
         label=label,
         detail=parse_nutrition_detail(detail),
+        source=source,
     )
     db.add(item)
     db.commit()
@@ -429,6 +443,7 @@ async def add_diet_item(db: Session, pet_id, food_type: str, label: str, detail:
         "icon": item.icon,
         "label": item.label,
         "detail": item.detail,
+        "source": item.source,
     }
 
 

@@ -8,6 +8,7 @@ interface CarePlanCardProps {
   buckets: Record<"continue" | "attend" | "add", CarePlanSection[]>;
   cartQtyByItem: Record<string, number>;
   addedIds: Record<string, boolean>;
+  loadingIds?: Record<string, boolean>;
   onAddToCart: (item: CarePlanItem, sectionTitle: string) => void;
   onEditReminders?: () => void;
   counts?: { onTrack: number; dueSoon: number; overdue: number };
@@ -22,6 +23,7 @@ export default function CarePlanCard({
   buckets,
   cartQtyByItem,
   addedIds,
+  loadingIds = {},
   onAddToCart,
   onEditReminders,
   counts,
@@ -112,6 +114,7 @@ export default function CarePlanCard({
                   const id = itemId(item, section.title);
                   const inCartQty = cartQtyByItem[id] || 0;
                   const isAdded = !!addedIds[id];
+                  const isLoading = !!loadingIds[id];
                   // Food and supplement items don't display their reason text in the
                   // continue bucket (hidden by the condition below), so requiring a
                   // reason before showing the Order button would block newly-added
@@ -161,17 +164,22 @@ export default function CarePlanCard({
                             className="order-btn"
                             type="button"
                             onClick={() => onAddToCart(item, section.title)}
+                            disabled={isLoading}
                             style={
                               isAdded
                                 ? { background: "#34C759", transform: "scale(1.04)", transition: "all .2s" }
-                                : { transition: "all .2s" }
+                                : isLoading
+                                  ? { opacity: 0.6, transition: "all .2s" }
+                                  : { transition: "all .2s" }
                             }
                           >
-                            {isAdded
-                              ? `✓ Added${inCartQty > 1 ? ` (${inCartQty})` : ""}`
-                              : inCartQty > 0
-                                ? `Order Again (${inCartQty} in cart)`
-                                : `${ctaText} →`}
+                            {isLoading
+                              ? "Loading…"
+                              : isAdded
+                                ? `✓ Added${inCartQty > 1 ? ` (${inCartQty})` : ""}`
+                                : inCartQty > 0
+                                  ? `Order Again (${inCartQty} in cart)`
+                                  : `${ctaText} →`}
                           </button>
                         )}
 

@@ -726,6 +726,7 @@ async def dashboard_upload_document(
         async def _run_extraction():
             from app.database import SessionLocal
             from app.services.gpt_extraction import extract_and_process_document
+            from app.services.precompute_service import precompute_dashboard_enrichments
             async with _get_extraction_semaphore():
                 extraction_db = SessionLocal()
                 try:
@@ -735,6 +736,9 @@ async def dashboard_upload_document(
                         document_text="",
                         file_bytes=file_content,
                     )
+                    # After extraction completes, refresh dashboard cache (precompute)
+                    # so the next dashboard load shows updated health data.
+                    await precompute_dashboard_enrichments(str(pet.id))
                 except Exception as exc:
                     logger.error("Dashboard extraction fallback failed: doc=%s, error=%s", document.id, exc)
                 finally:

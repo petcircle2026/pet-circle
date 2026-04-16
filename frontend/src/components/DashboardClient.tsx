@@ -469,6 +469,7 @@ function DashboardInner({ token }: { token: string }) {
             onGoToCart={() => setView("cart")}
             onAddToCart={addToCart}
             onAddBySku={addCartItemBySku}
+            onDataRefresh={load}
           />
         );
       }

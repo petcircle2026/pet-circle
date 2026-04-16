@@ -35,6 +35,7 @@ export default function ReturningDashboardView({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [floaterUnlocked, setFloaterUnlocked] = useState(false);
   const [addedIds, setAddedIds] = useState<Record<string, boolean>>({});
+  const [loadingIds, setLoadingIds] = useState<Record<string, boolean>>({});
   const timerIdsRef = useRef<number[]>([]);
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -90,7 +91,11 @@ export default function ReturningDashboardView({
           ? `${API_BASE}/dashboard/${token}/medicines/resolve?item_name=${encodeURIComponent(medicineResolveKey)}`
           : null;
 
+    const id = cartItemId(item, sectionTitle);
+
     if (resolveUrl) {
+      // Show loading state while fetching products
+      setLoadingIds((prev) => ({ ...prev, [id]: true }));
       try {
         const res = await fetch(resolveUrl);
         if (!res.ok) throw new Error("resolve failed");
@@ -103,12 +108,14 @@ export default function ReturningDashboardView({
         setSelectorOpen(true);
       } catch {
         // Network / server error — do nothing; don't open selector or add to cart
+      } finally {
+        // Remove loading state
+        setLoadingIds((prev) => ({ ...prev, [id]: false }));
       }
       return;
     }
 
     // No resolve URL: non-supplement items directly orderable without product lookup
-    const id = cartItemId(item, sectionTitle);
     onAddToCart(item, sectionTitle);
     setAddedIds((prev) => ({ ...prev, [id]: true }));
     const timeoutId = window.setTimeout(() => {
@@ -162,6 +169,7 @@ export default function ReturningDashboardView({
             .flatMap((section) => section.items.map((item) => [cartItemId(item, section.title), getCartQty(item, section.title)]))
         )}
         addedIds={addedIds}
+        loadingIds={loadingIds}
         onAddToCart={handleAddToCart}
       />
       <EndNoteCard petName={data.pet.name} onUploadClick={() => setUploadModalOpen(true)} />
@@ -169,6 +177,28 @@ export default function ReturningDashboardView({
         open={uploadModalOpen}
         token={token}
         onClose={() => setUploadModalOpen(false)}
+        onUploadComplete={onDataRefresh ? async () => {
+          // After documents are uploaded, poll for updated data until extraction is complete.
+          // Extraction + precompute happen in background, but we want instant dashboard update.
+          const maxAttempts = 30; // 30 * 2s = 60s max wait
+          let attempt = 0;
+
+          while (attempt < maxAttempts) {
+            await new Promise(r => setTimeout(r, 2000)); // Wait 2s between checks
+            try {
+              await onDataRefresh();
+              // If refresh succeeds and data is fresh, we're done
+              return;
+            } catch (e) {
+              attempt++;
+              if (attempt >= maxAttempts) {
+                console.error("Timeout waiting for dashboard data to update:", e);
+                return;
+              }
+              // Continue polling...
+            }
+          }
+        } : undefined}
       />
       <CartFloater unlocked={floaterUnlocked} cartCount={cartCount} totalPrice={cartTotal} onGoToCart={onGoToCart} />
       <ProductSelectorCard

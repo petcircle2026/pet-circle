@@ -21,6 +21,7 @@ interface DocumentUploadModalProps {
   open: boolean;
   token: string;
   onClose: () => void;
+  onUploadComplete?: () => void;
 }
 
 let _idCounter = 0;
@@ -29,10 +30,12 @@ function nextId() {
   return String(_idCounter);
 }
 
-export default function DocumentUploadModal({ open, token, onClose }: DocumentUploadModalProps) {
+export default function DocumentUploadModal({ open, token, onClose, onUploadComplete }: DocumentUploadModalProps) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadCompleteTimeoutRef = useRef<number | null>(null);
 
   const updateEntry = (id: string, patch: Partial<FileEntry>) =>
     setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
@@ -43,12 +46,33 @@ export default function DocumentUploadModal({ open, token, onClose }: DocumentUp
       try {
         await uploadDocument(token, entry.file);
         updateEntry(entry.id, { status: "success" });
+
+        // After uploads settle, check if all are done and trigger dashboard refresh
+        if (uploadCompleteTimeoutRef.current) {
+          clearTimeout(uploadCompleteTimeoutRef.current);
+        }
+        uploadCompleteTimeoutRef.current = window.setTimeout(async () => {
+          setEntries((prev) => {
+            const allDone = prev.every((e) => e.status !== "uploading" && e.status !== "pending");
+            if (allDone) {
+              // All uploads complete — now trigger extraction + precompute refresh
+              if (onUploadComplete) {
+                setIsProcessing(true);
+                // onUploadComplete will wait for data to be ready
+                Promise.resolve(onUploadComplete()).finally(() => {
+                  setIsProcessing(false);
+                });
+              }
+            }
+            return prev;
+          });
+        }, 200);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Upload failed";
         updateEntry(entry.id, { status: "error", error: msg });
       }
     },
-    [token]
+    [token, onUploadComplete]
   );
 
   const addFiles = useCallback(
@@ -107,6 +131,9 @@ export default function DocumentUploadModal({ open, token, onClose }: DocumentUp
   };
 
   const handleClose = () => {
+    if (uploadCompleteTimeoutRef.current) {
+      clearTimeout(uploadCompleteTimeoutRef.current);
+    }
     setEntries([]);
     onClose();
   };
@@ -226,7 +253,9 @@ export default function DocumentUploadModal({ open, token, onClose }: DocumentUp
             lineHeight: 1.5,
           }}
         >
-          Your documents are being processed. Health records will update within a minute.
+          {isProcessing
+            ? "Extracting & updating your dashboard..."
+            : "Your documents are being processed. Health records will update within a minute."}
         </div>
       )}
 
@@ -234,20 +263,20 @@ export default function DocumentUploadModal({ open, token, onClose }: DocumentUp
       <button
         type="button"
         onClick={handleClose}
-        disabled={anyUploading}
+        disabled={anyUploading || isProcessing}
         style={{
           width: "100%",
           padding: "12px 16px",
           borderRadius: 10,
           border: "none",
-          background: anyUploading ? "var(--border, #e0e0e0)" : "#E07D41",
-          color: anyUploading ? "var(--t3, #999)" : "white",
+          background: (anyUploading || isProcessing) ? "var(--border, #e0e0e0)" : "#E07D41",
+          color: (anyUploading || isProcessing) ? "var(--t3, #999)" : "white",
           fontSize: 14,
           fontWeight: 700,
-          cursor: anyUploading ? "default" : "pointer",
+          cursor: (anyUploading || isProcessing) ? "default" : "pointer",
         }}
       >
-        {anyUploading ? "Uploading…" : "Done"}
+        {anyUploading ? "Uploading…" : isProcessing ? "Processing…" : "Done"}
       </button>
     </BottomSheet>
   );

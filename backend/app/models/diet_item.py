@@ -79,5 +79,12 @@ class DietItem(Base):
     # Triggers an O+21 generic food/supplement reminder instead of calculated reorder date.
     reminder_order_at_o21 = Column(Boolean, nullable=False, default=False)
 
+    # Source tracking for supplements:
+    # - "document_extracted": supplement extracted from uploaded documents (use only for diet analysis)
+    # - "manual": manually added by user
+    # - "analysis_recommended": recommended from diet analysis (can be used in quick fixes)
+    # Non-supplement items (packaged, homemade) have source=None or "manual"
+    source = Column(String(50), nullable=True, default="manual")
+
     # Relationships
     pet = relationship("Pet")
