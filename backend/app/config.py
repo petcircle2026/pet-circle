@@ -150,8 +150,8 @@ class Settings(BaseSettings):
 
     # --- Feature Flags ---
     # Set to 'true' to enable AI-driven conversational order flow.
-    # Requires ANTHROPIC_API_KEY. Falls back to deterministic state machine if either
-    # is absent or if the Anthropic API health check fails.
+    # Requires the appropriate API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) based on
+    # AI_PROVIDER setting. Falls back to deterministic state machine if either is absent.
     AGENTIC_ORDER_ENABLED: str = "true"
 
     # --- Timezone ---

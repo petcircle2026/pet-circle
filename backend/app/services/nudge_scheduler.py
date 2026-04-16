@@ -797,8 +797,13 @@ def _get_or_generate_nudge_insight(db: Session, user: User, pet: Pet) -> str | N
             return existing.insight_text
 
     # Generate new insight via GPT
-    if not getattr(settings, "ANTHROPIC_API_KEY", None):
-        return None
+    from app.core.constants import AI_PROVIDER
+    if AI_PROVIDER == "openai":
+        if not getattr(settings, "OPENAI_API_KEY", None):
+            return None
+    else:
+        if not getattr(settings, "ANTHROPIC_API_KEY", None):
+            return None
 
     breed = getattr(pet, "breed", None) or "unknown breed"
     weight = getattr(pet, "weight_kg", None)
