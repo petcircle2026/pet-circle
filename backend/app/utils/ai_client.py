@@ -39,18 +39,22 @@ _sync_openai_adapter: _SyncOpenAIAdapter | None = None
 
 class _TextContent:
     """Mimics Anthropic TextBlock: response.content[0].text"""
-    __slots__ = ("text",)
+    __slots__ = ("text", "type")
 
     def __init__(self, text: str) -> None:
         self.text = text
+        self.type = "text"
 
 
 class _ToolUseContent:
     """Mimics Anthropic ToolUseBlock: response.content[0].input (a dict)"""
-    __slots__ = ("input",)
+    __slots__ = ("input", "type", "id", "name")
 
-    def __init__(self, input_dict: dict) -> None:
+    def __init__(self, input_dict: dict, tool_id: str = "", tool_name: str = "") -> None:
         self.input = input_dict
+        self.type = "tool_use"
+        self.id = tool_id
+        self.name = tool_name
 
 
 class _FakeResponse:
@@ -83,11 +87,63 @@ def _translate_messages_to_openai(
         oai_messages.append({"role": "system", "content": system})
 
     for msg in messages:
+        role = msg.get("role")
         content = msg.get("content")
         if isinstance(content, list):
-            # Multi-part content (vision or mixed)
+            # Check for Anthropic-style tool_result blocks (user turn after a tool call).
+            # Translate each into a separate OpenAI "tool" message.
+            if any(part.get("type") == "tool_result" for part in content if isinstance(part, dict)):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    if part.get("type") == "tool_result":
+                        tool_content = part.get("content", "")
+                        if isinstance(tool_content, list):
+                            # Nested content blocks — flatten to text
+                            tool_content = " ".join(
+                                p.get("text", "") for p in tool_content
+                                if isinstance(p, dict) and p.get("type") == "text"
+                            )
+                        oai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": part.get("tool_use_id", ""),
+                            "content": str(tool_content),
+                        })
+                continue
+
+            # Check for Anthropic-style tool_use blocks (assistant turn with tool calls).
+            tool_use_parts = [
+                p for p in content
+                if isinstance(p, dict) and p.get("type") == "tool_use"
+            ]
+            if tool_use_parts:
+                tool_calls = []
+                for p in tool_use_parts:
+                    tool_calls.append({
+                        "id": p.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": p.get("name", ""),
+                            "arguments": json.dumps(p.get("input", {})),
+                        },
+                    })
+                # Include any text blocks alongside tool_calls
+                text_parts = [
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                oai_messages.append({
+                    "role": "assistant",
+                    "content": " ".join(text_parts) if text_parts else None,
+                    "tool_calls": tool_calls,
+                })
+                continue
+
+            # Standard multi-part content (vision or mixed text/image)
             oai_content: list[dict] = []
             for part in content:
+                if not isinstance(part, dict):
+                    continue
                 ptype = part.get("type")
                 if ptype == "text":
                     oai_content.append({"type": "text", "text": part["text"]})
@@ -99,7 +155,9 @@ def _translate_messages_to_openai(
                             "type": "image_url",
                             "image_url": {"url": data_url, "detail": "high"},
                         })
-            oai_messages.append({"role": msg["role"], "content": oai_content})
+            if oai_content:
+                oai_messages.append({"role": role, "content": oai_content})
+            # Skip empty content lists (e.g. corrupted turns) rather than sending []
         else:
             oai_messages.append(msg)
 
@@ -167,13 +225,18 @@ class _AsyncMessagesProxy:
                 tools=oai_tools,
                 tool_choice=oai_tc,
             )
+            stop_reason = response.choices[0].finish_reason or "end_turn"
             # OpenAI may return None or empty tool_calls list if model didn't use tools
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                input_dict = json.loads(tool_call.function.arguments)
-                stop_reason = response.choices[0].finish_reason or "end_turn"
-                return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
+                blocks = []
+                for tc in tool_calls:
+                    input_dict = json.loads(tc.function.arguments or "{}")
+                    blocks.append(_ToolUseContent(input_dict, tool_id=tc.id, tool_name=tc.function.name))
+                return _FakeResponse(blocks, stop_reason=stop_reason)
+            # Model returned text instead of a tool call — use the text directly
+            text = response.choices[0].message.content or ""
+            return _FakeResponse([_TextContent(text)], stop_reason=stop_reason)
 
         response = await client.chat.completions.create(
             model=model,
@@ -230,13 +293,18 @@ class _SyncMessagesProxy:
                 tools=oai_tools,
                 tool_choice=oai_tc,
             )
+            stop_reason = response.choices[0].finish_reason or "end_turn"
             # OpenAI may return None or empty tool_calls list if model didn't use tools
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls and len(tool_calls) > 0:
-                tool_call = tool_calls[0]
-                input_dict = json.loads(tool_call.function.arguments)
-                stop_reason = response.choices[0].finish_reason or "end_turn"
-                return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
+                blocks = []
+                for tc in tool_calls:
+                    input_dict = json.loads(tc.function.arguments or "{}")
+                    blocks.append(_ToolUseContent(input_dict, tool_id=tc.id, tool_name=tc.function.name))
+                return _FakeResponse(blocks, stop_reason=stop_reason)
+            # Model returned text instead of a tool call — use the text directly
+            text = response.choices[0].message.content or ""
+            return _FakeResponse([_TextContent(text)], stop_reason=stop_reason)
 
         response = client.chat.completions.create(
             model=model,

@@ -1831,7 +1831,7 @@ async def _step_preventive(db, user, text, send_fn):
         or normalized in _NO_INPUTS
         or normalized in {"nothing done", "no idea", "don't remember", "dont remember"}
     ):
-        await _transition_to_documents(db, user, pet, send_fn)
+        await _transition_to_documents(db, user, pet, send_fn, skip_ack=True)
         return
 
     # Guard against late-arriving diet/supplement messages from prior steps.
@@ -3110,18 +3110,19 @@ async def _store_preventive_data(db, pet, parsed: dict) -> list[str]:
     return ambiguous
 
 
-async def _transition_to_documents(db, user, pet, send_fn):
+async def _transition_to_documents(db, user, pet, send_fn, skip_ack=False):
     """
     Shared transition: acknowledge preventive info, seed records, generate token,
     enter document upload window.
     """
     mobile = user._plaintext_mobile
 
-    await send_fn(
-        db, mobile,
-        f"Got it, I'll organise this into {pet.name}'s care plan and remind you "
-        f"at the right time for each one.",
-    )
+    if not skip_ack:
+        await send_fn(
+            db, mobile,
+            f"Got it, I'll organise this into {pet.name}'s care plan and remind you "
+            f"at the right time for each one.",
+        )
 
     # Seed preventive records for items not yet tracked.
     try:
