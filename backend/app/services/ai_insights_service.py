@@ -196,11 +196,10 @@ def _format_found_diet_summary(food_items: list[DietItem], supplement_items: lis
         if key in seen_foods:
             continue
         seen_foods.add(key)
-        detail = (food.detail or "").strip()
-        if detail and detail.lower() != label.lower():
-            food_descriptions.append(f"{label} ({detail})")
-        else:
-            food_descriptions.append(label)
+        # Use only the label — the detail field may contain prescription metadata
+        # (e.g. "5 days · Vet prescribed (VetPrescription_Apr26)") that should not
+        # be shown in the What We Found summary card.
+        food_descriptions.append(label)
 
     # Build supplement descriptions.
     seen_supps: set[str] = set()

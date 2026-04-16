@@ -530,7 +530,7 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
         db.query(Document)
         .filter(
             Document.pet_id == pet_id,
-            Document.document_category.in_("prescription", "vaccination"),
+            Document.document_category.in_(["prescription", "vaccination"]),
             Document.event_date.isnot(None),
         )
         .order_by(Document.event_date.desc())

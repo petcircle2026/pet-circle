@@ -1050,7 +1050,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
 
     health_conditions_summary = _build_health_conditions_summary(condition_rows)
     recognition_payload = {
-        "report_count": sum(1 for doc in document_data if doc.get("extraction_status") == "success"),
+        "report_count": sum(1 for doc in document_data if doc.get("extraction_status") not in ("rejected",)),
         "bullets": recognition_bullets,
     }
 
