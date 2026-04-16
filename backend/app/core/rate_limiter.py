@@ -116,15 +116,39 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _get_dashboard_token(request: Request) -> str | None:
+    """
+    Extract the dashboard token from the request path.
+
+    Dashboard paths have the form /dashboard/{token}/... so the token
+    is always at path index 1 (after stripping the leading slash).
+    Returns None if the path doesn't match the expected shape.
+    """
+    parts = request.url.path.strip("/").split("/")
+    # parts[0] == "dashboard", parts[1] == token
+    if len(parts) >= 2 and parts[0] == "dashboard" and len(parts[1]) >= 16:
+        return parts[1]
+    return None
+
+
 async def check_dashboard_rate_limit(request: Request) -> None:
     """
-    FastAPI dependency that enforces IP-based rate limiting on dashboard routes.
+    FastAPI dependency that enforces per-token rate limiting on dashboard routes.
 
-    Raises HTTPException 429 if the client IP exceeds 30 requests/minute.
+    Uses the dashboard token from the URL path as the rate-limit key so that
+    each user gets an independent 120 req/min budget. Falls back to client IP
+    if the token cannot be extracted (e.g. health-check or malformed path).
+
+    Raises HTTPException 429 if the key exceeds 120 requests/minute.
     """
-    client_ip = _get_client_ip(request)
-    if not dashboard_rate_limiter.check_rate_limit(client_ip):
-        logger.warning("Dashboard rate limit exceeded for IP=%s", client_ip)
+    token = _get_dashboard_token(request)
+    key = token if token else _get_client_ip(request)
+    if not dashboard_rate_limiter.check_rate_limit(key):
+        logger.warning(
+            "Dashboard rate limit exceeded for %s=%s",
+            "token" if token else "IP",
+            key[:8] + "…" if token else key,
+        )
         raise HTTPException(
             status_code=429,
             detail="Too many requests. Please try again later.",
