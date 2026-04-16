@@ -54,6 +54,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _message_processing_semaphore = asyncio.Semaphore(MAX_CONCURRENT_MESSAGE_PROCESSING)
 _message_queue_depth: int = 0
+# Lock that makes the queue-depth check and increment atomic under asyncio concurrency.
+_message_depth_lock = asyncio.Lock()
 
 
 async def _safe_process_message(message_data: dict) -> None:
@@ -70,7 +72,16 @@ async def _safe_process_message(message_data: dict) -> None:
 
     from_number = message_data.get("from_number", "unknown")
 
-    if _message_queue_depth >= MAX_QUEUED_MESSAGES:
+    # Atomically check and increment the depth counter so concurrent coroutines
+    # cannot both pass the check before either increments (TOCTOU).
+    _should_reject = False
+    async with _message_depth_lock:
+        if _message_queue_depth >= MAX_QUEUED_MESSAGES:
+            _should_reject = True
+        else:
+            _message_queue_depth += 1
+
+    if _should_reject:
         logger.warning(
             "Message queue full (%d/%d) — dropping message from %s",
             _message_queue_depth, MAX_QUEUED_MESSAGES, mask_phone(from_number),
@@ -91,7 +102,6 @@ async def _safe_process_message(message_data: dict) -> None:
             logger.error("Failed to send queue-full reply to %s: %s", mask_phone(from_number), _err)
         return
 
-    _message_queue_depth += 1
     try:
         async with _message_processing_semaphore:
             await _process_message_background(message_data)
@@ -106,6 +116,9 @@ async def _safe_process_message(message_data: dict) -> None:
 _DEDUP_CACHE: OrderedDict[str, float] = OrderedDict()
 _DEDUP_MAX_SIZE = 2000
 _DEDUP_TTL_SECONDS = 3600  # 1 hour — Meta may retry webhooks for hours after failures
+# Lock that serialises all reads/writes on _DEDUP_CACHE so concurrent coroutines
+# cannot iterate and mutate the OrderedDict at the same time.
+_dedup_lock = asyncio.Lock()
 
 # --- Per-user message debounce buffer ---
 # Users often send a single thought across multiple quick messages
@@ -121,39 +134,44 @@ _DEBOUNCE_SECONDS_LONG = 3.0  # For multi-message steps: preventive history, mea
 _USER_MSG_BUFFERS: dict[str, list[dict]] = {}   # mobile → ordered list of message_data
 _USER_DEBOUNCE_TASKS: dict[str, "asyncio.Task"] = {}  # mobile → pending flush task
 _USER_DEBOUNCE_DURATIONS: dict[str, float] = {}  # mobile → active debounce duration
+# Lock that makes the cancel-check-create sequence on debounce tasks atomic.
+_debounce_lock = asyncio.Lock()
 
 # States where users commonly split a single thought across multiple rapid messages.
 _LONG_DEBOUNCE_STATES = frozenset({"awaiting_preventive", "awaiting_meal_details"})
 
 
-def _is_duplicate_message(message_id: str) -> bool:
+async def _is_duplicate_message(message_id: str) -> bool:
     """
     Check if a message ID was already processed recently.
 
     Returns True if duplicate (should skip), False if new (should process).
+    Async so the entire check+insert is serialised under _dedup_lock, preventing
+    concurrent coroutines from mutating the OrderedDict simultaneously.
     """
     if not message_id:
         return False
 
     now = time.time()
 
-    # Evict expired entries from the front of the OrderedDict.
-    while _DEDUP_CACHE:
-        oldest_key, oldest_time = next(iter(_DEDUP_CACHE.items()))
-        if now - oldest_time > _DEDUP_TTL_SECONDS:
-            _DEDUP_CACHE.pop(oldest_key)
-        else:
-            break
+    async with _dedup_lock:
+        # Evict expired entries from the front of the OrderedDict.
+        while _DEDUP_CACHE:
+            oldest_key, oldest_time = next(iter(_DEDUP_CACHE.items()))
+            if now - oldest_time > _DEDUP_TTL_SECONDS:
+                _DEDUP_CACHE.pop(oldest_key)
+            else:
+                break
 
-    if message_id in _DEDUP_CACHE:
-        logger.info("Duplicate message_id %s — skipping.", message_id)
-        return True
+        if message_id in _DEDUP_CACHE:
+            logger.info("Duplicate message_id %s — skipping.", message_id)
+            return True
 
-    _DEDUP_CACHE[message_id] = now
+        _DEDUP_CACHE[message_id] = now
 
-    # Cap cache size.
-    if len(_DEDUP_CACHE) > _DEDUP_MAX_SIZE:
-        _DEDUP_CACHE.popitem(last=False)
+        # Cap cache size.
+        if len(_DEDUP_CACHE) > _DEDUP_MAX_SIZE:
+            _DEDUP_CACHE.popitem(last=False)
 
     return False
 
@@ -194,13 +212,17 @@ async def _flush_user_messages(mobile: str) -> None:
     asyncio.create_task(_safe_process_message(merged))
 
 
-def _enqueue_text_or_dispatch(message_data: dict, debounce_seconds: float = _DEBOUNCE_SECONDS) -> None:
+async def _enqueue_text_or_dispatch(message_data: dict, debounce_seconds: float = _DEBOUNCE_SECONDS) -> None:
     """
     Route a message to the debounce buffer (text) or direct dispatch (everything else).
 
     Text messages are held for debounce_seconds so rapid multi-message bursts
     are merged into one before the state machine sees them. Buttons and media
     are dispatched immediately — they are deliberate, discrete actions.
+
+    Async so the cancel-check-create sequence on the debounce task is serialised
+    under _debounce_lock, preventing two concurrent messages for the same user
+    from both cancelling and replacing each other's task.
     """
     mobile = message_data.get("from_number")
     msg_type = message_data.get("type")
@@ -210,19 +232,20 @@ def _enqueue_text_or_dispatch(message_data: dict, debounce_seconds: float = _DEB
         asyncio.create_task(_safe_process_message(message_data))
         return
 
-    # Cancel any pending flush for this user (they're still typing).
-    existing = _USER_DEBOUNCE_TASKS.get(mobile)
-    if existing and not existing.done():
-        existing.cancel()
+    async with _debounce_lock:
+        # Cancel any pending flush for this user (they're still typing).
+        existing = _USER_DEBOUNCE_TASKS.get(mobile)
+        if existing and not existing.done():
+            existing.cancel()
 
-    # Append to this user's buffer and record the debounce duration for this window.
-    _USER_MSG_BUFFERS.setdefault(mobile, []).append(message_data)
-    _USER_DEBOUNCE_DURATIONS[mobile] = debounce_seconds
+        # Append to this user's buffer and record the debounce duration for this window.
+        _USER_MSG_BUFFERS.setdefault(mobile, []).append(message_data)
+        _USER_DEBOUNCE_DURATIONS[mobile] = debounce_seconds
 
-    # Schedule a fresh flush after the idle window.
-    _USER_DEBOUNCE_TASKS[mobile] = asyncio.create_task(
-        _flush_user_messages(mobile)
-    )
+        # Schedule a fresh flush after the idle window.
+        _USER_DEBOUNCE_TASKS[mobile] = asyncio.create_task(
+            _flush_user_messages(mobile)
+        )
 
 
 async def _process_message_background(message_data: dict) -> None:
@@ -408,7 +431,7 @@ async def handle_whatsapp_message(request: Request, db: Session = Depends(get_db
         message_id = message_data.get("message_id")
 
         # Fast path: in-memory cache catches most retries without a DB query.
-        if _is_duplicate_message(message_id):
+        if await _is_duplicate_message(message_id):
             return {"status": "ok"}
 
         # Slow path: DB-backed dedup survives server restarts.
@@ -508,7 +531,7 @@ async def handle_whatsapp_message(request: Request, db: Session = Depends(get_db
                     debounce_duration = _DEBOUNCE_SECONDS_LONG
             except Exception:
                 pass
-        _enqueue_text_or_dispatch(message_data, debounce_seconds=debounce_duration)
+        await _enqueue_text_or_dispatch(message_data, debounce_seconds=debounce_duration)
 
     else:
         # Log non-message payloads (status updates, etc.) without dedup.

@@ -85,6 +85,8 @@ _upload_processing_semaphore = asyncio.Semaphore(MAX_CONCURRENT_UPLOAD_PROCESSIN
 # spike cannot exhaust event loop memory with hundreds of waiting tasks.
 # Counter is incremented before semaphore acquisition and decremented in finally.
 _upload_queue_depth: int = 0
+# Lock that makes the queue-depth check and increment atomic under asyncio concurrency.
+_upload_depth_lock = asyncio.Lock()
 
 # --- Batch upload tracking ---
 # Tracks recent upload timestamps per pet to enforce the per-session batch limit.
@@ -96,6 +98,10 @@ _recent_uploads: dict[str, list[float]] = {}
 # Prevents spamming the user with repeated "too many files" messages.
 # Key: str(pet_id), Value: True if rejection was sent this batch.
 _rejection_sent: dict[str, bool] = {}
+# Lock that serialises all read-modify-write operations on the per-pet upload
+# state dicts (_recent_uploads, _rejection_sent, _batch_document_ids,
+# _unsupported_format_count). Prevents TOCTOU races when many files arrive at once.
+_uploads_lock = asyncio.Lock()
 
 # Tracks the last inbound message token that already got a generic error reply.
 # Prevents duplicate "Sorry, something went wrong" during webhook retries for
@@ -166,6 +172,9 @@ _extraction_timers: dict[str, asyncio.Task] = {}
 # Key: str(user_id), Value: asyncio.Task that waits until upload deadline
 # and auto-finalizes onboarding if no document was uploaded.
 _document_window_timers: dict[str, asyncio.Task] = {}
+# Lock that serialises the cancel-check-create sequence on both timer dicts so
+# concurrent uploads for the same pet cannot overwrite each other's tasks.
+_timers_lock = asyncio.Lock()
 
 # Tracks document IDs uploaded in the active WhatsApp batch per pet.
 # Ensures the extractor only processes files from the current user upload burst,
@@ -248,23 +257,24 @@ logger = logging.getLogger(__name__)
 
 
 def _cancel_document_window_timer(user_id) -> None:
-    """Cancel the pending no-upload auto-finalization timer for a user."""
+    """Cancel the pending no-upload auto-finalization timer for a user (no lock — caller holds _timers_lock)."""
     user_key = str(user_id)
     existing = _document_window_timers.get(user_key)
     if existing and not existing.done():
         existing.cancel()
 
 
-def _schedule_document_window_timer(user_id, from_number, deadline) -> None:
+async def _schedule_document_window_timer(user_id, from_number, deadline) -> None:
     """
     Schedule (or reschedule) auto-finalization at the upload deadline.
 
     This guarantees onboarding continues after the 5-minute document window
     even if the user sends no additional messages.
+
+    Async so the cancel-check-create sequence is serialised under _timers_lock,
+    preventing two concurrent uploads from racing to replace each other's timer.
     """
     user_key = str(user_id)
-
-    _cancel_document_window_timer(user_id)
 
     if not deadline:
         return
@@ -273,9 +283,12 @@ def _schedule_document_window_timer(user_id, from_number, deadline) -> None:
         deadline = deadline.replace(tzinfo=UTC)
 
     wait_seconds = max(0.0, (deadline - datetime.now(UTC)).total_seconds())
-    _document_window_timers[user_key] = asyncio.create_task(
-        _auto_finalize_onboarding_after_deadline(user_id, from_number, wait_seconds)
-    )
+
+    async with _timers_lock:
+        _cancel_document_window_timer(user_id)
+        _document_window_timers[user_key] = asyncio.create_task(
+            _auto_finalize_onboarding_after_deadline(user_id, from_number, wait_seconds)
+        )
 
 
 async def _auto_finalize_onboarding_after_deadline(user_id, from_number, wait_seconds: float) -> None:
@@ -844,7 +857,8 @@ async def route_message(db: Session, message_data: dict) -> None:
                 # Check deadline expiry on any incoming message.
                 if is_doc_upload_deadline_expired(user.doc_upload_deadline):
                     from app.services.onboarding import _finalize_onboarding
-                    _cancel_document_window_timer(user.id)
+                    async with _timers_lock:
+                        _cancel_document_window_timer(user.id)
                     await _finalize_onboarding(db, user, send_text_message)
                     return
                 # Allow document/image uploads during this state.
@@ -864,7 +878,7 @@ async def route_message(db: Session, message_data: dict) -> None:
                         await send_text_message(db, from_number, "Sorry, that took too long. Please try again.")
                         return
                     if user.onboarding_state == "awaiting_documents":
-                        _schedule_document_window_timer(
+                        await _schedule_document_window_timer(
                             user_id=user.id,
                             from_number=from_number,
                             deadline=user.doc_upload_deadline,
@@ -908,7 +922,7 @@ async def route_message(db: Session, message_data: dict) -> None:
                 await send_text_message(db, from_number, "Sorry, that took too long. Please try again.")
                 return
             if user.onboarding_state == "awaiting_documents":
-                _schedule_document_window_timer(
+                await _schedule_document_window_timer(
                     user_id=user.id,
                     from_number=from_number,
                     deadline=user.doc_upload_deadline,
@@ -1618,26 +1632,47 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
             )
             return
 
-    # --- Batch limit check (in-memory, race-safe) ---
-    # Count recent uploads for this pet within the batch window.
+    # --- Batch limit check + backpressure (atomic under _uploads_lock) ---
+    # All read-modify-write operations on _recent_uploads, _rejection_sent, and
+    # _upload_queue_depth are serialised here so concurrent coroutines cannot
+    # both pass a limit check before either increments the counter (TOCTOU).
     pet_key = str(pet.id)
     now = time.time()
     cutoff = now - _UPLOAD_BATCH_WINDOW_SECONDS
 
-    # Clean up old entries outside the batch window.
-    if pet_key in _recent_uploads:
+    _reject_quota = False
+    _reject_quota_first = False
+    _reject_queue = False
+
+    async with _uploads_lock:
+        # Clean up old entries outside the batch window.
         _recent_uploads[pet_key] = [
-            ts for ts in _recent_uploads[pet_key] if ts > cutoff
+            ts for ts in _recent_uploads.get(pet_key, []) if ts > cutoff
         ]
-    else:
-        _recent_uploads[pet_key] = []
 
-    recent_count = len(_recent_uploads[pet_key])
+        recent_count = len(_recent_uploads[pet_key])
 
-    if recent_count >= MAX_DOCS_PER_SESSION:
-        # Only send the rejection message once per batch to avoid spamming.
-        if not _rejection_sent.get(pet_key):
-            _rejection_sent[pet_key] = True
+        if recent_count >= MAX_DOCS_PER_SESSION:
+            # Only send the rejection message once per batch to avoid spamming.
+            _reject_quota = True
+            if not _rejection_sent.get(pet_key):
+                _rejection_sent[pet_key] = True
+                _reject_quota_first = True
+        elif _upload_queue_depth >= MAX_QUEUED_UPLOADS:
+            # Queue full — reject without incrementing queue depth.
+            logger.warning(
+                "Upload queue full (%d/%d) — rejecting upload for pet=%s mobile=%s",
+                _upload_queue_depth, MAX_QUEUED_UPLOADS,
+                pet_key, mask_phone(from_number),
+            )
+            _reject_queue = True
+        else:
+            # Slot available — claim it and record the upload timestamp atomically.
+            _recent_uploads[pet_key].append(now)
+            _upload_queue_depth += 1
+
+    if _reject_quota:
+        if _reject_quota_first:
             await send_text_message(
                 db, from_number,
                 f"I've got these — let's continue with {pet.name}'s care plan. "
@@ -1645,31 +1680,13 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
             )
         return
 
-    # Track this upload in the in-memory batch window.
-    _recent_uploads[pet_key].append(now)
-
-    # --- Backpressure check ---
-    # If too many tasks are already waiting on the semaphore, reject this
-    # upload immediately instead of queuing another coroutine. This prevents
-    # event loop overload during traffic spikes (e.g. a user bulk-forwarding
-    # 50 files) without silently dropping messages — the user gets a clear
-    # "try again" message rather than an indefinite wait.
-    global _upload_queue_depth
-    if _upload_queue_depth >= MAX_QUEUED_UPLOADS:
-        logger.warning(
-            "Upload queue full (%d/%d) — rejecting upload for pet=%s mobile=%s",
-            _upload_queue_depth, MAX_QUEUED_UPLOADS,
-            pet_key, mask_phone(from_number),
-        )
-        _recent_uploads[pet_key].pop()
+    if _reject_queue:
         await send_text_message(
             db, from_number,
             "We're receiving a lot of uploads right now. "
             "Please try again in a moment.",
         )
         return
-
-    _upload_queue_depth += 1
     try:
         # Gate download + DB writes so at most MAX_CONCURRENT_UPLOAD_PROCESSING
         # tasks run this section at once. Without this, 20 simultaneous uploads
@@ -1680,7 +1697,9 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
             media_result = await download_whatsapp_media(media_id)
             if not media_result:
                 # Remove the tracked upload since download failed.
-                _recent_uploads[pet_key].pop()
+                async with _uploads_lock:
+                    if _recent_uploads.get(pet_key):
+                        _recent_uploads[pet_key].pop()
                 await send_text_message(db, from_number, "Failed to download the file. Please try again.")
                 return
 
@@ -1701,7 +1720,11 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
 
                 # Track this exact document in the current in-memory batch so the
                 # deferred extractor doesn't accidentally sweep unrelated pending docs.
-                _batch_document_ids.setdefault(pet_key, []).append(document.id)
+                # Protected by _uploads_lock so concurrent uploads for the same pet
+                # don't race on append + len (TOCTOU).
+                async with _uploads_lock:
+                    _batch_document_ids.setdefault(pet_key, []).append(document.id)
+                    is_first_in_batch = len(_batch_document_ids[pet_key]) == 1
 
                 # --- Immediate post-onboarding upload acknowledgement ---
                 # When a user sends documents AFTER onboarding, they wait through a
@@ -1709,7 +1732,6 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
                 # "Got it 🐾" on the FIRST document of a post-onboarding batch so the
                 # user knows their upload was received.  The detailed processing
                 # message still fires from the batch extractor once the window closes.
-                is_first_in_batch = len(_batch_document_ids[pet_key]) == 1
                 if is_first_in_batch and user.onboarding_state != "awaiting_documents":
                     try:
                         await send_text_message(
@@ -1732,7 +1754,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
                     _batch_is_onboarding[pet_key] = True
                     # Keep the deadline timer alive so auto-finalization still fires
                     # at the end of the window if the user goes silent.
-                    _schedule_document_window_timer(
+                    await _schedule_document_window_timer(
                         user_id=user.id,
                         from_number=from_number,
                         deadline=user.doc_upload_deadline,
@@ -1743,7 +1765,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
                 # Schedule (or reschedule) a deferred batch extraction.
                 # The timer resets with each new upload so extraction only starts
                 # after uploads have settled (_EXTRACTION_DELAY_SECONDS of silence).
-                _schedule_batch_extraction(
+                await _schedule_batch_extraction(
                     pet_id=pet.id,
                     pet_name=pet.name,
                     user_id=user.id,
@@ -1752,17 +1774,20 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
 
             except ValueError as e:
                 # Remove the tracked upload since storage failed.
-                _recent_uploads[pet_key].pop()
+                async with _uploads_lock:
+                    if _recent_uploads.get(pet_key):
+                        _recent_uploads[pet_key].pop()
                 error_str = str(e)
                 if "not allowed" in error_str or "File type" in error_str:
                     # Unsupported MIME type (e.g. .docx): suppress per-file message.
                     # Track the count so it appears in the batch acknowledgment instead.
-                    _unsupported_format_count[pet_key] = (
-                        _unsupported_format_count.get(pet_key, 0) + 1
-                    )
+                    async with _uploads_lock:
+                        _unsupported_format_count[pet_key] = (
+                            _unsupported_format_count.get(pet_key, 0) + 1
+                        )
                     # Schedule a timer so the acknowledgment fires even if no valid
                     # documents are added to the batch.
-                    _schedule_batch_extraction(
+                    await _schedule_batch_extraction(
                         pet_id=pet.id,
                         pet_name=pet.name,
                         user_id=user.id,
@@ -1773,13 +1798,15 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
                     # batch-level constraints the user needs to know about right away.
                     await send_text_message(db, from_number, error_str)
             except RuntimeError:
-                _recent_uploads[pet_key].pop()
+                async with _uploads_lock:
+                    if _recent_uploads.get(pet_key):
+                        _recent_uploads[pet_key].pop()
                 # Always schedule the extraction timer even when this individual doc
                 # failed — other docs in the batch may have already succeeded and
                 # still need extraction + summary. Without this call, a DB error on
                 # one doc would leave successfully-uploaded docs with no timer and
                 # no user feedback.
-                _schedule_batch_extraction(
+                await _schedule_batch_extraction(
                     pet_id=pet.id,
                     pet_name=pet.name,
                     user_id=user.id,
@@ -1794,7 +1821,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
         _upload_queue_depth -= 1
 
 
-def _schedule_batch_extraction(
+async def _schedule_batch_extraction(
     pet_id, pet_name, user_id, from_number,
 ) -> None:
     """
@@ -1803,18 +1830,22 @@ def _schedule_batch_extraction(
     Each new upload resets the timer. Extraction only starts after
     _EXTRACTION_DELAY_SECONDS of no new uploads, ensuring the full
     batch is received before processing begins.
+
+    Async so the cancel-check-create sequence is serialised under _timers_lock,
+    preventing concurrent uploads from racing to replace each other's extraction timer.
     """
     pet_key = str(pet_id)
 
-    # Cancel existing timer for this pet (debounce).
-    existing = _extraction_timers.get(pet_key)
-    if existing and not existing.done():
-        existing.cancel()
+    async with _timers_lock:
+        # Cancel existing timer for this pet (debounce).
+        existing = _extraction_timers.get(pet_key)
+        if existing and not existing.done():
+            existing.cancel()
 
-    # Schedule a new delayed extraction.
-    _extraction_timers[pet_key] = asyncio.create_task(
-        _delayed_batch_extraction(pet_id, pet_name, user_id, from_number)
-    )
+        # Schedule a new delayed extraction.
+        _extraction_timers[pet_key] = asyncio.create_task(
+            _delayed_batch_extraction(pet_id, pet_name, user_id, from_number)
+        )
 
 
 async def run_extraction_batch(
@@ -2223,7 +2254,8 @@ async def _delayed_batch_extraction(
         if should_finalize_onboarding:
             try:
                 from app.services.onboarding import _finalize_onboarding
-                _cancel_document_window_timer(user.id)
+                async with _timers_lock:
+                    _cancel_document_window_timer(user.id)
                 clear_upload_window_extended(user.id)
                 await _finalize_onboarding(bg_db, user, send_text_message)
             except Exception as e:

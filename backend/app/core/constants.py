@@ -216,7 +216,7 @@ OPENAI_RETRY_BACKOFFS: list[float] = [1.0, 2.0]
 # Rate-limit (429) specific backoffs — longer to allow TPM window recovery.
 OPENAI_RATE_LIMIT_BACKOFFS: list[float] = [10.0, 20.0]
 # Max concurrent AI API calls across the whole process.
-CLAUDE_API_CONCURRENCY: int = 5
+CLAUDE_API_CONCURRENCY: int = 20
 
 # --- Extraction Hardening ---
 # Maximum number of automatic replay attempts for a failed extraction.

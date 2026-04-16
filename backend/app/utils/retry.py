@@ -38,14 +38,13 @@ T = TypeVar("T")
 
 # Global semaphore — limits concurrent in-flight Claude/Anthropic API calls
 # across the whole process. Prevents TPM quota exhaustion under request bursts.
-_claude_semaphore: asyncio.Semaphore | None = None
+# Initialized eagerly at module load to avoid a lazy-init race where two coroutines
+# both see None and create duplicate semaphores during cold-start.
+_claude_semaphore = asyncio.Semaphore(CLAUDE_API_CONCURRENCY)
 
 
 def _get_claude_semaphore() -> asyncio.Semaphore:
-    """Return (or lazily create) the process-wide Claude concurrency semaphore."""
-    global _claude_semaphore
-    if _claude_semaphore is None:
-        _claude_semaphore = asyncio.Semaphore(CLAUDE_API_CONCURRENCY)
+    """Return the process-wide Claude concurrency semaphore."""
     return _claude_semaphore
 
 
