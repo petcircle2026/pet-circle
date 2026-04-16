@@ -47,7 +47,7 @@ MAX_PENDING_DOCS_PER_PET: int = 100
 # Maximum number of documents a user can send in a single upload burst/session.
 # Enforced over the in-memory batch window so each new burst resets the count.
 # Internal cap only — do not surface this number in any user-facing message or LLM prompt.
-MAX_DOCS_PER_SESSION: int = 100
+MAX_DOCS_PER_SESSION: int = 300
 
 # Maximum number of concurrent background extraction tasks system-wide.
 # Sized to allow multiple pet batches to extract in parallel while

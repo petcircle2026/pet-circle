@@ -729,7 +729,7 @@ def _condition_headline(condition: Condition) -> str:
         return f"Under active management since {detected_str}."
     if condition.diagnosed_at:
         return f"{condition.name} · Since {detected_str}"
-    return f"{condition.condition_type.capitalize()} condition under monitoring"
+    return f"{condition.name} under monitoring"
 
 
 def _fallback_questions(condition: Condition) -> list[str]:

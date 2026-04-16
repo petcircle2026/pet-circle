@@ -521,27 +521,30 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
             "notes", "status"
         }
     """
-    # Find vet contact — prefer the one linked to the latest prescription.
+    # Find vet contact — prefer the one linked to the latest prescription or vaccination.
     vet = None
-    latest_prescription = (
+
+    # Look for the most recent document (prescription or vaccination) with a doctor name.
+    # This ensures we pick the doctor from the most recent vet visit, regardless of document type.
+    latest_vet_document = (
         db.query(Document)
         .filter(
             Document.pet_id == pet_id,
-            Document.document_category.ilike("prescription"),
+            Document.document_category.in_("prescription", "vaccination"),
             Document.event_date.isnot(None),
         )
         .order_by(Document.event_date.desc())
         .first()
     )
 
-    # Pull vet contact from the prescription's doctor/clinic info when available.
-    if latest_prescription and latest_prescription.doctor_name:
+    # Pull vet contact from the document's doctor/clinic info when available.
+    if latest_vet_document and latest_vet_document.doctor_name:
         vet = (
             db.query(Contact)
             .filter(
                 Contact.pet_id == pet_id,
                 Contact.role == "veterinarian",
-                Contact.name == latest_prescription.doctor_name,
+                Contact.name == latest_vet_document.doctor_name,
             )
             .first()
         )
@@ -562,9 +565,9 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
 
     managing_condition = None
     managing_since = None
-    # Use the latest prescription event_date as the primary last_visit_date.
+    # Use the latest vet document (prescription or vaccination) event_date as the primary last_visit_date.
     last_visit_date = (
-        str(latest_prescription.event_date) if latest_prescription and latest_prescription.event_date else None
+        str(latest_vet_document.event_date) if latest_vet_document and latest_vet_document.event_date else None
     )
     next_due_date = None
     notes = None

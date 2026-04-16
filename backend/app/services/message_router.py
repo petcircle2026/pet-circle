@@ -2045,6 +2045,22 @@ async def run_extraction_batch(
                     _err_db.close()
             except Exception:
                 pass
+
+        # --- Trigger dashboard precompute after extraction completes ---
+        # Refreshes health_conditions_v2, insights, and other cached dashboard data
+        # so the user sees updated summaries immediately.
+        try:
+            from app.services.precompute_service import precompute_dashboard_enrichments
+            asyncio.create_task(precompute_dashboard_enrichments(str(pet_id)))
+            logger.info(
+                "[extraction] Scheduled precompute for pet=%s after batch completion", pet_key
+            )
+        except Exception as _pre_exc:
+            logger.warning(
+                "[extraction] Failed to schedule precompute for pet=%s: %s",
+                pet_key, _pre_exc,
+            )
+
     finally:
         bg_db.close()
 

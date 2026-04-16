@@ -1360,6 +1360,24 @@ def update_preventive_date(
         # --- Update last_done_date ---
         target_record.last_done_date = new_last_done_date
 
+        # --- Auto-detect medicine frequency if not already set ---
+        # For medicine-dependent items (Tick/Flea, Deworming, etc.) with a medicine_name,
+        # automatically set custom_recurrence_days based on the actual product frequency
+        # from product_medicines catalog instead of using the generic master value.
+        if (
+            not target_record.custom_recurrence_days
+            and target_master.medicine_dependent
+            and target_record.medicine_name
+        ):
+            from app.services.preventive_calculator import get_medicine_recurrence_days
+            med_recurrence = get_medicine_recurrence_days(db, target_record.medicine_name)
+            if med_recurrence:
+                target_record.custom_recurrence_days = med_recurrence
+                logger.info(
+                    f"Auto-detected medicine frequency: {target_record.medicine_name} "
+                    f"→ {med_recurrence} days (overriding master {target_master.recurrence_days})"
+                )
+
         # --- Recalculate next_due_date ---
         # Respect custom recurrence when present; otherwise use master default.
         effective_recurrence_days = (
