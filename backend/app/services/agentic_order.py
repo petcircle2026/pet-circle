@@ -75,7 +75,7 @@ FLOW:
 
 CATEGORIES:
 - medicines: prescription drugs, flea/tick treatments, dewormers, ear drops, etc.
-- food_nutrition: kibble, wet food, treats, meal toppers
+- food_nutrition: food, kibble, wet food, treats, meal toppers
 - supplements: vitamins, probiotics, omega oils, joint supplements
 
 RECOMMENDATIONS:
