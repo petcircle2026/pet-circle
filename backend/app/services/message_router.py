@@ -1226,7 +1226,8 @@ async def _send_help_menu(db: Session, from_number: str, user=None) -> None:
         f"• Send *dashboard* to view {pet_possessive} records\n"
         "• Send *order* to buy medicines, food, or supplements\n"
         "• Send *help* to see this menu\n"
-        "• Upload a vet document for extraction",
+        "• Upload a vet document for extraction\n\n"
+        "• Call 7400058458 if you prefer to speak to someone regarding your concern",
     )
 
 
@@ -2098,6 +2099,23 @@ async def run_extraction_batch(
                     all_results, success_count, fail_count, failed_docs,
                 )
 
+        # --- Trigger dashboard precompute after extraction completes ---
+        # Refreshes health_conditions_v2, insights, and other cached dashboard data
+        # so the user sees updated summaries immediately.
+        # This runs after the cache invalidation in extract_and_process_document
+        # has already committed to the DB.
+        try:
+            from app.services.precompute_service import precompute_dashboard_enrichments
+            asyncio.create_task(precompute_dashboard_enrichments(str(pet_id)))
+            logger.info(
+                "[extraction] Scheduled precompute for pet=%s after batch completion", pet_key
+            )
+        except Exception as _pre_exc:
+            logger.warning(
+                "[extraction] Failed to schedule precompute for pet=%s: %s",
+                pet_key, _pre_exc,
+            )
+
     except Exception as e:
         logger.error("[extraction] Batch failed for pet=%s: %s", pet_key, str(e))
         try:
@@ -2118,21 +2136,6 @@ async def run_extraction_batch(
                     _err_db.close()
             except Exception:
                 pass
-
-        # --- Trigger dashboard precompute after extraction completes ---
-        # Refreshes health_conditions_v2, insights, and other cached dashboard data
-        # so the user sees updated summaries immediately.
-        try:
-            from app.services.precompute_service import precompute_dashboard_enrichments
-            asyncio.create_task(precompute_dashboard_enrichments(str(pet_id)))
-            logger.info(
-                "[extraction] Scheduled precompute for pet=%s after batch completion", pet_key
-            )
-        except Exception as _pre_exc:
-            logger.warning(
-                "[extraction] Failed to schedule precompute for pet=%s: %s",
-                pet_key, _pre_exc,
-            )
 
     finally:
         bg_db.close()

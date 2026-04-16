@@ -1101,8 +1101,9 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
 
     # 3. Diet — build a specific food + supplement line.
     # What We Found shows all food types (packaged + homemade).
+    # Only show supplements from WhatsApp chat (source="manual"), not document-extracted ones
     food_items = [d for d in diet_items if d.type in ("packaged", "homemade")]
-    supplement_items = [d for d in diet_items if d.type == "supplement"]
+    supplement_items = [d for d in diet_items if d.type == "supplement" and (d.source or "").lower() == "manual"]
 
     if food_items or supplement_items:
         bullets.append(

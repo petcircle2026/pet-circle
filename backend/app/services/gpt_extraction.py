@@ -3330,7 +3330,7 @@ async def extract_and_process_document(
                         .filter(ConditionMedication.condition_id == condition_obj.id, ConditionMedication.name == med_name)
                         .first()
                     )
-                    # Parse end_date if provided.
+                    # Parse end_date if provided. For chronic conditions, default to far-future date.
                     med_end_date = None
                     if med.get("end_date"):
                         try:
@@ -3339,6 +3339,9 @@ async def extract_and_process_document(
                                 med_end_date = _med_end
                         except Exception:
                             pass
+                    # If medicine belongs to a chronic condition and end_date is not set, use far-future date
+                    if not med_end_date and condition_obj.condition_type == "chronic":
+                        med_end_date = date(2099, 12, 31)
                     if not existing_med:
                         db.add(ConditionMedication(
                             condition_id=condition_obj.id,
