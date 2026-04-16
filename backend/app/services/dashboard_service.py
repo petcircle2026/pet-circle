@@ -928,6 +928,24 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         _cached_diet if isinstance(_cached_diet, dict)
         else {"macros": [], "missing_micros": []}
     )
+    # Guard 1: if the pet has no diet items, suppress any cached supplement
+    # recommendations. Stale cache entries may contain LLM-fabricated gaps
+    # generated before the pet logged any food — these must not surface as
+    # "Quick Fixes to Add" on the dashboard.
+    if not diet_rows and diet_summary.get("missing_micros"):
+        diet_summary = {**diet_summary, "missing_micros": []}
+    # Guard 2: if diet items exist but the cached diet_summary has no macro data
+    # (calories_per_day = 0 / macros empty), the LLM could not analyse the diet
+    # (e.g. homemade food without quantities → INSUFFICIENT_DATA). Suppress
+    # missing_micros so stale gaps from a previous analysis don't appear as
+    # "Quick Fixes to Add" when the current diet cannot be quantified.
+    elif diet_rows and diet_summary.get("missing_micros"):
+        _has_macro_data = any(
+            m.get("pct_of_need", 0) > 0
+            for m in diet_summary.get("macros", [])
+        )
+        if not _has_macro_data:
+            diet_summary = {**diet_summary, "missing_micros": []}
 
     recognition_bullets: list = []
     _cached_bullets = _insight_cache.get("recognition_bullets")

@@ -49,7 +49,7 @@ export default function CareCadenceSection({ data }: CareCadenceSectionProps) {
         }, 0);
         return (
           <div className="card">
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8, color: "var(--green)" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", marginBottom: 8, color: data.vaccines.footer.color }}>
               💉 Vaccinations · Cadence
             </div>
             {vaccineCount > 0 && (

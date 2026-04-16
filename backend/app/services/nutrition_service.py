@@ -749,6 +749,9 @@ async def estimate_complete_meal_nutrition(
     Cache key is a hash of all food items (label + type + detail) + pet profile,
     stored in food_nutrition_cache with food_type='combined_meal'.
     """
+    if not diet_items:
+        return None
+
     species_norm = (species or "dog").lower().strip()
     bucket = _weight_bucket(weight_kg)
     conditions_sorted = sorted(c.lower().strip() for c in (conditions or []) if c)
@@ -990,9 +993,36 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
     if meal_result:
         _accumulate_from_estimation(actual, meal_result)
 
-    # If no items at all, actual stays at zeros — will show all gaps
+    # No diet items — skip all gap analysis, return empty result so the
+    # dashboard shows a "no diet logged" state instead of fabricated gaps.
     if not diet_items:
-        pass
+        return {
+            "calories": {"actual": 0, "target": targets.get("calories", 1200), "status": "deficit"},
+            "macros": [],
+            "vitamins": [],
+            "minerals": [],
+            "others": [],
+            "improvements": [],
+            "overall_label": "no_data",
+            "recommendation": "Add your pet's food in the Nutrition tab to see a personalised analysis.",
+            "diet_summary": "No diet items added yet. Add your pet's food in the Nutrition tab for a detailed analysis.",
+            "analysis_context": f"Analysis based on {pet.breed or 'your pet'} breed profile",
+            "gap_count": 0,
+            "has_diet_items": False,
+            "calories_per_day": 0,
+            "calorie_target": targets.get("calories", 1200),
+            "calorie_gap_pct": None,
+            "food_label": None,
+            "show_warning": False,
+            "warning_message": None,
+            "prescription_context": None,
+            "protein_pct": 0,
+            "fat_pct": 0,
+            "carbs_pct": 0,
+            "fibre_pct": 0,
+            "micronutrient_gaps": [],
+            "top_improvements": [],
+        }
 
     # Calculate calorie status
     target_cal = targets.get("calories", 1200)
@@ -1398,6 +1428,21 @@ async def get_diet_summary(db: Session, pet, analysis: dict | None = None) -> di
             analysis = await analyze_nutrition(db, pet.id)
     except Exception as e:
         logger.error("get_diet_summary: analyze_nutrition failed for pet %s: %s", pet.id, e)
+        return {"macros": [], "missing_micros": []}
+
+    # No diet items → no supplement recommendations should be shown
+    if not analysis.get("has_diet_items", True):
+        return {"macros": [], "missing_micros": []}
+
+    # LLM could not analyse the diet (e.g. homemade food without quantities →
+    # INSUFFICIENT_DATA). calories_per_day will be 0 and micronutrient_gaps will
+    # be empty. Showing stale or fabricated micronutrient gaps as "Quick Fixes to
+    # Add" supplements in this state is misleading — suppress them.
+    _llm_analysed = bool(
+        analysis.get("calories_per_day")
+        or analysis.get("micronutrient_gaps")
+    )
+    if not _llm_analysed:
         return {"macros": [], "missing_micros": []}
 
     # --- Calories ---
