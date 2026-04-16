@@ -167,10 +167,13 @@ class _AsyncMessagesProxy:
                 tools=oai_tools,
                 tool_choice=oai_tc,
             )
-            tool_call = response.choices[0].message.tool_calls[0]
-            input_dict = json.loads(tool_call.function.arguments)
-            stop_reason = response.choices[0].finish_reason or "end_turn"
-            return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
+            # OpenAI may return None or empty tool_calls list if model didn't use tools
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                input_dict = json.loads(tool_call.function.arguments)
+                stop_reason = response.choices[0].finish_reason or "end_turn"
+                return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
 
         response = await client.chat.completions.create(
             model=model,
@@ -227,10 +230,13 @@ class _SyncMessagesProxy:
                 tools=oai_tools,
                 tool_choice=oai_tc,
             )
-            tool_call = response.choices[0].message.tool_calls[0]
-            input_dict = json.loads(tool_call.function.arguments)
-            stop_reason = response.choices[0].finish_reason or "end_turn"
-            return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
+            # OpenAI may return None or empty tool_calls list if model didn't use tools
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls and len(tool_calls) > 0:
+                tool_call = tool_calls[0]
+                input_dict = json.loads(tool_call.function.arguments)
+                stop_reason = response.choices[0].finish_reason or "end_turn"
+                return _FakeResponse([_ToolUseContent(input_dict)], stop_reason=stop_reason)
 
         response = client.chat.completions.create(
             model=model,
