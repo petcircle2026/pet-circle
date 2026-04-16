@@ -74,9 +74,9 @@ FLOW:
 7. If the user wants to cancel at any point → call cancel_order.
 
 CATEGORIES:
-- medicines: prescription drugs, flea/tick treatments, dewormers, ear drops, etc.
+- medicines: medicines, prescription drugs, flea/tick treatments, dewormers, ear drops, etc.
 - food_nutrition: food, kibble, wet food, treats, meal toppers
-- supplements: vitamins, probiotics, omega oils, joint supplements
+- supplements: supplements, vitamins, probiotics, omega oils, joint supplements
 
 RECOMMENDATIONS:
 - After calling get_recommendations, present the results naturally (not as a numbered menu).
