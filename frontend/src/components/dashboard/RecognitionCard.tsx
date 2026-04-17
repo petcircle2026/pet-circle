@@ -11,7 +11,7 @@ interface RecognitionCardProps {
 }
 
 export default function RecognitionCard({ data, onGoToRecords, isReturning = false }: RecognitionCardProps) {
-  const bullets = normalizeRecognitionBullets(data).slice(0, 3);
+  const bullets = normalizeRecognitionBullets(data).slice(0, 4);
   const reportCount = data.recognition?.report_count ?? data.documents?.length ?? 0;
   const [expanded, setExpanded] = useState(!isReturning);
 

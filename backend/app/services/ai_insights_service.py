@@ -1116,7 +1116,30 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
     else:
         bullets.append({"icon": "🍽️", "label": "No diet entries recorded"})
 
-    return bullets[:3]
+    # 4. Prescribed diet — document-extracted diet items (food or supplement from documents)
+    doc_diet_items = [
+        d for d in diet_items
+        if (d.source or "").lower() == "document_extracted"
+        and d.type in ("packaged", "homemade", "supplement")
+    ]
+    if doc_diet_items:
+        seen_labels: set[str] = set()
+        unique_labels: list[str] = []
+        for d in doc_diet_items:
+            lbl = (d.label or "").strip()
+            if lbl and lbl.lower() not in seen_labels:
+                seen_labels.add(lbl.lower())
+                unique_labels.append(lbl)
+        if unique_labels:
+            if len(unique_labels) == 1:
+                prescribed_str = unique_labels[0]
+            elif len(unique_labels) == 2:
+                prescribed_str = f"{unique_labels[0]} and {unique_labels[1]}"
+            else:
+                prescribed_str = ", ".join(unique_labels[:-1]) + f" and {unique_labels[-1]}"
+            bullets.append({"icon": "📋", "label": f"Prescribed diet: {prescribed_str}"})
+
+    return bullets[:4]
 
 
 def _extract_orderable_item_key_and_name(item: dict[str, Any]) -> tuple[str, str] | None:
