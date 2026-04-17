@@ -962,12 +962,25 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             isinstance(b, dict) and "0 preventive" in (b.get("label") or "").lower()
             for b in _cached_bullets
         )
+        # Staleness check 3: doc-extracted diet items exist but no "Prescribed diet" bullet
+        # in cache — happens when a document was uploaded after bullets were last computed.
+        _has_doc_diet = any(
+            (d.source or "").lower() == "document_extracted"
+            and d.type in ("packaged", "homemade", "supplement")
+            for d in diet_rows
+        )
+        _prescribed_bullet_present = any(
+            isinstance(b, dict) and "prescribed diet" in (b.get("label") or "").lower()
+            for b in _cached_bullets
+        )
+        _prescribed_stale = _has_doc_diet and not _prescribed_bullet_present
+
         _has_diet = len(diet_rows) > 0
         _has_preventive = any(
             r.last_done_date is not None and (m.is_core or r.custom_preventive_item_id is not None)
             for r, m in preventive_data
         )
-        if not (_diet_stale and _has_diet) and not (_prev_stale and _has_preventive):
+        if not (_diet_stale and _has_diet) and not (_prev_stale and _has_preventive) and not _prescribed_stale:
             recognition_bullets = _cached_bullets
 
     # If cache is cold/stale, regenerate inline — generate_recognition_bullets is

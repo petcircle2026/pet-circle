@@ -210,6 +210,10 @@ export default function DashboardView({
           setIsExtracting(true);
           const baselineConditions = (data.health_conditions_summary ?? []).length;
           const baselineDocs = data.documents?.length ?? 0;
+          const baselineBullets = (data.recognition?.bullets ?? []).length;
+          const baselinePrescribed = (data.recognition?.bullets ?? []).some(
+            (b) => b.label?.toLowerCase().includes("prescribed diet")
+          );
 
           const maxAttempts = 30; // 30 * 2s = 60s max wait
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -218,7 +222,16 @@ export default function DashboardView({
               await onDataRefresh();
               const freshConditions = (dataRef.current.health_conditions_summary ?? []).length;
               const freshDocs = dataRef.current.documents?.length ?? 0;
-              if (freshConditions > baselineConditions || freshDocs > baselineDocs) {
+              const freshBullets = (dataRef.current.recognition?.bullets ?? []).length;
+              const freshPrescribed = (dataRef.current.recognition?.bullets ?? []).some(
+                (b) => b.label?.toLowerCase().includes("prescribed diet")
+              );
+              if (
+                freshConditions > baselineConditions ||
+                freshDocs > baselineDocs ||
+                freshBullets > baselineBullets ||
+                (!baselinePrescribed && freshPrescribed)
+              ) {
                 break;
               }
             } catch (e) {
