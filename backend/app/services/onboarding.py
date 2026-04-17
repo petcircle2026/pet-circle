@@ -533,6 +533,9 @@ async def handle_onboarding_step(
     elif state == "awaiting_vaccine_type":
         await _step_vaccine_type(db, user, text, send_fn)
 
+    elif state == "awaiting_vaccine_date":
+        await _step_vaccine_date(db, user, text, send_fn)
+
     elif state == "awaiting_flea_brand":
         await _step_flea_brand(db, user, text, send_fn)
 
@@ -1787,9 +1790,10 @@ async def _step_preventive(db, user, text, send_fn):
                 _set_onboarding_data(user, "pending_flea_brand_needed", needs_flea_brand_q)
                 _set_onboarding_data(user, "preventive_attempts", conf_attempts)
                 _set_onboarding_data(user, "preventive_missing", [])
+                _vax_age_wks = _get_age_in_weeks(pet)
+                _set_onboarding_data(user, "pending_vaccine_age_weeks", _vax_age_wks)
                 user.onboarding_state = "awaiting_vaccine_type"
                 db.commit()
-                _vax_age_wks = _get_age_in_weeks(pet)
                 _vax_q = (
                     _puppy_vaccine_question(pet.name, _vax_age_wks)
                     if _vax_age_wks is not None and _vax_age_wks < 52
@@ -1942,10 +1946,11 @@ async def _step_preventive(db, user, text, send_fn):
         _set_onboarding_data(user, "pending_flea_brand_needed", needs_flea_brand_q)
         _set_onboarding_data(user, "preventive_attempts", attempts)
         _set_onboarding_data(user, "preventive_missing", missing)
-        user.onboarding_state = "awaiting_vaccine_type"
-        db.commit()
         # Use a puppy-series question for dogs under 1 year; adults get the standard question.
         _vax_age_wks = _get_age_in_weeks(pet)
+        _set_onboarding_data(user, "pending_vaccine_age_weeks", _vax_age_wks)
+        user.onboarding_state = "awaiting_vaccine_type"
+        db.commit()
         _vax_q = (
             _puppy_vaccine_question(pet.name, _vax_age_wks)
             if _vax_age_wks is not None and _vax_age_wks < 52
@@ -2345,18 +2350,20 @@ def _looks_like_vaccine_selection(text: str) -> bool:
     return (
         t in {"1", "2", "3", "4"}
         or t in never_keywords
+        or t in _YES_INPUTS
         or _is_pending_vaccine_intent(t)
         or t in vaccine_phrases
         or vaccine_keywords
     )
 
 
-def _resolve_vaccine_type_selection(text: str) -> list[str]:
+def _resolve_vaccine_type_selection(text: str, age_weeks: float | None = None) -> list[str]:
     """
     Map the user's reply to a list of vaccine master item_names to update.
 
     Returns [] if the user says they have not vaccinated (never done).
     Returns the appropriate list based on option 1–4 or keyword match.
+    age_weeks is used to contextualise bare affirmatives for the puppy dose-series question.
     """
     t = text.strip().lower()
     t = re.sub(r"[.!?,]+$", "", t)
@@ -2368,6 +2375,20 @@ def _resolve_vaccine_type_selection(text: str) -> list[str]:
     }
     if t in never_keywords:
         return []
+
+    # Bare affirmative ("yes", "yep", etc.) — user confirmed vaccines are done.
+    # For puppies the question named specific vaccines; map to those exactly.
+    # For adults (or unknown age) default to the mandatory pair.
+    if t in _YES_INPUTS:
+        if age_weeks is not None and age_weeks < 52:
+            # Puppy series: "yes" means all doses mentioned in the question are done.
+            # < 10 wks question lists 1st DHPP only; 10-16 wks lists up to 3rd DHPP + Rabies;
+            # 16-52 wks uses the standard adult question (mandatory pair is fine).
+            if age_weeks < 10:
+                return ["DHPPi"]
+            if age_weeks < 52:
+                return ["Rabies Vaccine", "DHPPi"]
+        return ["Rabies Vaccine", "DHPPi"]
 
     # Pending intent ("mandatory vaccines should be given", "not yet", etc.)
     # always maps to Option 1 — the mandatory pair. Must come BEFORE the
@@ -2436,6 +2457,7 @@ async def _step_vaccine_type(db, user, text, send_fn):
     flea_brand_needed = od.get("pending_flea_brand_needed", False)
     missing = od.get("preventive_missing", [])
     attempts = od.get("preventive_attempts", 0)
+    vaccine_age_weeks = od.get("pending_vaccine_age_weeks")
 
     # If the user sent additional health data instead of a vaccine selection, parse and
     # merge it, then re-ask the vaccine type question — never silently discard health info.
@@ -2468,8 +2490,34 @@ async def _step_vaccine_type(db, user, text, send_fn):
         return
 
     # Resolve which vaccine names the user selected.
-    vaccine_names = _resolve_vaccine_type_selection(text)
+    t_norm = re.sub(r"[.!?,]+$", "", text.strip().lower())
+    is_bare_affirmative = t_norm in _YES_INPUTS
+    vaccine_names = _resolve_vaccine_type_selection(text, age_weeks=vaccine_age_weeks)
     parsed["vaccine_names_to_update"] = vaccine_names
+
+    # For a bare affirmative "yes" we know which vaccines were given but not when.
+    # Ask the date follow-up (same pattern as the adult flow) before storing.
+    vaccine_date_raw = parsed.get("vaccines")
+    has_date = (
+        vaccine_date_raw
+        and str(vaccine_date_raw).strip().lower() not in ("yes", "done", "given", "true", "")
+    )
+    if is_bare_affirmative and not has_date and vaccine_names:
+        vaccine_label = " + ".join(
+            n.replace(" Vaccine", "").replace(" (Nobivac KC)", "") for n in vaccine_names
+        )
+        _set_onboarding_data(user, "pending_preventive_parsed", parsed)
+        _set_onboarding_data(user, "pending_flea_brand_needed", flea_brand_needed)
+        _set_onboarding_data(user, "preventive_missing", missing)
+        _set_onboarding_data(user, "preventive_attempts", attempts)
+        user.onboarding_state = "awaiting_vaccine_date"
+        db.commit()
+        await send_fn(
+            db, mobile,
+            f"When was {pet.name}'s last {vaccine_label} given? "
+            f"(rough date is fine — e.g., last month, Jan 2025)"
+        )
+        return
 
     if flea_brand_needed:
         # Store updated parsed data and ask flea brand question next.
@@ -2485,6 +2533,72 @@ async def _step_vaccine_type(db, user, text, send_fn):
     # No flea brand needed — store and proceed.
     ambiguous = await _store_preventive_data(db, pet, parsed)
     # Treat ambiguous like missing so they get re-asked in the retry step.
+    for key in ambiguous:
+        if key not in missing:
+            missing.append(key)
+
+    if missing and attempts < 1:
+        _set_onboarding_data(user, "preventive_attempts", 1)
+        user.onboarding_state = "awaiting_prev_retry"
+        db.commit()
+        missing_names = {
+            "vaccines": "vaccines",
+            "deworming": "deworming",
+            "flea_tick": "flea & tick treatment",
+            "blood_test": "blood tests",
+        }
+        missing_readable = [missing_names.get(m, m) for m in missing]
+        missing_str = " and ".join(missing_readable)
+        await send_fn(db, mobile, f"Got it! What about {missing_str}?")
+        return
+
+    await _transition_to_documents(db, user, pet, send_fn)
+
+
+async def _step_vaccine_date(db, user, text, send_fn):
+    """
+    Handle the vaccine date follow-up after a bare 'yes' to the vaccine type question.
+
+    Injects the parsed date into pending_preventive_parsed['vaccines'], then
+    proceeds to flea brand question or stores data and transitions to documents.
+    """
+    mobile = user._plaintext_mobile
+    pet = _get_pending_pet(db, user.id)
+    if not pet:
+        user.onboarding_state = "welcome"
+        db.commit()
+        await send_fn(db, mobile, "Something went wrong. Let's start — what's your pet's name?")
+        return
+
+    od = _get_onboarding_data(user)
+    parsed = dict(od.get("pending_preventive_parsed") or {})
+    flea_brand_needed = od.get("pending_flea_brand_needed", False)
+    missing = od.get("preventive_missing", [])
+    attempts = od.get("preventive_attempts", 0)
+
+    # Parse the date from the user's reply.
+    skip_keywords = {"not sure", "don't know", "dont know", "no idea", "skip", "n/a", "na"}
+    t_norm = text.strip().lower()
+    if t_norm not in skip_keywords:
+        parsed_date = await _parse_preventive_date_value(text, pet)
+        if parsed_date:
+            parsed["vaccines"] = parsed_date.isoformat()
+            if "vaccines" in missing:
+                missing = [m for m in missing if m != "vaccines"]
+        # else: leave vaccines as-is (vaccine_names_to_update already set)
+
+    _set_onboarding_data(user, "pending_preventive_parsed", parsed)
+    _set_onboarding_data(user, "preventive_missing", missing)
+
+    if flea_brand_needed:
+        _set_onboarding_data(user, "pending_flea_brand_needed", True)
+        _set_onboarding_data(user, "preventive_attempts", attempts)
+        user.onboarding_state = "awaiting_flea_brand"
+        db.commit()
+        await send_fn(db, mobile, _flea_brand_question(pet.name))
+        return
+
+    ambiguous = await _store_preventive_data(db, pet, parsed)
     for key in ambiguous:
         if key not in missing:
             missing.append(key)

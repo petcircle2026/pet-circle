@@ -64,7 +64,7 @@ export default function CarePlanCard({
             </span>
           )}
           {counts.dueSoon > 0 && (
-            <span style={{ borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#FFF3E0", color: "#E65100" }}>
+            <span style={{ borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#FFF6ED", color: "#b85c00" }}>
               {counts.dueSoon} Due Soon
             </span>
           )}
@@ -146,7 +146,7 @@ export default function CarePlanCard({
                               ? bucketKey === "attend" && item.next_due
                                 ? `${item.freq} · Prescribed: ${item.next_due}`
                                 : item.freq
-                              : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `End: ${item.next_due || "--"}`}`}
+                              : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `${bucketKey === "attend" ? "End" : "Next"}: ${item.next_due || "--"}`}`}
                         </div>
                         {item.reason && !(bucketKey === "continue" && (item.test_type === "food" || item.test_type === "supplement")) && (
                           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4, marginTop: 3, fontStyle: "italic" }}>
