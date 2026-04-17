@@ -107,7 +107,7 @@ def is_doc_upload_deadline_expired(deadline: datetime | None) -> bool:
 
 _CARE_PLAN_VACCINE_TERMS = [
     "vaccine", "rabies", "dhpp", "bordetella", "feline core",
-    "coronavirus", "kennel cough", "leptospirosis", "nobivac",
+    "coronavirus", "ccov", "kennel cough", "leptospirosis", "nobivac",
 ]
 
 
