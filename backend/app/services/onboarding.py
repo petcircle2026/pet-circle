@@ -555,13 +555,10 @@ async def handle_onboarding_step(
 def build_welcome_message(name: str) -> str:
     """Return the PetCircle welcome message personalised with the given name."""
     return (
-        f"🐾 Hi {name}, welcome to PetCircle — senior veterinary expertise, delivered right to your home.\n\n"
-        "Here's how it works:\n"
-        "• Set up your pet's profile by answering a few quick questions and sharing any health records here on WhatsApp (takes ~2 minutes)\n"
-        "• We analyse everything to create a personalised care plan with smart reminders, along with tailored health and nutrition insights\n"
-        "• Review insights, book a consult, or get timely reminders for due care — and order instantly with one click, right here on WhatsApp\n\n"
-        "Give your pet the care of top senior vets, with the comfort of home.\n\n"
-        "Let's get started — what's your pet's name? 🐶"
+        f"🐾 Hi {name}! Welcome to PetCircle.\n"
+        "You now have access to a network of senior vets and home care — all built around your pet's health profile.\n\n"
+        "Your pet's profile is what makes this work. Once it's set up, our vet team can track history, spot patterns, and help you stay ahead — with smart reminders, easy bookings, and expert clinical insights, all in one place.\n\n"
+        "Takes ~2 minutes. Let's start — what's your pet's name? 🐶"
     )
 
 
