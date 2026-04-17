@@ -1103,10 +1103,13 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
             {"icon": "💉", "label": "0 preventive care items tracked"}
         )
 
-    # 3. Diet — build a specific food + supplement line.
-    # What We Found shows all food types (packaged + homemade).
-    # Only show supplements from WhatsApp chat (source="manual"), not document-extracted ones
-    food_items = [d for d in diet_items if d.type in ("packaged", "homemade")]
+    # 3. Diet — chat/manual entries only (packaged + homemade not from documents, manual supplements).
+    # Document-extracted items (vet-prescribed food, avoid instructions, supplements) go to bullet 4.
+    food_items = [
+        d for d in diet_items
+        if d.type in ("packaged", "homemade")
+        and (d.source or "").lower() != "document_extracted"
+    ]
     supplement_items = [d for d in diet_items if d.type == "supplement" and (d.source or "").lower() == "manual"]
 
     if food_items or supplement_items:
