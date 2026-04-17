@@ -56,7 +56,7 @@ export default function HealthConditionsCard({
     return (
       <div className={compact ? undefined : "card"}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
-          <div className="sec-lbl" style={{ margin: 0 }}>Health Conditions</div>
+          <div className="sec-lbl" style={{ margin: 0, display: "inline" }}>Health Conditions</div>
           <span style={{
             fontSize: 11,
             fontWeight: 600,
@@ -67,7 +67,7 @@ export default function HealthConditionsCard({
             padding: "2px 8px",
             whiteSpace: "nowrap",
           }}>
-            ⚕ Under review by PetCircle Sr. Vet
+            Under review by PetCircle Sr. Vet
           </span>
         </div>
         <button
@@ -174,7 +174,7 @@ export default function HealthConditionsCard({
           padding: "2px 8px",
           whiteSpace: "nowrap",
         }}>
-          ⚕ Under review by PetCircle Sr. Vet
+          Under review by PetCircle Sr. Vet
         </span>
       </div>
       {allConditions.length > 0 && (

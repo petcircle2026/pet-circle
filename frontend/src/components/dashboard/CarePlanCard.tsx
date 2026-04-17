@@ -131,7 +131,11 @@ export default function CarePlanCard({
                   .sort();
                 const bannerMonth = nextDates[0]
                   ? (() => {
-                      const d = new Date(nextDates[0]);
+                      // next_due is a display string in DD/MM/YY or DD/MM/YYYY format
+                      const parts = nextDates[0].split("/");
+                      const d = parts.length === 3
+                        ? new Date(`20${parts[2].length === 2 ? parts[2] : parts[2].slice(-2)}-${parts[1]}-${parts[0]}`)
+                        : new Date(nextDates[0]);
                       return Number.isNaN(d.getTime())
                         ? nextDates[0]
                         : d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
@@ -271,7 +275,7 @@ export default function CarePlanCard({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      🏠 Book Your Consult
+                      🏠 Book Home Vet
                     </button>
                   </div>
                 )}
