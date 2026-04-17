@@ -254,6 +254,7 @@ from app.models.reminder import Reminder
 from app.models.user import User
 from app.services.onboarding import (
     _count_tracked_preventive_items,
+    _count_tracked_preventive_items_split,
     _generate_care_plan_message,
     build_welcome_message,
     create_pending_user,
@@ -2815,6 +2816,7 @@ async def _send_deferred_care_plan(
         # Use the same tracked preventive counting logic as onboarding and
         # dashboard "What's Found" to keep user-visible counts consistent.
         record_count = _count_tracked_preventive_items(db, pet.id)
+        vaccine_count, other_preventive_count = _count_tracked_preventive_items_split(db, pet.id)
         docs_uploaded = db.query(Document).filter(Document.pet_id == pet.id).count()
         conditions = (
             db.query(Condition)
@@ -2837,6 +2839,8 @@ async def _send_deferred_care_plan(
                 diet_count=diet_count,
                 supplement_count=supplement_count,
                 record_count=record_count,
+                vaccine_count=vaccine_count,
+                other_preventive_count=other_preventive_count,
                 docs_uploaded=docs_uploaded,
                 conditions=conditions,
                 diet_items=diet_items,
