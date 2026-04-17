@@ -106,7 +106,48 @@ export default function CarePlanCard({
               </div>
             )}
 
-            {sections.map((section) => (
+            {sections.map((section) => {
+              const isVaccineSection = bucketKey === "continue" &&
+                /vaccine|vaccination|preventive/i.test(section.title);
+
+              const mandatoryVaccineItems = isVaccineSection
+                ? section.items.filter((i) =>
+                    /dhppi|rabies/i.test(i.name) && i.test_type !== "food" && i.test_type !== "supplement"
+                  )
+                : [];
+
+              let vaccineBannerText = "";
+              if (mandatoryVaccineItems.length > 0) {
+                const hasOverdue = mandatoryVaccineItems.some(
+                  (i) => normalizeStatusTag(i.status_tag) === "Urgent"
+                );
+                const hasDueSoon = mandatoryVaccineItems.some((i) => {
+                  const s = normalizeStatusTag(i.status_tag);
+                  return s === "Due soon" || s === "Upcoming";
+                });
+                const nextDates = mandatoryVaccineItems
+                  .map((i) => i.next_due)
+                  .filter((d): d is string => !!d)
+                  .sort();
+                const bannerMonth = nextDates[0]
+                  ? (() => {
+                      const d = new Date(nextDates[0]);
+                      return Number.isNaN(d.getTime())
+                        ? nextDates[0]
+                        : d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+                    })()
+                  : null;
+
+                if (hasOverdue) {
+                  vaccineBannerText = "Annual vaccines overdue · Schedule your vet visit now";
+                } else if (hasDueSoon && bannerMonth) {
+                  vaccineBannerText = `Annual vaccines due ${bannerMonth} · Book in advance`;
+                } else if (bannerMonth) {
+                  vaccineBannerText = `Annual vaccines due ${bannerMonth} · Book in advance`;
+                }
+              }
+
+              return (
               <div key={section.title} className="care-sec" style={{ marginBottom: 8 }}>
                 <div className="care-hdr">{section.icon ? `${section.icon} ` : ""}{section.title}</div>
 
@@ -196,8 +237,47 @@ export default function CarePlanCard({
                     </div>
                   );
                 })}
+
+                {vaccineBannerText && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      background: "#FFF6ED",
+                      border: "1px solid #ffd9c2",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: "#7a3a0a", lineHeight: 1.4, flex: 1 }}>
+                      {vaccineBannerText}
+                    </span>
+                    <button
+                      type="button"
+                      style={{
+                        flexShrink: 0,
+                        background: "#D44800",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 20,
+                        padding: "7px 14px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      🏠 Book Your Consult
+                    </button>
+                  </div>
+                )}
               </div>
-            ))}
+            );
+            })}
           </div>
         );
       })}
