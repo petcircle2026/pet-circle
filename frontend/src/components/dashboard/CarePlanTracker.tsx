@@ -53,8 +53,8 @@ export default function CarePlanTracker({
                 padding: "4px 10px",
                 fontSize: 11,
                 fontWeight: 700,
-                background: "#FFF3E0",
-                color: "#E65100",
+                background: "#FFF6ED",
+                color: "#b85c00",
               }}
             >
               {dueSoon} Due Soon

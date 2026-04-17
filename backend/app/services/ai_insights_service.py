@@ -237,7 +237,11 @@ def _format_found_diet_summary(food_items: list[DietItem], supplement_items: lis
         else:
             supp_str = ", ".join(supp_descriptions[:-1]) + f" and {supp_descriptions[-1]}"
         suffix = "supplement" if len(supp_descriptions) == 1 else "supplements"
-        return f"{food_str} along with {supp_str} {suffix}"
+        # Avoid doubling "supplement" when the label already ends with that word.
+        supp_str_clean = supp_str.rstrip()
+        if supp_str_clean.lower().endswith("supplements") or supp_str_clean.lower().endswith("supplement"):
+            return f"{food_str} along with {supp_str_clean}"
+        return f"{food_str} along with {supp_str_clean} {suffix}"
 
     return food_str
 

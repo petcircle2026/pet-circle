@@ -239,6 +239,17 @@ async def dashboard_get(
     try:
         data = await get_dashboard_data(db, token)
 
+        # If nutrition_analysis is missing from cache, kick off a background
+        # refresh so it's ready on the next load without blocking this response.
+        if data.get("nutrition_analysis") is None:
+            try:
+                pet_id = data.get("_pet_id")
+                if pet_id:
+                    import uuid as _uuid
+                    asyncio.create_task(refresh_nutrition_analysis(_uuid.UUID(pet_id)))
+            except Exception:
+                pass
+
         # Compute ETag from content so identical payloads get 304 on refresh.
         etag = hashlib.md5(
             json.dumps(data, sort_keys=True, default=str).encode()
