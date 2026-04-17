@@ -70,7 +70,7 @@ export function normalizeWeight(weight?: number | null): string {
 export function normalizeRecognitionBullets(data: DashboardData): RecognitionBullet[] {
   // Prefer backend-computed bullets when available (they include specific diet item names)
   const backendBullets = data.recognition?.bullets || [];
-  if (backendBullets.length === 3) {
+  if (backendBullets.length >= 3) {
     return backendBullets;
   }
 
