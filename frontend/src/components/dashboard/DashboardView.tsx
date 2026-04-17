@@ -50,10 +50,14 @@ export default function DashboardView({
   onDataRefresh,
 }: DashboardViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
   const [floaterUnlocked, setFloaterUnlocked] = useState(false);
   const [addedIds, setAddedIds] = useState<Record<string, boolean>>({});
   const [loadingIds, setLoadingIds] = useState<Record<string, boolean>>({});
   const timerIdsRef = useRef<number[]>([]);
+
+  const [isExtracting, setIsExtracting] = useState(false);
 
   // ProductSelectorCard state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -179,7 +183,7 @@ export default function DashboardView({
       <ProfileBanner data={data} token={token} onGoToReminders={onGoToReminders} />
       <RecognitionCard data={data} onGoToRecords={onGoToRecords} />
       <LifeStageCard data={data} />
-      <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} />
+      <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} isExtracting={isExtracting} />
       <DietAnalysisCard nutrition={data.nutrition_analysis} />
       <CarePlanCard
         petName={data.pet.name}
@@ -203,26 +207,25 @@ export default function DashboardView({
         onUploadComplete={async () => {
           if (!onDataRefresh) return;
 
-          // After documents are uploaded, poll for updated data until extraction is complete.
-          // Extraction + precompute happen in background, but we want instant dashboard update.
-          const maxAttempts = 30; // 30 * 2s = 60s max wait
-          let attempt = 0;
+          setIsExtracting(true);
+          const baselineConditions = (data.health_conditions_summary ?? []).length;
+          const baselineDocs = data.documents?.length ?? 0;
 
-          while (attempt < maxAttempts) {
-            await new Promise(r => setTimeout(r, 2000)); // Wait 2s between checks
+          const maxAttempts = 30; // 30 * 2s = 60s max wait
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
             try {
               await onDataRefresh();
-              // If refresh succeeds and data is fresh, we're done
-              return;
-            } catch (e) {
-              attempt++;
-              if (attempt >= maxAttempts) {
-                console.error("Timeout waiting for dashboard data to update:", e);
-                return;
+              const freshConditions = (dataRef.current.health_conditions_summary ?? []).length;
+              const freshDocs = dataRef.current.documents?.length ?? 0;
+              if (freshConditions > baselineConditions || freshDocs > baselineDocs) {
+                break;
               }
-              // Continue polling...
+            } catch (e) {
+              console.error("Error polling for dashboard update:", e);
             }
           }
+          setIsExtracting(false);
         }}
       />
       <CartFloater unlocked={floaterUnlocked} cartCount={cartCount} totalPrice={cartTotal} onGoToCart={onGoToCart} />

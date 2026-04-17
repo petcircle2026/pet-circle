@@ -7,6 +7,7 @@ interface HealthConditionsCardProps {
   data: DashboardData;
   onGoToTrends: () => void;
   compact?: boolean;
+  isExtracting?: boolean;
 }
 
 const HEADLINE_STATE_LABEL: Record<string, string> = {
@@ -29,6 +30,7 @@ export default function HealthConditionsCard({
   data,
   onGoToTrends,
   compact = false,
+  isExtracting = false,
 }: HealthConditionsCardProps) {
   const rawHealth = data.health_conditions_v2;
   const summaryConditions = (data.health_conditions_summary ?? []).length;
@@ -57,18 +59,45 @@ export default function HealthConditionsCard({
       <div className={compact ? undefined : "card"}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
           <div className="sec-lbl" style={{ margin: 0, display: "inline" }}>Health Conditions</div>
-          <span style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--orange)",
-            background: "#FFF3EE",
-            border: "1px solid var(--orange)",
-            borderRadius: 20,
-            padding: "2px 8px",
-            whiteSpace: "nowrap",
-          }}>
-            Under review by PetCircle Sr. Vet
-          </span>
+          {isExtracting ? (
+            <span style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#666",
+              background: "#F5F5F5",
+              border: "1px solid #DDD",
+              borderRadius: 20,
+              padding: "2px 8px",
+              whiteSpace: "nowrap",
+            }}>
+              <span style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                border: "1.5px solid #999",
+                borderTopColor: "transparent",
+                display: "inline-block",
+                animation: "spin 0.8s linear infinite",
+              }} />
+              Updating…
+            </span>
+          ) : (
+            <span style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--orange)",
+              background: "#FFF3EE",
+              border: "1px solid var(--orange)",
+              borderRadius: 20,
+              padding: "2px 8px",
+              whiteSpace: "nowrap",
+            }}>
+              Under review by PetCircle Sr. Vet
+            </span>
+          )}
         </div>
         <button
           onClick={onGoToTrends}
@@ -164,18 +193,45 @@ export default function HealthConditionsCard({
     <div className={compact ? undefined : "card"}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
         <div className="sec-lbl" style={{ margin: 0 }}>Health Conditions</div>
-        <span style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#c0392b",
-          background: "#FFF0ED",
-          border: "1px solid #FFCDD2",
-          borderRadius: 20,
-          padding: "2px 8px",
-          whiteSpace: "nowrap",
-        }}>
-          Under review by PetCircle Sr. Vet
-        </span>
+        {isExtracting ? (
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#666",
+            background: "#F5F5F5",
+            border: "1px solid #DDD",
+            borderRadius: 20,
+            padding: "2px 8px",
+            whiteSpace: "nowrap",
+          }}>
+            <span style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              border: "1.5px solid #999",
+              borderTopColor: "transparent",
+              display: "inline-block",
+              animation: "spin 0.8s linear infinite",
+            }} />
+            Updating…
+          </span>
+        ) : (
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#c0392b",
+            background: "#FFF0ED",
+            border: "1px solid #FFCDD2",
+            borderRadius: 20,
+            padding: "2px 8px",
+            whiteSpace: "nowrap",
+          }}>
+            Under review by PetCircle Sr. Vet
+          </span>
+        )}
       </div>
       {allConditions.length > 0 && (
         <button

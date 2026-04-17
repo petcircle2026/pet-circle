@@ -9,9 +9,10 @@ import DietAnalysisCard from "./DietAnalysisCard";
 interface AnalysisSummaryCardProps {
   data: DashboardData;
   onGoToTrends: () => void;
+  isExtracting?: boolean;
 }
 
-export default function AnalysisSummaryCard({ data, onGoToTrends }: AnalysisSummaryCardProps) {
+export default function AnalysisSummaryCard({ data, onGoToTrends, isExtracting }: AnalysisSummaryCardProps) {
   return (
     <CollapsibleCard title="Analysis" defaultOpen={false}>
       <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -19,7 +20,7 @@ export default function AnalysisSummaryCard({ data, onGoToTrends }: AnalysisSumm
           <LifeStageCard data={data} compact />
         </div>
         <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "14px 12px" }}>
-          <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} compact />
+          <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} compact isExtracting={isExtracting} />
         </div>
         <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "14px 12px" }}>
           <DietAnalysisCard nutrition={data.nutrition_analysis} compact />
