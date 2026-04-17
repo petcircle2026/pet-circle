@@ -298,7 +298,26 @@ export default function DietAnalysisCard({ nutrition, compact = false }: DietAna
       ))}
 
       {/* ── Book nutrition consult CTA ── */}
-      <button type="button" className="btn btn-or" style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        style={{
+          marginTop: 12,
+          width: "100%",
+          padding: "10px",
+          background: "#FF6B35",
+          border: "none",
+          borderRadius: "var(--rs)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#fff",
+          cursor: "pointer",
+          fontFamily: "inherit",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        }}
+      >
         🥗 Book Nutrition Consult →
       </button>
 
