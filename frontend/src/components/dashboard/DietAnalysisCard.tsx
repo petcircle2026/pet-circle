@@ -298,39 +298,9 @@ export default function DietAnalysisCard({ nutrition, compact = false }: DietAna
       ))}
 
       {/* ── Book nutrition consult CTA ── */}
-      <div style={{
-        marginTop: 12,
-        background: "#FFF6ED",
-        border: "1px solid #ffd9c2",
-        borderRadius: 10,
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-      }}>
-        <span style={{ fontSize: 12, color: "#7a3a0a", lineHeight: 1.4, flex: 1 }}>
-          Get a personalised nutrition plan from a vet nutritionist
-        </span>
-        <button
-          type="button"
-          style={{
-            flexShrink: 0,
-            background: "#FF6B35",
-            color: "#fff",
-            border: "none",
-            borderRadius: 20,
-            padding: "7px 14px",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: "inherit",
-            whiteSpace: "nowrap",
-          }}
-        >
-          🥗 Book Nutrition Consult
-        </button>
-      </div>
+      <button type="button" className="btn btn-or" style={{ marginTop: 12 }}>
+        🥗 Book Nutrition Consult →
+      </button>
 
     </div>
   );
