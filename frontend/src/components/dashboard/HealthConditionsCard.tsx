@@ -55,7 +55,41 @@ export default function HealthConditionsCard({
 
     return (
       <div className={compact ? undefined : "card"}>
-        <div className="sec-lbl">Health Conditions</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+          <div className="sec-lbl" style={{ margin: 0 }}>Health Conditions</div>
+          <span style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: "#c0392b",
+            background: "#FFF0ED",
+            border: "1px solid #FFCDD2",
+            borderRadius: 20,
+            padding: "2px 8px",
+            whiteSpace: "nowrap",
+          }}>
+            ⚕ Under review by PetCircle Sr. Vet
+          </span>
+        </div>
+        <button
+          onClick={onGoToTrends}
+          type="button"
+          style={{
+            fontSize: 13,
+            color: "#c0392b",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontWeight: 500,
+            marginBottom: 10,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          📋 See detailed analysis →
+        </button>
         <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 10, lineHeight: 1.5 }}>
           {health.meta.total_conditions} condition{health.meta.total_conditions !== 1 ? "s" : ""} identified —{" "}
           {headlineLabel}.
@@ -95,27 +129,28 @@ export default function HealthConditionsCard({
         ))}
 
         <button
-          onClick={onGoToTrends}
           type="button"
+          disabled
           style={{
             marginTop: 12,
             width: "100%",
             padding: "10px",
-            background: "var(--tr)",
-            border: "1px solid #FFCDD2",
+            background: "var(--brand)",
+            border: "none",
             borderRadius: "var(--rs)",
             fontSize: 13,
             fontWeight: 700,
-            color: "#c0392b",
-            cursor: "pointer",
+            color: "#fff",
+            cursor: "default",
             fontFamily: "inherit",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
+            opacity: 1,
           }}
         >
-          🩺 Discuss with your vet →
+          🩺 Book a Consult →
         </button>
       </div>
     );
@@ -127,7 +162,43 @@ export default function HealthConditionsCard({
 
   return (
     <div className={compact ? undefined : "card"}>
-      <div className="sec-lbl">Health Conditions</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 6 }}>
+        <div className="sec-lbl" style={{ margin: 0 }}>Health Conditions</div>
+        <span style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#c0392b",
+          background: "#FFF0ED",
+          border: "1px solid #FFCDD2",
+          borderRadius: 20,
+          padding: "2px 8px",
+          whiteSpace: "nowrap",
+        }}>
+          ⚕ Under review by PetCircle Sr. Vet
+        </span>
+      </div>
+      {allConditions.length > 0 && (
+        <button
+          onClick={onGoToTrends}
+          type="button"
+          style={{
+            fontSize: 13,
+            color: "#c0392b",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontWeight: 500,
+            marginBottom: 10,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          📋 See detailed analysis →
+        </button>
+      )}
 
       {allConditions.length === 0 ? (
         <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 8, lineHeight: 1.5 }}>
@@ -165,27 +236,28 @@ export default function HealthConditionsCard({
       )}
 
       <button
-        onClick={onGoToTrends}
         type="button"
+        disabled
         style={{
           marginTop: 12,
           width: "100%",
           padding: "10px",
-          background: "var(--tr)",
-          border: "1px solid #FFCDD2",
+          background: "var(--brand)",
+          border: "none",
           borderRadius: "var(--rs)",
           fontSize: 13,
           fontWeight: 700,
-          color: "#c0392b",
-          cursor: "pointer",
+          color: "#fff",
+          cursor: "default",
           fontFamily: "inherit",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           gap: 6,
+          opacity: 1,
         }}
       >
-        🩺 Discuss with your vet →
+        🩺 Book a Consult →
       </button>
     </div>
   );
