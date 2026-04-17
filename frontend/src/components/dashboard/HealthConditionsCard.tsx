@@ -60,9 +60,9 @@ export default function HealthConditionsCard({
           <span style={{
             fontSize: 11,
             fontWeight: 600,
-            color: "#c0392b",
-            background: "#FFF0ED",
-            border: "1px solid #FFCDD2",
+            color: "var(--orange)",
+            background: "#FFF3EE",
+            border: "1px solid var(--orange)",
             borderRadius: 20,
             padding: "2px 8px",
             whiteSpace: "nowrap",
@@ -75,7 +75,7 @@ export default function HealthConditionsCard({
           type="button"
           style={{
             fontSize: 13,
-            color: "#c0392b",
+            color: "var(--orange)",
             background: "none",
             border: "none",
             padding: 0,
@@ -183,7 +183,7 @@ export default function HealthConditionsCard({
           type="button"
           style={{
             fontSize: 13,
-            color: "#c0392b",
+            color: "var(--orange)",
             background: "none",
             border: "none",
             padding: 0,
