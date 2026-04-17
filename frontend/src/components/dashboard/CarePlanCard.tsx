@@ -259,7 +259,7 @@ export default function CarePlanCard({
                       type="button"
                       style={{
                         flexShrink: 0,
-                        background: "#D44800",
+                        background: "#FF6B35",
                         color: "#fff",
                         border: "none",
                         borderRadius: 20,
