@@ -3119,6 +3119,7 @@ async def extract_and_process_document(
                     pet=pet,
                     document=document,
                     vet_diet_recommendations=vet_diet,
+                    source="document_extracted",
                 )
             except Exception as exc:
                 logger.warning(
