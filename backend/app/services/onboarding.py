@@ -1473,22 +1473,36 @@ async def _step_food_type(db, user, text, send_fn):
     )
 
 
-def _build_portions_question(pet_name: str, items: list) -> str:
-    """
-    Build a per-item portions question for each diet item that has no detail.
+_PACKAGED_PORTION_EXAMPLES = ["80g × 2/day", "1 cup/day", "50g × 3/day"]
+_HOME_PORTION_EXAMPLES = ["1 cup", "1 katori", "a small bowl"]
+_GENERIC_PORTION_EXAMPLES = ["100g/day", "1 cup", "a small bowl"]
 
-    E.g. for [("Royal Canin", "", "brand"), ("boiled chicken", "", "ingredient")]:
-        "How much does Buddy get of each?
-        • Royal Canin — how much per day? (e.g., 80g × 2/day)
-        • Boiled chicken — how much per day? (e.g., 1 cup)
-        Just reply with the amounts, or say 'not sure' to skip."
+def _portion_example_for_kind(kind: str) -> str:
+    if kind == "brand":
+        return "e.g., 80g x 2/day or 1 cup/day"
+    if kind == "ingredient":
+        return "e.g., 1 cup or 100g"
+    return "e.g., a small handful"
+
+
+def _build_portions_question(pet_name: str, items_missing_portions: list) -> str:
     """
+    Build a per-item portions question only for items that have no detail/quantity.
+
+    items_missing_portions: list of (label, detail, kind) triples where detail is empty.
+    """
+    if len(items_missing_portions) == 1:
+        label, _, kind = items_missing_portions[0]
+        eg = _portion_example_for_kind(kind)
+        return (
+            f"How much {label} does {pet_name} get per day? "
+            f"({eg} — or just say 'not sure' to skip)"
+        )
+
     lines = [f"How much does {pet_name} get of each?\n"]
-    for entry in items:
-        label = entry[0] if entry else ""
-        if not label:
-            continue
-        lines.append(f"• {label.capitalize()} — how much per day?")
+    for label, _, kind in items_missing_portions:
+        eg = _portion_example_for_kind(kind)
+        lines.append(f"• {label} — how much per day? ({eg})")
     lines.append("\nJust reply with the amounts, or say 'not sure' to skip.")
     return "\n".join(lines)
 
@@ -1599,16 +1613,19 @@ async def _step_meal_details(db, user, text, send_fn):
             return
 
         items = await _parse_diet_input(text)
-        # If no items have portion/detail info, ask upfront before moving on.
-        if items and all(not detail for _, detail, *_ in items):
+        # Ask for portions only for items that have no quantity/detail.
+        items_missing = [(label, detail, kind) for label, detail, *rest in items
+                         for kind in [rest[0] if rest else "ingredient"]
+                         if not detail]
+        if items_missing:
             await _store_meal_items(db, pet, items, food_type)
             meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
             _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)
             _set_onboarding_data(user, "diet_raw_text", text)
-            _set_onboarding_data(user, "diet_items_pending_portions", [label for label, *_ in items])
+            _set_onboarding_data(user, "diet_items_pending_portions", [lbl for lbl, *_ in items_missing])
             user.onboarding_state = "awaiting_diet_portions"
             db.commit()
-            portions_q = _build_portions_question(pet.name, items)
+            portions_q = _build_portions_question(pet.name, items_missing)
             await send_fn(db, mobile, portions_q)
             return
         await _store_meal_items(db, pet, items, food_type)
