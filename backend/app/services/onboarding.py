@@ -521,6 +521,9 @@ async def handle_onboarding_step(
     elif state == "awaiting_meal_details":
         await _step_meal_details(db, user, text, send_fn)
 
+    elif state == "awaiting_diet_portions":
+        await _step_diet_portions(db, user, text, send_fn)
+
     elif state == "awaiting_supplements":
         await _step_supplements_v2(db, user, text, send_fn)
 
@@ -538,6 +541,9 @@ async def handle_onboarding_step(
 
     elif state == "awaiting_flea_brand":
         await _step_flea_brand(db, user, text, send_fn)
+
+    elif state == "awaiting_preventive_summary_confirm":
+        await _step_preventive_summary_confirm(db, user, text, send_fn)
 
     elif state == "awaiting_documents":
         await _step_awaiting_documents(db, user, text_lower, send_fn)
@@ -1467,6 +1473,26 @@ async def _step_food_type(db, user, text, send_fn):
     )
 
 
+def _build_portions_question(pet_name: str, items: list) -> str:
+    """
+    Build a per-item portions question for each diet item that has no detail.
+
+    E.g. for [("Royal Canin", "", "brand"), ("boiled chicken", "", "ingredient")]:
+        "How much does Buddy get of each?
+        • Royal Canin — how much per day? (e.g., 80g × 2/day)
+        • Boiled chicken — how much per day? (e.g., 1 cup)
+        Just reply with the amounts, or say 'not sure' to skip."
+    """
+    lines = [f"How much does {pet_name} get of each?\n"]
+    for entry in items:
+        label = entry[0] if entry else ""
+        if not label:
+            continue
+        lines.append(f"• {label.capitalize()} — how much per day?")
+    lines.append("\nJust reply with the amounts, or say 'not sure' to skip.")
+    return "\n".join(lines)
+
+
 async def _step_meal_details(db, user, text, send_fn):
     """
     Step 5: Collect meal details. Parsed via existing _parse_diet_input, stored as DietItems.
@@ -1573,6 +1599,18 @@ async def _step_meal_details(db, user, text, send_fn):
             return
 
         items = await _parse_diet_input(text)
+        # If no items have portion/detail info, ask upfront before moving on.
+        if items and all(not detail for _, detail, *_ in items):
+            await _store_meal_items(db, pet, items, food_type)
+            meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
+            _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)
+            _set_onboarding_data(user, "diet_raw_text", text)
+            _set_onboarding_data(user, "diet_items_pending_portions", [label for label, *_ in items])
+            user.onboarding_state = "awaiting_diet_portions"
+            db.commit()
+            portions_q = _build_portions_question(pet.name, items)
+            await send_fn(db, mobile, portions_q)
+            return
         await _store_meal_items(db, pet, items, food_type)
         meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
         _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)
@@ -1582,6 +1620,45 @@ async def _step_meal_details(db, user, text, send_fn):
     user.onboarding_state = "awaiting_supplements"
     db.commit()
 
+    await send_fn(
+        db, mobile,
+        f"Noted. {_supplements_question_for_pet(pet.name, _get_onboarding_data(user))}",
+    )
+
+
+async def _step_diet_portions(db, user, text, send_fn):
+    """
+    Follow-up step: collect portion sizes when the user's meal description had none.
+
+    Parses the portions reply and updates stored DietItems with detail values,
+    then advances to awaiting_supplements.
+    """
+    mobile = user._plaintext_mobile
+    pet = _get_pending_pet(db, user.id)
+    if not pet:
+        user.onboarding_state = "welcome"
+        db.commit()
+        await send_fn(db, mobile, "Something went wrong. Let's start — what's your pet's name?")
+        return
+
+    od = _get_onboarding_data(user)
+    skip_keywords = {"not sure", "dont know", "don't know", "no idea", "skip", "n/a", "na"}
+
+    if text.strip().lower() not in skip_keywords:
+        # Re-parse the original diet + portions as a combined text so GPT can
+        # pair each item with its quantity.
+        original_raw = od.get("diet_raw_text", "")
+        combined = f"{original_raw}. Portions: {text.strip()}" if original_raw else text.strip()
+        updated_items = await _parse_diet_input(combined)
+        food_type = od.get("food_type", "mix")
+        # Remove existing DietItems for this pet (from the first pass) before re-saving with portions.
+        from app.models.diet import DietItem
+        db.query(DietItem).filter(DietItem.pet_id == pet.id).delete()
+        db.commit()
+        await _store_meal_items(db, pet, updated_items, food_type)
+
+    user.onboarding_state = "awaiting_supplements"
+    db.commit()
     await send_fn(
         db, mobile,
         f"Noted. {_supplements_question_for_pet(pet.name, _get_onboarding_data(user))}",
@@ -1824,7 +1901,7 @@ async def _step_preventive(db, user, text, send_fn):
                 await send_fn(db, mobile, f"Got it! What about {amb_str}?")
                 return
 
-        await _transition_to_documents(db, user, pet, send_fn)
+        await _show_preventive_summary(db, user, pet, send_fn)
         return
 
     # Skip / nothing done.
@@ -2020,8 +2097,8 @@ async def _step_preventive(db, user, text, send_fn):
         )
         return
 
-    # All provided or second attempt — proceed to documents.
-    await _transition_to_documents(db, user, pet, send_fn)
+    # All provided or second attempt — show summary and confirm.
+    await _show_preventive_summary(db, user, pet, send_fn)
 
 
 async def _extract_meal_supplement_items(text: str) -> list[tuple[str, str]]:
@@ -2175,7 +2252,7 @@ async def _step_prev_retry(db, user, text, send_fn):
             )
             return  # stay in awaiting_prev_retry; next reply re-enters this handler
 
-    await _transition_to_documents(db, user, pet, send_fn)
+    await _show_preventive_summary(db, user, pet, send_fn)
 
 
 # ---------------------------------------------------------------------------
@@ -2547,7 +2624,7 @@ async def _step_vaccine_type(db, user, text, send_fn):
         await send_fn(db, mobile, f"Got it! What about {missing_str}?")
         return
 
-    await _transition_to_documents(db, user, pet, send_fn)
+    await _show_preventive_summary(db, user, pet, send_fn)
 
 
 async def _step_vaccine_date(db, user, text, send_fn):
@@ -2613,7 +2690,7 @@ async def _step_vaccine_date(db, user, text, send_fn):
         await send_fn(db, mobile, f"Got it! What about {missing_str}?")
         return
 
-    await _transition_to_documents(db, user, pet, send_fn)
+    await _show_preventive_summary(db, user, pet, send_fn)
 
 
 async def _step_flea_brand(db, user, text, send_fn):
@@ -2682,7 +2759,7 @@ async def _step_flea_brand(db, user, text, send_fn):
         await send_fn(db, mobile, f"Got it! What about {missing_str}?")
         return
 
-    await _transition_to_documents(db, user, pet, send_fn)
+    await _show_preventive_summary(db, user, pet, send_fn)
 
 
 async def _parse_preventive_date_value(raw: str, pet: Pet) -> date | None:
@@ -3221,6 +3298,178 @@ async def _store_preventive_data(db, pet, parsed: dict) -> list[str]:
             pass
 
     return ambiguous
+
+
+def _build_preventive_summary_text(db, pet) -> str:
+    """
+    Build a human-readable summary of stored preventive records for the pet.
+
+    Returns a multi-line string like:
+        • Vaccines: last done Jan 2025
+        • Deworming: last done Mar 2025
+        • Flea & tick (NexGard): last done 2 months ago
+        • Blood test: not on record
+    """
+    from app.models.preventive_record import PreventiveRecord
+    from app.models.preventive_master import PreventiveMaster
+
+    records = (
+        db.query(PreventiveRecord, PreventiveMaster)
+        .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+        .filter(PreventiveRecord.pet_id == pet.id)
+        .all()
+    )
+
+    category_map = {
+        "vaccine": [],
+        "deworming": [],
+        "flea_tick": [],
+        "blood_test": [],
+    }
+    for rec, master in records:
+        cat = (master.category or "").lower()
+        if "vaccine" in cat or "vaccination" in cat:
+            category_map["vaccine"].append((master.name, rec.last_done_date, rec.medicine_name))
+        elif "deworm" in cat:
+            category_map["deworming"].append((master.name, rec.last_done_date, rec.medicine_name))
+        elif "flea" in cat or "tick" in cat:
+            category_map["flea_tick"].append((master.name, rec.last_done_date, rec.medicine_name))
+        elif "blood" in cat or "test" in cat:
+            category_map["blood_test"].append((master.name, rec.last_done_date, rec.medicine_name))
+
+    def _fmt_date(d) -> str:
+        if not d:
+            return "not on record"
+        try:
+            return d.strftime("%b %Y")
+        except Exception:
+            return str(d)
+
+    lines = []
+
+    # Vaccines — show all names with dates if multiple, else combined
+    vax = [(n, d, m) for n, d, m in category_map["vaccine"] if d]
+    if vax:
+        if len(vax) == 1:
+            name, d, med = vax[0]
+            med_suffix = f" ({med})" if med else ""
+            lines.append(f"• Vaccines{med_suffix}: last done {_fmt_date(d)}")
+        else:
+            # Deduplicate by date — show most recent
+            latest = max(vax, key=lambda x: x[1])
+            names = ", ".join(n for n, _, _ in vax[:3])
+            lines.append(f"• Vaccines ({names}): last done {_fmt_date(latest[1])}")
+    else:
+        lines.append("• Vaccines: not on record")
+
+    # Deworming
+    dw = [(n, d, m) for n, d, m in category_map["deworming"] if d]
+    if dw:
+        latest = max(dw, key=lambda x: x[1])
+        med_suffix = f" ({latest[2]})" if latest[2] else ""
+        lines.append(f"• Deworming{med_suffix}: last done {_fmt_date(latest[1])}")
+    else:
+        lines.append("• Deworming: not on record")
+
+    # Flea & tick
+    ft = [(n, d, m) for n, d, m in category_map["flea_tick"] if d]
+    if ft:
+        latest = max(ft, key=lambda x: x[1])
+        med_suffix = f" ({latest[2]})" if latest[2] else ""
+        lines.append(f"• Flea & tick{med_suffix}: last done {_fmt_date(latest[1])}")
+    else:
+        lines.append("• Flea & tick: not on record")
+
+    # Blood test
+    bt = [(n, d, m) for n, d, m in category_map["blood_test"] if d]
+    if bt:
+        latest = max(bt, key=lambda x: x[1])
+        lines.append(f"• Blood test: last done {_fmt_date(latest[1])}")
+    else:
+        lines.append("• Blood test: not on record")
+
+    return "\n".join(lines)
+
+
+async def _show_preventive_summary(db, user, pet, send_fn):
+    """
+    Show a summary of collected preventive records and ask the user to confirm
+    or flag what's wrong. Transitions to awaiting_preventive_summary_confirm.
+    """
+    mobile = user._plaintext_mobile
+    summary = _build_preventive_summary_text(db, pet)
+    user.onboarding_state = "awaiting_preventive_summary_confirm"
+    db.commit()
+    await send_fn(
+        db, mobile,
+        f"Here's what I've recorded for {pet.name}:\n\n"
+        f"{summary}\n\n"
+        f"Does this look right? If anything's off, just tell me which one and what it should be "
+        f"(e.g., 'deworming was February' or 'vaccines are wrong, it was DHPPi in March 2025').",
+    )
+
+
+async def _step_preventive_summary_confirm(db, user, text, send_fn):
+    """
+    Handle the user's reply to the preventive summary confirmation.
+
+    - Yes / looks good → proceed to documents.
+    - Correction → use GPT to parse the corrected item and re-store it, then re-show summary.
+    - No / all wrong → re-ask the full preventive question.
+    """
+    mobile = user._plaintext_mobile
+    pet = _get_pending_pet(db, user.id)
+    if not pet:
+        user.onboarding_state = "welcome"
+        db.commit()
+        await send_fn(db, mobile, "Something went wrong. Let's start — what's your pet's name?")
+        return
+
+    text_lower = text.strip().lower()
+
+    # Affirmative — all correct.
+    binary = _resolve_binary_confirmation_reply(text_lower)
+    if binary == "yes" or text_lower in {"yes", "correct", "looks good", "all good", "ok", "okay", "yep", "yup", "right"}:
+        await _transition_to_documents(db, user, pet, send_fn)
+        return
+
+    # Explicit full rejection — re-ask everything.
+    if binary == "no" and text_lower in {"no", "wrong", "all wrong", "not right", "nope"}:
+        od = _get_onboarding_data(user)
+        flea_excluded = od.get("preventive_flea_excluded", False)
+        _items_str = (
+            "vaccines, deworming, and blood tests"
+            if flea_excluded
+            else "vaccines, deworming, flea & tick, and blood tests"
+        )
+        user.onboarding_state = "awaiting_preventive"
+        _set_onboarding_data(user, "preventive_attempts", 0)
+        db.commit()
+        await send_fn(
+            db, mobile,
+            f"No problem — let's redo that. What do you remember about {pet.name}'s {_items_str}? "
+            f"(rough dates are fine)",
+        )
+        return
+
+    # Partial correction — parse the corrected text as preventive data and re-store.
+    parsed_correction = await _parse_preventive_care(text)
+    correction_had_data = any(
+        parsed_correction.get(k) and parsed_correction.get(k) != "none"
+        for k in ("vaccines", "deworming", "flea_tick", "blood_test", "vaccine_specifics")
+    )
+    if correction_had_data:
+        await _store_preventive_data(db, pet, parsed_correction)
+        # Re-show updated summary so user can confirm.
+        await _show_preventive_summary(db, user, pet, send_fn)
+        return
+
+    # Could not parse correction — ask them to clarify.
+    await send_fn(
+        db, mobile,
+        f"Got it — which part should I fix? You can say something like "
+        f"'deworming was February 2025' or 'vaccines were DHPPi in March 2025'.",
+    )
 
 
 async def _transition_to_documents(db, user, pet, send_fn, skip_ack=False):
