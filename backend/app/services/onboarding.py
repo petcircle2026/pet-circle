@@ -1987,7 +1987,7 @@ async def _step_preventive(db, user, text, send_fn):
         ]
         _set_onboarding_data(user, "preventive_prefill", {})
 
-    missing = parsed.get("missing", [])
+    missing = [m for m in parsed.get("missing", []) if not (m == "flea_tick" and flea_excluded)]
 
     # If ALL fields are missing (nothing parsed at all), clarify with AI first.
     all_fields = (
@@ -2027,7 +2027,8 @@ async def _step_preventive(db, user, text, send_fn):
 
     # --- Detect generic vaccine mention and flea without brand ---
     needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
-    needs_flea_brand_q = _is_flea_without_brand(parsed)
+    # Never ask for flea brand when flea is excluded (e.g. puppy under 8 weeks).
+    needs_flea_brand_q = _is_flea_without_brand(parsed) and not flea_excluded
 
     if needs_vaccine_type_q:
         # Save parsed data for use after vaccine type answer.
@@ -2048,7 +2049,7 @@ async def _step_preventive(db, user, text, send_fn):
         await send_fn(db, mobile, _vax_q)
         return
 
-    if needs_flea_brand_q:
+    if needs_flea_brand_q and not flea_excluded:
         # Save parsed data for use after flea brand answer.
         _set_onboarding_data(user, "pending_preventive_parsed", parsed)
         _set_onboarding_data(user, "pending_flea_brand_needed", True)
@@ -2543,7 +2544,8 @@ async def _step_vaccine_type(db, user, text, send_fn):
 
     od = _get_onboarding_data(user)
     parsed = dict(od.get("pending_preventive_parsed") or {})
-    flea_brand_needed = od.get("pending_flea_brand_needed", False)
+    flea_excluded = od.get("preventive_flea_excluded", False)
+    flea_brand_needed = od.get("pending_flea_brand_needed", False) and not flea_excluded
     missing = od.get("preventive_missing", [])
     attempts = od.get("preventive_attempts", 0)
     vaccine_age_weeks = od.get("pending_vaccine_age_weeks")
@@ -2661,7 +2663,8 @@ async def _step_vaccine_date(db, user, text, send_fn):
 
     od = _get_onboarding_data(user)
     parsed = dict(od.get("pending_preventive_parsed") or {})
-    flea_brand_needed = od.get("pending_flea_brand_needed", False)
+    flea_excluded = od.get("preventive_flea_excluded", False)
+    flea_brand_needed = od.get("pending_flea_brand_needed", False) and not flea_excluded
     missing = od.get("preventive_missing", [])
     attempts = od.get("preventive_attempts", 0)
 
