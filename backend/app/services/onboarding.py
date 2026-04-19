@@ -1669,7 +1669,7 @@ async def _step_diet_portions(db, user, text, send_fn):
         updated_items = await _parse_diet_input(combined)
         food_type = od.get("food_type", "mix")
         # Remove existing DietItems for this pet (from the first pass) before re-saving with portions.
-        from app.models.diet import DietItem
+        from app.models.diet_item import DietItem
         db.query(DietItem).filter(DietItem.pet_id == pet.id).delete()
         db.commit()
         await _store_meal_items(db, pet, updated_items, food_type)
