@@ -38,6 +38,8 @@ class ConditionMedication(Base):
     status = Column(String(20), nullable=False, default="active")  # active | discontinued
     started_at = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)  # Treatment end date (extracted from prescription)
+    # "record" = extracted from actual document text; "ai_default" = AI-assigned sentinel
+    end_date_source = Column(String(20), nullable=True)
     refill_due_date = Column(Date, nullable=True)  # When refill is due
     price = Column(String(20), nullable=True)  # e.g. "₹280"
     notes = Column(String(500), nullable=True)

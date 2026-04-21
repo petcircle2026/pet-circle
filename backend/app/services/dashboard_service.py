@@ -843,6 +843,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
                 "route": med.route,
                 "status": med.status,
                 "started_at": str(med.started_at) if med.started_at else None,
+                "end_date": str(med.end_date) if med.end_date else None,
+                "end_date_source": med.end_date_source,
                 "refill_due_date": str(med.refill_due_date) if med.refill_due_date else None,
                 "price": med.price,
                 "notes": med.notes,

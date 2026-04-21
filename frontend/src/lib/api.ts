@@ -101,6 +101,8 @@ export interface ConditionMedicationItem {
   route: string | null;
   status: string;
   started_at: string | null;
+  end_date: string | null;
+  end_date_source: string | null;
   refill_due_date: string | null;
   price: string | null;
   notes: string | null;

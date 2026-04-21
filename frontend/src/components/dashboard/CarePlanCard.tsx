@@ -191,7 +191,11 @@ export default function CarePlanCard({
                               ? bucketKey === "attend" && item.next_due
                                 ? `${item.freq} · Prescribed: ${item.next_due}`
                                 : item.freq
-                              : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `${bucketKey === "attend" ? "End" : "Next"}: ${item.next_due || "--"}`}`}
+                              : item.test_type === "medication"
+                                ? item.next_due
+                                  ? `${item.freq} · End: ${item.next_due}`
+                                  : item.freq
+                                : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `${bucketKey === "attend" ? "End" : "Next"}: ${item.next_due || "--"}`}`}
                         </div>
                         {item.reason && !(bucketKey === "continue" && (item.test_type === "food" || item.test_type === "supplement")) && (
                           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4, marginTop: 3, fontStyle: "italic" }}>

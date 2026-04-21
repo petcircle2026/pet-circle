@@ -3369,16 +3369,19 @@ async def extract_and_process_document(
                     )
                     # Parse end_date if provided. For chronic conditions, default to far-future date.
                     med_end_date = None
+                    med_end_date_source = None
                     if med.get("end_date"):
                         try:
                             _med_end = parse_date(str(med["end_date"]))
                             if _med_end.year >= 2015:
                                 med_end_date = _med_end
+                                med_end_date_source = "record"
                         except Exception:
                             pass
                     # If medicine belongs to a chronic condition and end_date is not set, use far-future date
                     if not med_end_date and condition_obj.condition_type == "chronic":
                         med_end_date = date(2099, 12, 31)
+                        med_end_date_source = "ai_default"
                     if not existing_med:
                         db.add(ConditionMedication(
                             condition_id=condition_obj.id,
@@ -3388,9 +3391,11 @@ async def extract_and_process_document(
                             frequency=(str(med.get("frequency"))[:100] if med.get("frequency") else None),
                             route=(str(med.get("route"))[:50] if med.get("route") else None),
                             end_date=med_end_date,
+                            end_date_source=med_end_date_source,
                         ))
                     elif med_end_date and not existing_med.end_date:
                         existing_med.end_date = med_end_date
+                        existing_med.end_date_source = med_end_date_source
 
                 # Add monitoring checks (deduplicate by condition_id + name).
                 raw_monitors = raw_condition.get("monitoring") or []
@@ -3568,6 +3573,8 @@ async def extract_and_process_document(
                         existing_contact.document_id = document.id
                         existing_contact.source_document_name = document.document_name
                         existing_contact.source_document_category = document.document_category
+                        if document.event_date:
+                            existing_contact.last_visit_date = document.event_date
                     else:
                         db.add(Contact(
                             pet_id=pet.id,
@@ -3581,6 +3588,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:
@@ -3604,6 +3612,8 @@ async def extract_and_process_document(
                         existing_doc_contact.document_id = document.id
                         existing_doc_contact.source_document_name = document.document_name
                         existing_doc_contact.source_document_category = document.document_category
+                        if document.event_date:
+                            existing_doc_contact.last_visit_date = document.event_date
                         db.flush()
                     else:
                         db.add(Contact(
@@ -3615,6 +3625,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:
@@ -3650,6 +3661,8 @@ async def extract_and_process_document(
                         existing_item_contact.document_id = document.id
                         existing_item_contact.source_document_name = document.document_name
                         existing_item_contact.source_document_category = document.document_category
+                        if document.event_date:
+                            existing_item_contact.last_visit_date = document.event_date
                         db.flush()
                     else:
                         db.add(Contact(
@@ -3662,6 +3675,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:

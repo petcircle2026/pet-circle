@@ -26,7 +26,6 @@ from app.models.condition import Condition
 from app.models.condition_medication import ConditionMedication
 from app.models.condition_monitoring import ConditionMonitoring
 from app.models.contact import Contact
-from app.models.document import Document
 from app.models.preventive_record import PreventiveRecord
 
 logger = logging.getLogger(__name__)
@@ -521,39 +520,22 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
             "notes", "status"
         }
     """
-    # Find vet contact — prefer the one linked to the latest prescription or vaccination.
-    vet = None
-
-    # Look for the most recent document (prescription or vaccination) with a doctor name.
-    # This ensures we pick the doctor from the most recent vet visit, regardless of document type.
-    latest_vet_document = (
-        db.query(Document)
+    # Find the most recent vet contact directly from the contacts table.
+    # last_visit_date is stored on the contact row (populated at extraction time).
+    latest_contact_row = (
+        db.query(Contact)
         .filter(
-            Document.pet_id == pet_id,
-            Document.document_category.in_(["prescription", "vaccination"]),
-            Document.event_date.isnot(None),
+            Contact.pet_id == pet_id,
+            Contact.role == "veterinarian",
         )
-        .order_by(Document.event_date.desc())
+        .order_by(
+            Contact.last_visit_date.desc().nullslast(),
+            Contact.created_at.desc(),
+        )
         .first()
     )
 
-    # Pull vet contact from the document's doctor/clinic info when available.
-    if latest_vet_document and latest_vet_document.doctor_name:
-        vet = (
-            db.query(Contact)
-            .filter(
-                Contact.pet_id == pet_id,
-                Contact.role == "veterinarian",
-                Contact.name == latest_vet_document.doctor_name,
-            )
-            .first()
-        )
-    if not vet:
-        vet = (
-            db.query(Contact)
-            .filter(Contact.pet_id == pet_id, Contact.role == "veterinarian")
-            .first()
-        )
+    vet = latest_contact_row
 
     # Find the oldest active condition managed by this vet
     conditions = (
@@ -565,9 +547,8 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
 
     managing_condition = None
     managing_since = None
-    # Use the latest vet document (prescription or vaccination) event_date as the primary last_visit_date.
     last_visit_date = (
-        str(latest_vet_document.event_date) if latest_vet_document and latest_vet_document.event_date else None
+        str(vet.last_visit_date) if vet and vet.last_visit_date else None
     )
     next_due_date = None
     notes = None

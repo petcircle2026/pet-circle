@@ -1354,8 +1354,10 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 .all()
             )
             for clin_med in all_condition_meds:
-                # Filter out expired medicines: if end_date is set, it must be today or later
-                if clin_med.end_date and clin_med.end_date < today:
+                # Filter out expired medicines: if end_date is set and from a record, it must be today or later.
+                # AI-default sentinel (2099-12-31, source="ai_default") never triggers expiry filtering.
+                is_ai_default = clin_med.end_date_source == "ai_default"
+                if clin_med.end_date and not is_ai_default and clin_med.end_date < today:
                     continue
                 med_test_type = _normalize_item_name(clin_med.name)
                 # Only handle clinical medications (non-preventive types).
@@ -1372,13 +1374,12 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                     reason_parts.append(clin_med.dose)
                 if clin_med.frequency:
                     reason_parts.append(clin_med.frequency)
-                # Prefer end_date for the "next due" display; fall back to
-                # refill_due_date and then today + 30 as a generic horizon.
-                clin_due: date | None = (
-                    clin_med.end_date
-                    or clin_med.refill_due_date
-                    or (today + timedelta(days=30))
-                )
+                # Only show end_date if it was captured from the actual record (not AI-assigned).
+                # For AI-default end dates, fall back to refill_due_date only (no invented horizon).
+                if clin_med.end_date and not is_ai_default:
+                    clin_due: date | None = clin_med.end_date
+                else:
+                    clin_due = clin_med.refill_due_date
                 attend_items[clin_key] = {
                     "name": clin_med.name,
                     "test_type": "medication",

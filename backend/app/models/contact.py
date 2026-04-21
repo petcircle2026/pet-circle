@@ -15,7 +15,7 @@ Constraints:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Date, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -47,6 +47,7 @@ class Contact(Base):
     # NULL for manually added contacts.
     source_document_name = Column(String(200), nullable=True)
     source_document_category = Column(String(30), nullable=True)
+    last_visit_date = Column(Date, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
