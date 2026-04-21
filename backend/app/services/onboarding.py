@@ -2778,6 +2778,7 @@ async def _step_vaccine_date(db, user, text, send_fn):
     flea_brand_needed = od.get("pending_flea_brand_needed", False) and not flea_excluded
     missing = od.get("preventive_missing", [])
     attempts = od.get("preventive_attempts", 0)
+    vaccine_date_attempts = od.get("vaccine_date_attempts", 0)
 
     # Parse the date from the user's reply.
     skip_keywords = {"not sure", "don't know", "dont know", "no idea", "skip", "n/a", "na"}
@@ -2789,30 +2790,47 @@ async def _step_vaccine_date(db, user, text, send_fn):
             if "vaccines" in missing:
                 missing = [m for m in missing if m != "vaccines"]
         else:
-            # Date couldn't be parsed or failed validation — re-ask with a specific reason.
-            _set_onboarding_data(user, "pending_preventive_parsed", parsed)
-            _set_onboarding_data(user, "preventive_missing", missing)
-            db.commit()
-            # Try a quick re-parse just to check if it's a future-date issue.
-            try:
-                _candidate = parse_date(text)
-            except (ValueError, TypeError):
-                _candidate = None
-            if _candidate and _candidate > get_today_ist() + timedelta(days=365):
-                await send_fn(
-                    db, mobile,
-                    f"That looks like a future date ({_candidate.strftime('%b %Y')}) — "
-                    f"vaccine dates should be in the past. "
-                    f"Could you double-check the year? E.g., 'Dec 2024'. "
-                    f"Or type 'not sure' to skip.",
+            # After one failed attempt, skip the date rather than looping forever.
+            if vaccine_date_attempts >= 1:
+                logger.info(
+                    "vaccine_date step giving up after %d attempts for user %s — skipping",
+                    vaccine_date_attempts, str(user.id),
                 )
+                # Fall through: parsed["vaccines"] stays unset; flow continues below.
             else:
-                await send_fn(
-                    db, mobile,
-                    f"That date didn't quite work. Could you share it as 'Month YYYY'? "
-                    f"E.g., 'April 2024' or 'March 2025'. Or type 'not sure' to skip.",
-                )
-            return
+                # First failure — re-ask with a targeted reason.
+                _set_onboarding_data(user, "vaccine_date_attempts", vaccine_date_attempts + 1)
+                _set_onboarding_data(user, "pending_preventive_parsed", parsed)
+                _set_onboarding_data(user, "preventive_missing", missing)
+                db.commit()
+                # Distinguish future-date vs before-DOB vs unparseable.
+                try:
+                    _candidate = parse_date(text)
+                except (ValueError, TypeError):
+                    _candidate = None
+                today = get_today_ist()
+                if _candidate and _candidate > today + timedelta(days=365):
+                    await send_fn(
+                        db, mobile,
+                        f"That looks like a future date ({_candidate.strftime('%b %Y')}) — "
+                        f"vaccine dates should be in the past. "
+                        f"Could you double-check the year? E.g., 'Dec 2024'. "
+                        f"Or type 'not sure' to skip.",
+                    )
+                elif _candidate and pet.dob and _candidate < pet.dob:
+                    await send_fn(
+                        db, mobile,
+                        f"That date ({_candidate.strftime('%b %Y')}) is before {pet.name}'s "
+                        f"date of birth — could you double-check the year? "
+                        f"E.g., 'Dec 2024'. Or type 'not sure' to skip.",
+                    )
+                else:
+                    await send_fn(
+                        db, mobile,
+                        f"That date didn't quite work. Could you share it as 'Month YYYY'? "
+                        f"E.g., 'April 2024' or 'March 2025'. Or type 'not sure' to skip.",
+                    )
+                return
 
     _set_onboarding_data(user, "pending_preventive_parsed", parsed)
     _set_onboarding_data(user, "preventive_missing", missing)
