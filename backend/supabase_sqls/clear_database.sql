@@ -11,7 +11,7 @@
 --   DO $$
 --   DECLARE v_uid UUID;
 --   BEGIN
---     SELECT id INTO v_uid FROM users WHERE phone_number = '919XXXXXXXXX';
+--     SELECT id INTO v_uid FROM users WHERE mobile_display = '919XXXXXXXXX';
 --     DELETE FROM agent_order_sessions       WHERE user_id = v_uid;
 --     UPDATE users
 --        SET onboarding_state        = 'awaiting_consent',

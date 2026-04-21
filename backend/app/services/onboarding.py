@@ -2772,7 +2772,31 @@ async def _step_vaccine_date(db, user, text, send_fn):
             parsed["vaccines"] = parsed_date.isoformat()
             if "vaccines" in missing:
                 missing = [m for m in missing if m != "vaccines"]
-        # else: leave vaccines as-is (vaccine_names_to_update already set)
+        else:
+            # Date couldn't be parsed or failed validation — re-ask with a specific reason.
+            _set_onboarding_data(user, "pending_preventive_parsed", parsed)
+            _set_onboarding_data(user, "preventive_missing", missing)
+            db.commit()
+            # Try a quick re-parse just to check if it's a future-date issue.
+            try:
+                _candidate = parse_date(text)
+            except (ValueError, TypeError):
+                _candidate = None
+            if _candidate and _candidate > get_today_ist() + timedelta(days=365):
+                await send_fn(
+                    db, mobile,
+                    f"That looks like a future date ({_candidate.strftime('%b %Y')}) — "
+                    f"vaccine dates should be in the past. "
+                    f"Could you double-check the year? E.g., 'Dec 2024'. "
+                    f"Or type 'not sure' to skip.",
+                )
+            else:
+                await send_fn(
+                    db, mobile,
+                    f"That date didn't quite work. Could you share it as 'Month YYYY'? "
+                    f"E.g., 'April 2024' or 'March 2025'. Or type 'not sure' to skip.",
+                )
+            return
 
     _set_onboarding_data(user, "pending_preventive_parsed", parsed)
     _set_onboarding_data(user, "preventive_missing", missing)
@@ -2947,6 +2971,15 @@ async def _parse_preventive_date_value(raw: str, pet: Pet) -> date | None:
 
     if parsed_date is None:
         logger.warning("Could not parse preventive date: '%s'", raw)
+        return None
+
+    today = get_today_ist()
+
+    # Reject dates more than 1 year in the future — likely a year typo (e.g. 2036 → 2026).
+    if parsed_date > today + timedelta(days=365):
+        logger.warning(
+            "Preventive date %s is more than 1 year in the future, skipping", parsed_date,
+        )
         return None
 
     # DOB-based reasonableness: date can't be before pet was born.
