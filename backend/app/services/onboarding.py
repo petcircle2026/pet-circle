@@ -2118,19 +2118,59 @@ async def _step_preventive(db, user, text, send_fn):
 
     # Store whatever was parsed; collect categories that had a value but unparseable date.
     ambiguous = await _store_preventive_data(db, pet, parsed)
-    # Treat ambiguous like missing so they get re-asked in the retry step.
+
+    # Ambiguous = user mentioned the category but the date wasn't clear.
+    # Ask a targeted date question for those, separately from truly-missing ones.
+    if ambiguous and attempts < 1:
+        _set_onboarding_data(user, "preventive_attempts", 1)
+        # Keep missing separate — will be re-asked in the retry step after date is clarified.
+        combined_missing = list(missing)
+        for key in ambiguous:
+            if key not in combined_missing:
+                combined_missing.append(key)
+        _set_onboarding_data(user, "preventive_missing", combined_missing)
+        user.onboarding_state = "awaiting_prev_retry"
+        db.commit()
+        _ambiguous_labels = {
+            "vaccines": "vaccines",
+            "deworming": "deworming",
+            "flea_tick": "flea & tick treatment",
+            "blood_test": "blood test",
+        }
+        _date_examples = {
+            "vaccines": "Dec 2024",
+            "deworming": "Jan 2025",
+            "flea_tick": "2 months ago",
+            "blood_test": "March 2025",
+        }
+        if len(ambiguous) == 1:
+            cat = ambiguous[0]
+            label = _ambiguous_labels.get(cat, cat)
+            eg = _date_examples.get(cat, "e.g., Jan 2025")
+            await send_fn(
+                db, mobile,
+                f"When did {pet.name} last get {label}? (e.g., {eg})",
+            )
+        else:
+            parts = [_ambiguous_labels.get(c, c) for c in ambiguous]
+            await send_fn(
+                db, mobile,
+                f"Just need the dates — when did {pet.name} last get "
+                f"{' and '.join(parts)}? (rough month/year is fine)",
+            )
+        return
+
+    # Truly missing fields (never mentioned) — re-ask once.
     for key in ambiguous:
         if key not in missing:
             missing.append(key)
 
-    # If some fields are missing (or ambiguous) and this is the first attempt, re-ask once.
     if missing and attempts < 1:
         _set_onboarding_data(user, "preventive_attempts", 1)
         _set_onboarding_data(user, "preventive_missing", missing)
         user.onboarding_state = "awaiting_prev_retry"
         db.commit()
 
-        # Build a friendly list of what's missing.
         missing_names = {
             "vaccines": "vaccines",
             "deworming": "deworming",
@@ -2155,7 +2195,6 @@ async def _step_preventive(db, user, text, send_fn):
         if provided:
             ack = f"Got it — {' and '.join(provided)} noted! "
 
-        # Build examples only for missing categories
         missing_examples = {
             "vaccines": "vaccines last Dec",
             "deworming": "deworming 3 months ago",
@@ -2817,7 +2856,47 @@ async def _step_flea_brand(db, user, text, send_fn):
             parsed["flea_tick"] = {"date": flea_tick, "medicine": brand}
 
     ambiguous = await _store_preventive_data(db, pet, parsed)
-    # Treat ambiguous like missing so they get re-asked in the retry step.
+
+    # Ambiguous = user mentioned the category but gave an unparseable date.
+    # Ask a targeted date question rather than lumping it into the generic re-ask.
+    if ambiguous and attempts < 1:
+        _set_onboarding_data(user, "preventive_attempts", 1)
+        combined_missing = list(missing)
+        for key in ambiguous:
+            if key not in combined_missing:
+                combined_missing.append(key)
+        _set_onboarding_data(user, "preventive_missing", combined_missing)
+        user.onboarding_state = "awaiting_prev_retry"
+        db.commit()
+        _ambiguous_labels = {
+            "vaccines": "vaccines",
+            "deworming": "deworming",
+            "flea_tick": "flea & tick treatment",
+            "blood_test": "blood test",
+        }
+        _date_examples = {
+            "vaccines": "Dec 2024",
+            "deworming": "Jan 2025",
+            "flea_tick": "2 months ago",
+            "blood_test": "March 2025",
+        }
+        if len(ambiguous) == 1:
+            cat = ambiguous[0]
+            label = _ambiguous_labels.get(cat, cat)
+            eg = _date_examples.get(cat, "e.g., Jan 2025")
+            await send_fn(
+                db, mobile,
+                f"When did {pet.name} last get {label}? (e.g., {eg})",
+            )
+        else:
+            parts = [_ambiguous_labels.get(c, c) for c in ambiguous]
+            await send_fn(
+                db, mobile,
+                f"Just need the dates — when did {pet.name} last get "
+                f"{' and '.join(parts)}? (rough month/year is fine)",
+            )
+        return
+
     for key in ambiguous:
         if key not in missing:
             missing.append(key)
@@ -4567,6 +4646,77 @@ def _keyword_parse_preventive_care(text: str) -> dict:
     return result
 
 
+def _guardrail_mentioned_but_unparseable(text: str, parsed: dict) -> dict:
+    """
+    Detect categories where GPT returned a non-null value that looks like a
+    nonsensical/unparseable date (e.g. 'last decades') and null them out so
+    _store_preventive_data will add them to ambiguous[] and trigger a targeted
+    date clarification question rather than silently dropping the data.
+    Does NOT add anything to missing[] — ambiguous is the right bucket here
+    because the user DID mention the category, just with an unclear date.
+    """
+    import re as _re
+
+    _STRONG_DATE_TOKENS = {
+        "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+        "january", "february", "march", "april", "june", "july", "august",
+        "september", "october", "november", "december",
+        "yesterday", "today",
+        "2020", "2021", "2022", "2023", "2024", "2025", "2026",
+    }
+    _RELATIVE_UNITS = {"day", "days", "week", "weeks", "month", "months", "year", "years"}
+    _RELATIVE_PREFIXES = {"ago", "back", "past"}
+
+    def _looks_parseable(val: str) -> bool:
+        if not val or val.lower() in {"none", "null"}:
+            return False
+        lower = val.lower()
+        words = set(_re.split(r"\W+", lower))
+        if words & _STRONG_DATE_TOKENS:
+            return True
+        has_unit = bool(words & _RELATIVE_UNITS)
+        has_rel = bool(words & _RELATIVE_PREFIXES) or "last " in lower or "this " in lower
+        return has_unit and has_rel
+
+    # Vaccines generic date
+    vax_val = parsed.get("vaccines")
+    if vax_val and vax_val != "none" and not _looks_parseable(str(vax_val)):
+        parsed["vaccines"] = "__unparseable__"
+
+    # Vaccine specifics — null out individual entries with bad dates
+    specifics = parsed.get("vaccine_specifics") or []
+    for spec in specifics:
+        if isinstance(spec, dict):
+            d = spec.get("date", "")
+            if d and d != "none" and not _looks_parseable(str(d)):
+                spec["date"] = "__unparseable__"
+
+    # Deworming
+    dw = parsed.get("deworming")
+    if isinstance(dw, dict):
+        d = dw.get("date", "")
+        if d and d != "none" and not _looks_parseable(str(d)):
+            dw["date"] = "__unparseable__"
+    elif isinstance(dw, str) and dw and dw != "none" and not _looks_parseable(dw):
+        parsed["deworming"] = {"date": "__unparseable__", "medicine": None, "prevention_targets": []}
+
+    # Flea/tick
+    ft = parsed.get("flea_tick")
+    if isinstance(ft, dict):
+        d = ft.get("date", "")
+        if d and d != "none" and not _looks_parseable(str(d)):
+            ft["date"] = "__unparseable__"
+    elif isinstance(ft, str) and ft and ft != "none" and not _looks_parseable(ft):
+        parsed["flea_tick"] = {"date": "__unparseable__", "medicine": None, "prevention_targets": []}
+
+    # Blood test
+    bt = parsed.get("blood_test")
+    if bt and bt != "none" and not _looks_parseable(str(bt)):
+        parsed["blood_test"] = "__unparseable__"
+
+    return parsed
+
+
 async def _parse_preventive_care(
     text: str,
     context_categories: list[str] | None = None,
@@ -4711,6 +4861,7 @@ async def _parse_preventive_care(
                 parsed["vaccines"] = generic_entries[0]["date"]
                 parsed["vaccine_specifics"] = []
         parsed = _apply_all_preventive_categories_intent(text, parsed)
+        parsed = _guardrail_mentioned_but_unparseable(text, parsed)
         return _normalize_preventive_medicine_categories(parsed)
     except Exception as e:
         logger.warning(
