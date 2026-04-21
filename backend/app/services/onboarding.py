@@ -1737,6 +1737,7 @@ async def _step_supplements_v2(db, user, text, send_fn):
 
     text_lower = text.strip().lower()
     normalized = re.sub(r"[.!?,]+$", "", text_lower)
+    od = _get_onboarding_data(user)
 
     if (
         normalized not in _SKIP_INPUTS
@@ -1784,7 +1785,6 @@ async def _step_supplements_v2(db, user, text, send_fn):
             # and save as additional diet items instead of misclassifying as supplements.
             is_food_not_supplement = await _ai_is_food_not_supplement(text)
             if is_food_not_supplement:
-                od = _get_onboarding_data(user)
                 food_type = od.get("food_type", "mix")
                 extra_items = await _parse_diet_input(text)
                 await _store_meal_items(db, pet, extra_items, food_type)
