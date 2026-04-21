@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CarePlanItem, DashboardData, NutritionAnalysis } from "@/lib/api";
-import { getNutritionAnalysis } from "@/lib/api";
+import type { CarePlanItem, DashboardData } from "@/lib/api";
 import ProfileBanner from "./ProfileBanner";
 import RecognitionCard from "./RecognitionCard";
 import LifeStageCard from "./LifeStageCard";
@@ -59,22 +58,6 @@ export default function DashboardView({
   const timerIdsRef = useRef<number[]>([]);
 
   const [isExtracting, setIsExtracting] = useState(false);
-
-  // Lazily fetch nutrition analysis when it isn't in the main payload (cache miss on first load).
-  const [nutritionAnalysis, setNutritionAnalysis] = useState<NutritionAnalysis | null>(
-    data.nutrition_analysis ?? null
-  );
-  useEffect(() => {
-    setNutritionAnalysis(data.nutrition_analysis ?? null);
-  }, [data.nutrition_analysis]);
-  useEffect(() => {
-    if (nutritionAnalysis) return;
-    let cancelled = false;
-    getNutritionAnalysis(token).then((result) => {
-      if (!cancelled) setNutritionAnalysis(result);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [token, nutritionAnalysis]);
 
   // ProductSelectorCard state
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -201,7 +184,7 @@ export default function DashboardView({
       <RecognitionCard data={data} onGoToRecords={onGoToRecords} />
       <LifeStageCard data={data} />
       <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} isExtracting={isExtracting} />
-      <DietAnalysisCard nutrition={nutritionAnalysis} />
+      <DietAnalysisCard nutrition={data.nutrition_analysis} />
       <CarePlanCard
         petName={data.pet.name}
         buckets={buckets}

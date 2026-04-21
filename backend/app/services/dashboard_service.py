@@ -214,29 +214,30 @@ def _normalize_care_plan_shape(care_plan: dict | None) -> dict:
     }
 
 
-def _inject_supplement_recommendations(care_plan: dict, diet_summary: dict) -> dict:
+def _inject_supplement_recommendations(
+    care_plan: dict, nutrition_analysis: dict | None
+) -> dict:
     """
-    Add supplement recommendations from missing micronutrients into the
-    care plan 'add' (Quick Fixes to Add) bucket.
+    Add supplement recommendations into the care plan 'add' bucket.
 
-    Each missing micro becomes an orderable supplement suggestion.
+    Sourced exclusively from nutrition_analysis.micronutrient_gaps (severity DESC),
+    which is the same field driving the Missing Micronutrients badges — guaranteed
+    identical order and content.
     """
-    if not isinstance(care_plan, dict) or not isinstance(diet_summary, dict):
+    if not isinstance(care_plan, dict) or not isinstance(nutrition_analysis, dict):
         return care_plan
 
-    missing_micros = diet_summary.get("missing_micros") or []
-    if not missing_micros:
+    micro_gaps = nutrition_analysis.get("micronutrient_gaps") or []
+    micros_to_show = [g for g in micro_gaps if g.get("status") != "sufficient"]
+
+    if not micros_to_show:
         return care_plan
 
     supplement_items = []
-    for micro in missing_micros:
+    for micro in micros_to_show:
         nutrient_name = micro.get("name", "")
         cap_name = nutrient_name[0].upper() + nutrient_name[1:] if nutrient_name else nutrient_name
-        # Display the micronutrient name (not the LLM product name) as the item title.
-        # The LLM product name is used internally for product resolution but not shown.
         item_name = f"{cap_name} Supplement" if cap_name else "Supplement"
-        # Use LLM-provided reason as the one-liner shown below the supplement name
-        reason = micro.get("reason") or None
         supplement_items.append({
             "name": item_name,
             "test_type": "supplement",
@@ -244,12 +245,11 @@ def _inject_supplement_recommendations(care_plan: dict, diet_summary: dict) -> d
             "next_due": None,
             "status_tag": "Recommended",
             "classification": "suggested",
-            "reason": reason,
+            "reason": micro.get("reason") or None,
             "orderable": True,
             "cta_label": "Order Now",
             # Raw micronutrient name used by the frontend to fetch matching
-            # products from product_supplement via the resolve-by-micronutrient
-            # endpoint (instead of the diet_item_id path used for food items).
+            # products via the resolve-by-micronutrient endpoint.
             "micronutrient": nutrient_name,
         })
 
@@ -928,24 +928,6 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         _cached_diet if isinstance(_cached_diet, dict)
         else {"macros": [], "missing_micros": []}
     )
-    # Guard 1: if the pet has no diet items, suppress any cached supplement
-    # recommendations. Stale cache entries may contain LLM-fabricated gaps
-    # generated before the pet logged any food — these must not surface as
-    # "Quick Fixes to Add" on the dashboard.
-    if not diet_rows and diet_summary.get("missing_micros"):
-        diet_summary = {**diet_summary, "missing_micros": []}
-    # Guard 2: if diet items exist but the cached diet_summary has no macro data
-    # (calories_per_day = 0 / macros empty), the LLM could not analyse the diet
-    # (e.g. homemade food without quantities → INSUFFICIENT_DATA). Suppress
-    # missing_micros so stale gaps from a previous analysis don't appear as
-    # "Quick Fixes to Add" when the current diet cannot be quantified.
-    elif diet_rows and diet_summary.get("missing_micros"):
-        _has_macro_data = any(
-            m.get("pct_of_need", 0) > 0
-            for m in diet_summary.get("macros", [])
-        )
-        if not _has_macro_data:
-            diet_summary = {**diet_summary, "missing_micros": []}
 
     recognition_bullets: list = []
     _cached_bullets = _insight_cache.get("recognition_bullets")
@@ -1060,7 +1042,11 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     )
 
     care_plan_v2 = _apply_reasons_to_care_plan(care_plan_v2, care_plan_reasons)
-    care_plan_v2 = _inject_supplement_recommendations(care_plan_v2, diet_summary)
+    _cached_nutrition_analysis = _insight_cache.get("nutrition_analysis")
+    care_plan_v2 = _inject_supplement_recommendations(
+        care_plan_v2,
+        _cached_nutrition_analysis if isinstance(_cached_nutrition_analysis, dict) else None,
+    )
 
     life_stage_payload = None
     if life_stage_data is not None:
