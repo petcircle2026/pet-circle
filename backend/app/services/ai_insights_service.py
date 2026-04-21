@@ -1125,10 +1125,14 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
         bullets.append({"icon": "🍽️", "label": "No diet entries recorded"})
 
     # 4. Prescribed diet — document-extracted diet items (food or supplement from documents)
+    # Only show items extracted within the last 6 weeks (using created_at as a proxy for
+    # prescription date). Items older than 6 weeks are considered stale and not shown.
+    _six_weeks_ago = datetime.now(timezone.utc) - timedelta(weeks=6)
     doc_diet_items = [
         d for d in diet_items
         if (d.source or "").lower() == "document_extracted"
         and d.type in ("packaged", "homemade", "supplement")
+        and (d.created_at.replace(tzinfo=timezone.utc) if d.created_at else datetime.min.replace(tzinfo=timezone.utc)) >= _six_weeks_ago
     ]
     if doc_diet_items:
         seen_labels: set[str] = set()
