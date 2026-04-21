@@ -29,9 +29,6 @@ export default function AskVetConditionCard({
   const points = condition.chart_data?.points || [];
   const plateletSeries = isPlateletSeries(points);
   const timeline = compressTimelineNodes(condition.timeline_data || []);
-  const maxQuestions = 2;
-  const questions = condition.questions.slice(0, maxQuestions);
-  const hiddenQuestionsCount = Math.max(0, condition.questions.length - questions.length);
 
   return (
     <div className="card">
@@ -75,50 +72,6 @@ export default function AskVetConditionCard({
           </button>
         )}
       </div>
-
-      {questions.length > 0 && (
-        <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.8px", marginBottom: 8 }}>
-            Ask your vet
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {questions.map((question, index) => {
-              const usePurple = plateletSeries || index === questions.length - 1;
-              return (
-                <div
-                  key={`${condition.id}-${index}`}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 8,
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    background: usePurple ? "#F5EEF8" : "var(--ta)",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 800,
-                      color: usePurple ? "#9B59B6" : "var(--orange)",
-                      flexShrink: 0,
-                      marginTop: 1,
-                    }}
-                  >
-                    Ask:
-                  </span>
-                  <span style={{ fontSize: 13, color: "var(--t1)", lineHeight: 1.5, fontWeight: 500 }}>{question}</span>
-                </div>
-              );
-            })}
-            {hiddenQuestionsCount > 0 && (
-              <div style={{ fontSize: 12, color: "var(--t3)", fontWeight: 600, marginTop: 2 }}>
-                +{hiddenQuestionsCount} more {hiddenQuestionsCount === 1 ? "question" : "questions"}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {points.length > 0 && (
         <div style={{ marginTop: 18 }}>
