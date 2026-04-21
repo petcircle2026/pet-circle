@@ -2331,7 +2331,12 @@ async def _step_prev_retry(db, user, text, send_fn):
         # Apply the same generic vaccine / flea-without-brand detection as
         # in _step_preventive, but since this is the final retry step we
         # don't loop — vaccine type and flea brand questions still apply.
-        needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
+        retry_missing = list(od.get("preventive_missing") or [])
+        needs_vaccine_type_q = _is_generic_vaccine_mention(parsed) or (
+            "vaccines" in retry_missing
+            and not parsed.get("vaccines")
+            and not (parsed.get("vaccine_specifics") or [])
+        )
         needs_flea_brand_q = _is_flea_without_brand(parsed)
 
         if needs_vaccine_type_q:
