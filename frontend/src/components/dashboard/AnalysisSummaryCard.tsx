@@ -1,6 +1,6 @@
 "use client";
 
-import type { DashboardData } from "@/lib/api";
+import type { DashboardData, NutritionAnalysis } from "@/lib/api";
 import CollapsibleCard from "@/components/ui/CollapsibleCard";
 import LifeStageCard from "./LifeStageCard";
 import HealthConditionsCard from "./HealthConditionsCard";
@@ -8,11 +8,12 @@ import DietAnalysisCard from "./DietAnalysisCard";
 
 interface AnalysisSummaryCardProps {
   data: DashboardData;
+  nutritionAnalysis?: NutritionAnalysis | null;
   onGoToTrends: () => void;
   isExtracting?: boolean;
 }
 
-export default function AnalysisSummaryCard({ data, onGoToTrends, isExtracting }: AnalysisSummaryCardProps) {
+export default function AnalysisSummaryCard({ data, nutritionAnalysis, onGoToTrends, isExtracting }: AnalysisSummaryCardProps) {
   return (
     <CollapsibleCard title="Analysis" defaultOpen={false}>
       <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
@@ -23,7 +24,7 @@ export default function AnalysisSummaryCard({ data, onGoToTrends, isExtracting }
           <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} compact isExtracting={isExtracting} />
         </div>
         <div style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "14px 12px" }}>
-          <DietAnalysisCard nutrition={data.nutrition_analysis} compact />
+          <DietAnalysisCard nutrition={nutritionAnalysis ?? data.nutrition_analysis} compact />
         </div>
       </div>
     </CollapsibleCard>

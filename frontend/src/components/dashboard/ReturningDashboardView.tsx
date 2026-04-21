@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CarePlanItem } from "@/lib/api";
+import type { CarePlanItem, NutritionAnalysis } from "@/lib/api";
+import { getNutritionAnalysis } from "@/lib/api";
 import ProfileBanner from "./ProfileBanner";
 import RecognitionCard from "./RecognitionCard";
 import AnalysisSummaryCard from "./AnalysisSummaryCard";
@@ -43,6 +44,21 @@ export default function ReturningDashboardView({
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+
+  const [nutritionAnalysis, setNutritionAnalysis] = useState<NutritionAnalysis | null>(
+    data.nutrition_analysis ?? null
+  );
+  useEffect(() => {
+    setNutritionAnalysis(data.nutrition_analysis ?? null);
+  }, [data.nutrition_analysis]);
+  useEffect(() => {
+    if (nutritionAnalysis) return;
+    let cancelled = false;
+    getNutritionAnalysis(token).then((result) => {
+      if (!cancelled) setNutritionAnalysis(result);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, nutritionAnalysis]);
 
   // ProductSelectorCard state
   const [selectorOpen, setSelectorOpen] = useState(false);
@@ -161,7 +177,7 @@ export default function ReturningDashboardView({
     <div ref={containerRef} className="app">
       <ProfileBanner data={data} token={token} onGoToReminders={onGoToReminders} />
       <RecognitionCard data={data} onGoToRecords={onGoToRecords} isReturning />
-      <AnalysisSummaryCard data={data} onGoToTrends={onGoToTrends} isExtracting={isExtracting} />
+      <AnalysisSummaryCard data={data} nutritionAnalysis={nutritionAnalysis} onGoToTrends={onGoToTrends} isExtracting={isExtracting} />
       <CarePlanCard
         petName={data.pet.name}
         buckets={buckets}

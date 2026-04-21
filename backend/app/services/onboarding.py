@@ -1094,10 +1094,38 @@ async def _step_breed_age(db, user, text, send_fn):
             )
             return
         if detected_species and detected_species != "dog":
+            if od.get("non_dog_waitlist_prompted"):
+                # Second non-dog reply — default to dog and continue rather than staying stuck.
+                pet.species = "dog"
+                _set_onboarding_data(user, "needs_species", False)
+                _set_onboarding_data(user, "gender_weight_attempts", 0)
+                user.onboarding_state = "awaiting_gender_weight"
+                db.commit()
+                await send_fn(
+                    db, mobile,
+                    f"No worries — let's continue! What's {pet.name}'s gender and approximate weight? "
+                    f"(e.g., male, 22 kg)",
+                )
+                return
             _set_onboarding_data(user, "non_dog_waitlist_prompted", True)
             db.commit()
             await _send_dog_only_scope_message(db, mobile, send_fn, pet.name, detected_species)
             return
+        # Unknown species — if already prompted once, advance rather than loop.
+        if od.get("non_dog_waitlist_prompted"):
+            pet.species = "dog"
+            _set_onboarding_data(user, "needs_species", False)
+            _set_onboarding_data(user, "gender_weight_attempts", 0)
+            user.onboarding_state = "awaiting_gender_weight"
+            db.commit()
+            await send_fn(
+                db, mobile,
+                f"No worries — let's continue! What's {pet.name}'s gender and approximate weight? "
+                f"(e.g., male, 22 kg)",
+            )
+            return
+        _set_onboarding_data(user, "non_dog_waitlist_prompted", True)
+        db.commit()
         await send_fn(
             db,
             mobile,
@@ -1119,6 +1147,18 @@ async def _step_breed_age(db, user, text, send_fn):
 
     explicit_species = _detect_species_intent(text_lower)
     if explicit_species and explicit_species != "dog":
+        if od.get("non_dog_waitlist_prompted"):
+            # Second non-dog reply in main breed-age step — default to dog and continue.
+            pet.species = "dog"
+            _set_onboarding_data(user, "gender_weight_attempts", 0)
+            user.onboarding_state = "awaiting_gender_weight"
+            db.commit()
+            await send_fn(
+                db, mobile,
+                f"No worries — let's continue! What's {pet.name}'s gender and approximate weight? "
+                f"(e.g., male, 22 kg)",
+            )
+            return
         _set_onboarding_data(user, "non_dog_waitlist_prompted", True)
         db.commit()
         await _send_dog_only_scope_message(db, mobile, send_fn, pet.name, explicit_species)
@@ -1713,6 +1753,8 @@ async def _step_supplements_v2(db, user, text, send_fn):
             "fenbendazole", "pyrantel", "albendazole", "prazitel", "verminator",
             "blood test", "blood tests", "vaccine", "vaccination",
         }
+        supp_guard_reasks = od.get("supplement_guard_reasks", 0)
+
         if any(kw in text_lower for kw in _PREVENTIVE_KEYWORDS):
             prefill = await _parse_preventive_care(text)
             existing_prefill = _get_onboarding_data(user).get("preventive_prefill") or {}
@@ -1721,53 +1763,66 @@ async def _step_supplements_v2(db, user, text, send_fn):
                 if k != "missing" and v and not existing_prefill.get(k):
                     existing_prefill[k] = v
             _set_onboarding_data(user, "preventive_prefill", existing_prefill)
+            if supp_guard_reasks < 1:
+                # Re-ask supplements so the user still gets a chance to answer it.
+                _set_onboarding_data(user, "supplement_guard_reasks", supp_guard_reasks + 1)
+                db.commit()
+                await send_fn(
+                    db, mobile,
+                    f"Got it, noted that for {pet.name}'s care plan! "
+                    + _supplements_question_for_pet(pet.name, _get_onboarding_data(user)),
+                )
+                return
+            # Already re-asked once — fall through and advance.
+            _set_onboarding_data(user, "supplement_guard_reasks", 0)
             db.commit()
-            # Re-ask supplements so the user still gets a chance to answer it.
-            await send_fn(
-                db, mobile,
-                f"Got it, noted that for {pet.name}'s care plan! "
-                + _supplements_question_for_pet(pet.name, _get_onboarding_data(user)),
-            )
-            return
 
-        # Guard against late-arriving meal messages: if the user sent food items
-        # (e.g. "boiled egg whites") across multiple messages and the second message
-        # arrived after the state already advanced to awaiting_supplements, detect this
-        # and save as additional diet items instead of misclassifying as supplements.
-        is_food_not_supplement = await _ai_is_food_not_supplement(text)
-        if is_food_not_supplement:
-            od = _get_onboarding_data(user)
-            food_type = od.get("food_type", "mix")
-            extra_items = await _parse_diet_input(text)
-            await _store_meal_items(db, pet, extra_items, food_type)
-            extra_supp_labels = await _store_meal_supplement_items(db, pet, text)
-            existing_labels = od.get("meal_supplement_labels") or []
-            _set_onboarding_data(
-                user,
-                "meal_supplement_labels",
-                existing_labels + extra_supp_labels,
-            )
-            db.commit()
-            # Re-ask supplements so the user still gets a chance to answer.
-            await send_fn(
-                db, mobile,
-                f"Got it, added that to {pet.name}'s diet. "
-                + _supplements_question_for_pet(pet.name, _get_onboarding_data(user)),
-            )
-            return
+        else:
+            # Guard against late-arriving meal messages: if the user sent food items
+            # (e.g. "boiled egg whites") across multiple messages and the second message
+            # arrived after the state already advanced to awaiting_supplements, detect this
+            # and save as additional diet items instead of misclassifying as supplements.
+            is_food_not_supplement = await _ai_is_food_not_supplement(text)
+            if is_food_not_supplement:
+                od = _get_onboarding_data(user)
+                food_type = od.get("food_type", "mix")
+                extra_items = await _parse_diet_input(text)
+                await _store_meal_items(db, pet, extra_items, food_type)
+                extra_supp_labels = await _store_meal_supplement_items(db, pet, text)
+                existing_labels = od.get("meal_supplement_labels") or []
+                _set_onboarding_data(
+                    user,
+                    "meal_supplement_labels",
+                    existing_labels + extra_supp_labels,
+                )
+                if supp_guard_reasks < 1:
+                    _set_onboarding_data(user, "supplement_guard_reasks", supp_guard_reasks + 1)
+                    db.commit()
+                    # Re-ask supplements so the user still gets a chance to answer.
+                    await send_fn(
+                        db, mobile,
+                        f"Got it, added that to {pet.name}'s diet. "
+                        + _supplements_question_for_pet(pet.name, _get_onboarding_data(user)),
+                    )
+                    return
+                # Already re-asked once — fall through and advance.
+                _set_onboarding_data(user, "supplement_guard_reasks", 0)
+                db.commit()
 
-        # Use supplement-specific extractor instead of food parser
-        supplements = await _extract_meal_supplement_items(text)
-        # If supplement extractor returns no items (e.g., "omega" not recognized),
-        # fall back to treating the input as a supplement label directly.
-        if not supplements and text_lower and text_lower not in _SKIP_INPUTS:
-            supplements = [(text.strip(), "")]
+        # Only extract supplements if the input isn't preventive-care content
+        # (preventive keywords were already saved to prefill above — don't double-save as supplements).
+        if not any(kw in text_lower for kw in _PREVENTIVE_KEYWORDS):
+            supplements = await _extract_meal_supplement_items(text)
+            # If supplement extractor returns no items (e.g., "omega" not recognized),
+            # fall back to treating the input as a supplement label directly.
+            if not supplements and text_lower and text_lower not in _SKIP_INPUTS:
+                supplements = [(text.strip(), "")]
 
-        for label, detail in supplements:
-            try:
-                await add_diet_item(db, pet.id, "supplement", label, detail or None)
-            except Exception as e:
-                logger.error("Failed to save supplement for pet %s: %s", str(pet.id), str(e))
+            for label, detail in supplements:
+                try:
+                    await add_diet_item(db, pet.id, "supplement", label, detail or None)
+                except Exception as e:
+                    logger.error("Failed to save supplement for pet %s: %s", str(pet.id), str(e))
 
     # Progress indicator message.
     await send_fn(
@@ -2750,7 +2805,9 @@ async def _step_flea_brand(db, user, text, send_fn):
     # Inject brand into flea_tick entry (unless user said "not sure").
     brand = text.strip()
     skip_keywords = {"not sure", "don't know", "dont know", "no idea", "skip", "n/a", "na"}
-    if brand.lower() not in skip_keywords and brand:
+    user_said_not_sure = brand.lower() in skip_keywords
+
+    if not user_said_not_sure and brand:
         flea_tick = parsed.get("flea_tick")
         if isinstance(flea_tick, dict):
             flea_tick["medicine"] = brand
@@ -2778,6 +2835,12 @@ async def _step_flea_brand(db, user, text, send_fn):
         missing_readable = [missing_names.get(m, m) for m in missing]
         missing_str = " and ".join(missing_readable)
         await send_fn(db, mobile, f"Got it! What about {missing_str}?")
+        return
+
+    # If user said "not sure" to flea brand, skip summary and go straight to documents.
+    # They've already confirmed the preventive data by reaching this step.
+    if user_said_not_sure:
+        await _transition_to_documents(db, user, pet, send_fn)
         return
 
     await _show_preventive_summary(db, user, pet, send_fn)
