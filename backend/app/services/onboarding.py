@@ -2087,7 +2087,14 @@ async def _step_preventive(db, user, text, send_fn):
         return
 
     # --- Detect generic vaccine mention and flea without brand ---
-    needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
+    # Also treat as generic if keyword detection added vaccines to missing but GPT
+    # returned no parsed vaccine data (e.g. "vaccine last decades" where GPT couldn't
+    # extract any date).
+    needs_vaccine_type_q = _is_generic_vaccine_mention(parsed) or (
+        "vaccines" in missing
+        and not parsed.get("vaccines")
+        and not (parsed.get("vaccine_specifics") or [])
+    )
     # Never ask for flea brand when flea is excluded (e.g. puppy under 8 weeks).
     needs_flea_brand_q = _is_flea_without_brand(parsed) and not flea_excluded
 
@@ -2884,6 +2891,14 @@ async def _step_flea_brand(db, user, text, send_fn):
             parsed["flea_tick"] = {"date": flea_tick, "medicine": brand}
 
     ambiguous = await _store_preventive_data(db, pet, parsed)
+
+    # If the brand covers additional categories (e.g. NexGard Spectra covers deworming),
+    # remove those from missing so we don't ask about them unnecessarily.
+    if brand and not user_said_not_sure:
+        from app.services.gpt_extraction import _get_preventive_categories_for_medicine
+        brand_categories = _get_preventive_categories_for_medicine(brand)
+        if brand_categories:
+            missing = [m for m in missing if m not in brand_categories]
 
     # Ambiguous = user mentioned the category but gave an unparseable date.
     # Ask a targeted date question rather than lumping it into the generic re-ask.

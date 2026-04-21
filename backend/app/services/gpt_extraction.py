@@ -906,8 +906,13 @@ EXTRACTION_SYSTEM_PROMPT = (
     "e.g., 'Blood Test Report', 'Vaccination Certificate', 'Deworming Record', "
     "'Vet Prescription', 'Health Checkup Report')\n"
     '  - "document_type": "pet_medical" or "not_pet_related" '
-    "(set to 'not_pet_related' if the document is clearly NOT a pet/veterinary document, "
-    "e.g., a human medical report, invoice, random photo, etc.)\n"
+    "(set to 'not_pet_related' if the document is clearly NOT a pet/veterinary document. "
+    "This includes: screenshots of chat conversations, screenshots of social media or "
+    "streaming apps, photos of people, food, scenery, or objects, TV show screenshots, "
+    "entertainment or news screenshots, human medical reports, invoices, receipts, "
+    "random photos, memes, or any image with no veterinary or animal health content. "
+    "When in doubt — if the image does not look like an actual vet record, lab report, "
+    "prescription, or vaccination certificate for an animal — set 'not_pet_related'.)\n"
     '  - "document_category": one of "Blood Report", "Urine Report", "Imaging", '
     '"Prescription", "PCR & Parasite Panel", "Vaccination", "Other" --- '
     "pick the most specific match: "
@@ -1167,7 +1172,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- Any in-clinic test values written on a prescription (blood glucose, PCV, SpO2) should be "
     "listed in clinical_exam.in_clinic_test_values --- do NOT duplicate them into diagnostic_values.\n"
     "- If any field is missing, use null for that field.\n"
-    "- If not pet/veterinary related, set document_type to 'not_pet_related' and items to [].\n"
+    "- If not pet/veterinary related (e.g. screenshots of chats, TV/streaming content, people, "
+    "food, scenery, human medical records, invoices), set document_type to 'not_pet_related' "
+    "and return empty arrays for all data fields. Do NOT try to extract health items from "
+    "non-veterinary images.\n"
     '- If no preventive items found, return {"document_name": "...", "document_type": "pet_medical", '
     '"document_category": "...", "diagnostic_summary": null, "pet_name": null, "items": [], '
     '"conditions": [], "standalone_medications": [], "recommendations": [], '
@@ -1681,6 +1689,34 @@ def _validate_extraction_dict(
         raw_vet_diet = parsed.get("vet_diet_recommendations")
         if isinstance(raw_vet_diet, list):
             metadata["vet_diet_recommendations"] = raw_vet_diet
+
+    # Safety net: if the model labelled the document as "pet_medical" but extracted
+    # absolutely no health signals (no pet name, no doctor, no clinic, no conditions,
+    # no diagnostic values, no vaccination details, no standalone medications, no
+    # preventive medications), treat it as not_pet_related to avoid silently accepting
+    # random screenshots or non-medical images that the model failed to reject.
+    if metadata["document_type"] == "pet_medical":
+        has_any_health_signal = bool(
+            extracted_pet_name
+            or metadata.get("doctor_name")
+            or metadata.get("clinic_name")
+            or metadata.get("conditions")
+            or metadata.get("diagnostic_values")
+            or metadata.get("vaccination_details")
+            or metadata.get("standalone_medications")
+            or metadata.get("preventive_medications")
+            or metadata.get("diagnostic_summary")
+        )
+        # Also check items in the raw parsed dict before they are validated.
+        raw_items_check = parsed.get("items") if isinstance(parsed, dict) else None
+        if isinstance(raw_items_check, list) and raw_items_check:
+            has_any_health_signal = True
+        if not has_any_health_signal:
+            logger.warning(
+                "Document labelled pet_medical but contains no health signals — "
+                "overriding to not_pet_related."
+            )
+            metadata["document_type"] = "not_pet_related"
 
     # Handle both direct array and wrapper object formats.
     # GPT with json_object mode returns an object, not an array.
