@@ -638,6 +638,7 @@ _NOISE_WORDS: frozenset[str] = frozenset({
 _NOISE_ALLOWED_STATES: frozenset[str] = frozenset({
     "welcome",
     "awaiting_documents",
+    "awaiting_preventive_summary_confirm",  # expects "ok/yes/no" replies
 })
 
 
@@ -3447,9 +3448,15 @@ async def _step_preventive_summary_confirm(db, user, text, send_fn):
 
     text_lower = text.strip().lower()
 
-    # Affirmative — all correct.
+    # Affirmative — all correct (including "not sure", "skip" — user can't correct what they don't know).
+    normalized_confirm = re.sub(r"[.!?,]+$", "", text_lower.strip())
     binary = _resolve_binary_confirmation_reply(text_lower)
-    if binary == "yes" or text_lower in {"yes", "correct", "looks good", "all good", "ok", "okay", "yep", "yup", "right"}:
+    if (
+        binary == "yes"
+        or normalized_confirm in {"yes", "correct", "looks good", "all good", "ok", "okay", "yep", "yup", "right"}
+        or normalized_confirm in _SKIP_INPUTS
+        or normalized_confirm in {"not sure", "dont know", "don't know", "no idea", "n/a", "na"}
+    ):
         await _transition_to_documents(db, user, pet, send_fn)
         return
 
