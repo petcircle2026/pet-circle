@@ -636,6 +636,7 @@ active --- Ongoing episode or treatment course where the end date has not yet pa
   - If medications[].end_date is present and has passed -> set resolved + soft_resolution: true
   - If no end_date is defined and last record is older than 6 weeks -> set resolved + soft_resolution: true
   - soft_resolution only applies to acute and recurrent types. Never to chronic.
+  - PRESCRIPTION RECENCY RULE: For acute and recurrent conditions, only treat a condition as active if its most recent episode_date falls within the last 6 weeks, OR if a medication end_date explicitly extends beyond today. If all episode_dates for a non-chronic condition are older than 6 weeks and no medication is still within its end_date window, force soft_resolution: true and set status to resolved.
 
 monitoring --- No active treatment but a watchout exists:
   - Acute: abnormal lab finding from episode with no confirmed follow-up result
@@ -645,6 +646,7 @@ monitoring --- No active treatment but a watchout exists:
 managed --- Chronic or recurrent only. Stable, on medication or regular rechecks, no missed intervals, no unresolved findings.
 
 resolved --- Confirmed treatment end, no recurrence, no pending findings. Never apply to chronic without explicit vet confirmation. Silence on a chronic condition is never resolved.
+  - For acute and recurrent conditions: if the condition appears ONLY in prescriptions or records older than 6 weeks and the condition_type is not chronic, treat it as resolved even without explicit confirmation. The absence of the condition in recent records is sufficient evidence of resolution.
 
 STEP 3 --- BUILD DISPLAY LIST
 Order: Severity ladder descending, most recent first within each group.
