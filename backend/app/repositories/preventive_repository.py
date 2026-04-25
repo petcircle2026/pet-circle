@@ -1,5 +1,5 @@
-"""
-Preventive Repository — Centralized PreventiveRecord data access.
+﻿"""
+Preventive Repository â€” Centralized PreventiveRecord data access.
 
 All queries about preventive care records (vaccines, deworming, flea/tick, etc.)
 live here. This is the single source of truth for preventive data access.
@@ -11,8 +11,8 @@ from datetime import date, timedelta
 from sqlalchemy import and_, desc, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.preventive_record import PreventiveRecord
-from app.models.custom_preventive_item import CustomPreventiveItem
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.custom_preventive_item import CustomPreventiveItem
 from app.models.preventive_master import PreventiveMaster
 
 
@@ -311,7 +311,7 @@ class PreventiveRepository:
         )
 
     def find_by_pet_id(self, pet_id: UUID) -> list[PreventiveRecord]:
-        """Alias for get_by_pet — consistent with cross-repository naming."""
+        """Alias for get_by_pet â€” consistent with cross-repository naming."""
         return self.get_by_pet(pet_id)
 
     def has_any(self, pet_id: UUID) -> bool:
@@ -352,6 +352,15 @@ class PreventiveRepository:
             .first()
         )
 
+    def find_master_item_names_by_pet(self, pet_id: UUID) -> List[str]:
+        """Fetch item names from PreventiveMaster for all records of a pet."""
+        return (
+            self.db.query(PreventiveMaster.item_name)
+            .join(PreventiveRecord, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .all()
+        )
+
     def find_with_master_non_cancelled(self, pet_id: UUID):
         """Fetch (PreventiveRecord, PreventiveMaster) tuples for non-cancelled records."""
         return (
@@ -371,9 +380,9 @@ class PreventiveRepository:
 
         Returns list of (PreventiveRecord, Pet, User, PreventiveMaster, CustomPreventiveItem).
         """
-        from app.models.pet import Pet
-        from app.models.user import User
-        from app.models.custom_preventive_item import CustomPreventiveItem
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
+        from app.models.preventive.custom_preventive_item import CustomPreventiveItem
         return (
             self.db.query(PreventiveRecord, Pet, User, PreventiveMaster, CustomPreventiveItem)
             .join(Pet, PreventiveRecord.pet_id == Pet.id)
@@ -401,3 +410,4 @@ class PreventiveRepository:
             )
             .all()
         )
+

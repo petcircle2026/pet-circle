@@ -1,5 +1,5 @@
-"""
-Care Repository — Pet care records (hygiene, diagnostics, weight).
+﻿"""
+Care Repository â€” Pet care records (hygiene, diagnostics, weight).
 
 Manages:
 - Hygiene preferences
@@ -15,9 +15,9 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from app.models.hygiene_preference import HygienePreference
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.weight_history import WeightHistory
+from app.models.nutrition.hygiene_preference import HygienePreference
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
+from app.models.health.weight_history import WeightHistory
 from app.models.cache.ideal_weight_cache import IdealWeightCache
 
 
@@ -333,10 +333,10 @@ class CareRepository:
         Fetch (ConditionMedication, Condition, Pet, User) for active medications.
         Used by reminder_engine for chronic medicine candidate collection.
         """
-        from app.models.condition import Condition
-        from app.models.condition_medication import ConditionMedication
-        from app.models.pet import Pet
-        from app.models.user import User
+        from app.models.health.condition import Condition
+        from app.models.health.condition_medication import ConditionMedication
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
         return (
             self.db.query(ConditionMedication, Condition, Pet, User)
             .join(Condition, ConditionMedication.condition_id == Condition.id)
@@ -355,10 +355,10 @@ class CareRepository:
         Fetch (ConditionMonitoring, Condition, Pet, User) for monitoring items with a due date.
         Used by reminder_engine for vet follow-up candidate collection.
         """
-        from app.models.condition import Condition
-        from app.models.condition_monitoring import ConditionMonitoring
-        from app.models.pet import Pet
-        from app.models.user import User
+        from app.models.health.condition import Condition
+        from app.models.health.condition_monitoring import ConditionMonitoring
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
         return (
             self.db.query(ConditionMonitoring, Condition, Pet, User)
             .join(Condition, ConditionMonitoring.condition_id == Condition.id)
@@ -377,8 +377,8 @@ class CareRepository:
         Fetch (HygienePreference, Pet, User) where reminder=True.
         Used by reminder_engine for hygiene candidate collection.
         """
-        from app.models.pet import Pet
-        from app.models.user import User
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
         return (
             self.db.query(HygienePreference, Pet, User)
             .join(Pet, HygienePreference.pet_id == Pet.id)
@@ -398,3 +398,69 @@ class CareRepository:
             .filter(DiagnosticTestResult.pet_id == pet_id)
             .first() is not None
         )
+
+    def find_active_condition_medications_with_refill(
+        self, pet_id: UUID
+    ) -> list:
+        """
+        Fetch active condition medications with refill_due_date for a pet.
+        Used by care_plan_engine to build prescriptions dict.
+
+        Returns list of ConditionMedication with eager-loaded condition.
+        """
+        from app.models.health.condition_medication import ConditionMedication
+        from app.models.health.condition import Condition
+        from sqlalchemy.orm import joinedload
+
+        return (
+            self.db.query(ConditionMedication)
+            .join(Condition, ConditionMedication.condition_id == Condition.id)
+            .options(joinedload(ConditionMedication.condition))
+            .filter(
+                Condition.pet_id == pet_id,
+                ConditionMedication.status == "active",
+                ConditionMedication.refill_due_date.isnot(None),
+            )
+            .all()
+        )
+
+    def find_active_condition_medications_all(
+        self, pet_id: UUID
+    ) -> list:
+        """
+        Fetch all active condition medications (item_type='medicine') for a pet.
+        Used by care_plan_engine for clinical medication section.
+
+        Returns list of ConditionMedication with eager-loaded condition.
+        """
+        from app.models.health.condition_medication import ConditionMedication
+        from app.models.health.condition import Condition
+        from sqlalchemy.orm import joinedload
+
+        return (
+            self.db.query(ConditionMedication)
+            .join(Condition, ConditionMedication.condition_id == Condition.id)
+            .options(joinedload(ConditionMedication.condition))
+            .filter(
+                Condition.pet_id == pet_id,
+                ConditionMedication.status == "active",
+                ConditionMedication.item_type == "medicine",
+            )
+            .all()
+        )
+
+    def find_active_conditions_for_pet(self, pet_id: UUID) -> list:
+        """
+        Fetch all active conditions for a pet.
+        Used by care_plan_engine for signal resolution.
+
+        Returns list of Condition.
+        """
+        from app.models.health.condition import Condition
+
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id, Condition.is_active.is_(True))
+            .all()
+        )
+

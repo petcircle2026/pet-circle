@@ -1,5 +1,5 @@
-"""
-Repository Factory — Dependency injection for all repositories.
+﻿"""
+Repository Factory â€” Dependency injection for all repositories.
 
 Provides a single factory function that creates all repository instances
 with a shared database session. This enables easy testing (mock the factory)
@@ -111,3 +111,4 @@ def get_repositories(db: Session) -> Repositories:
         document=DocumentRepository(db),
         audit=AuditRepository(db),
     )
+

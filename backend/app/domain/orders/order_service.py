@@ -1,5 +1,5 @@
-"""
-OrderService — Orchestrator for cart and order operations.
+﻿"""
+OrderService â€” Orchestrator for cart and order operations.
 
 Responsible for:
 1. Using cart_logic for calculations
@@ -93,3 +93,4 @@ class OrderService:
         except Exception as e:
             logger.exception("Failed to create order: %s", str(e))
             raise
+

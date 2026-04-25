@@ -1,5 +1,5 @@
-"""
-PreventiveMaster Repository — Read-only reference data access.
+﻿"""
+PreventiveMaster Repository â€” Read-only reference data access.
 
 Provides access to preventive care standards, product catalogs,
 and breed/species lookup tables.
@@ -324,7 +324,18 @@ class PreventiveMasterRepository:
             .scalar() or 0
         )
 
-    def find_medicine_by_name_ilike(self, name: str) -> NudgeMessageLibrary | None:
+    def find_medicines_by_life_stage(self, species: str) -> List[ProductMedicines]:
+        """Find medicines/products with life_stage_tags matching a species."""
+        return (
+            self.db.query(ProductMedicines)
+            .filter(
+                ProductMedicines.active == True,
+                ProductMedicines.life_stage_tags.ilike(f"%{species}%"),
+            )
+            .all()
+        )
+
+    def find_medicine_by_name_ilike(self, name: str) -> ProductMedicines | None:
         """Find active medicine by partial name match (for warning lookup)."""
         from app.models.lookup.product_medicines import ProductMedicines
         return (
@@ -335,3 +346,38 @@ class PreventiveMasterRepository:
             )
             .first()
         )
+
+    def find_mandatory_by_species(self, species: str) -> List[PreventiveMaster]:
+        """
+        Find mandatory preventive items for a species.
+        Used by care_plan_engine to inject phantom entries for Quick Fixes.
+
+        Args:
+            species: "dog", "cat", or species to filter (includes "both")
+
+        Returns:
+            List of mandatory PreventiveMaster items.
+        """
+        return (
+            self.db.query(PreventiveMaster)
+            .filter(
+                PreventiveMaster.is_mandatory == True,
+                PreventiveMaster.species.in_([species, "both"]),
+            )
+            .all()
+        )
+
+    def find_product_medicines_with_repeat_frequency(self) -> List[tuple]:
+        """
+        Fetch (product_name, repeat_frequency) pairs for all medicines.
+        Used by care_plan_engine to map medicines to human-readable frequencies.
+
+        Returns:
+            List of (product_name, repeat_frequency) tuples.
+        """
+        return (
+            self.db.query(ProductMedicines.product_name, ProductMedicines.repeat_frequency)
+            .filter(ProductMedicines.repeat_frequency.isnot(None))
+            .all()
+        )
+

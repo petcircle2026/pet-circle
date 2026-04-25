@@ -1,4 +1,4 @@
-"""
+﻿"""
 Health Service Orchestrator
 
 Coordinates health data retrieval and calculation.
@@ -177,7 +177,7 @@ class HealthService:
 
     def _get_latest_diet_record(self, pet_id: UUID):
         """Get latest diet record for pet."""
-        from app.models.diet_item import DietItem
+        from app.models.nutrition.diet_item import DietItem
 
         record = (
             self.db.query(DietItem)
@@ -194,3 +194,4 @@ class HealthService:
         if record.custom_preventive_item:
             return record.custom_preventive_item.name
         return "Unknown"
+

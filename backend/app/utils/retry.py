@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Retry Utilities (Module 17)
+﻿"""
+PetCircle Phase 1 â€” Retry Utilities (Module 17)
 
 Provides retry wrappers for external API calls (Claude/Anthropic, WhatsApp).
 Each wrapper has a specific retry policy tuned to the service's
@@ -13,7 +13,7 @@ Retry policies:
       The semaphore is released during sleep so other callers can proceed
       while a rate-limited slot is waiting to retry.
     - WhatsApp: 2 attempts (1 retry). Log failure, continue.
-    - Database: No retry — failures indicate constraint violations
+    - Database: No retry â€” failures indicate constraint violations
       or connection issues that should not be silently retried.
 
 These utilities ensure external API failures are isolated and
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Global semaphore — limits concurrent in-flight Claude/Anthropic API calls
+# Global semaphore â€” limits concurrent in-flight Claude/Anthropic API calls
 # across the whole process. Prevents TPM quota exhaustion under request bursts.
 # Initialized eagerly at module load to avoid a lazy-init race where two coroutines
 # both see None and create duplicate semaphores during cold-start.
@@ -86,7 +86,7 @@ async def retry_openai_call(
 
     Interactive policy (onboarding steps, set max_retries=1):
         - Attempt 1: immediate
-        - Attempt 2: after 1s backoff  (3s for 429) — fails fast to fallback
+        - Attempt 2: after 1s backoff  (3s for 429) â€” fails fast to fallback
         - Falls through to caller's fallback/default rather than hanging
 
     The semaphore is acquired per-attempt and released before sleeping so
@@ -163,7 +163,7 @@ async def retry_openai_call(
                         attempt + 1, total_attempts, pending_backoff, str(e)
                     )
                 else:
-                    # Final attempt failed — log and raise.
+                    # Final attempt failed â€” log and raise.
                     logger.error(
                         "Claude/Anthropic call failed after %d attempts: %s",
                         total_attempts, str(e)
@@ -180,7 +180,7 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
         - Attempt 1: immediate
         - Attempt 2: immediate retry (no backoff)
         - If both fail, log the failure and return None
-        - Never raises — WhatsApp failures must not crash the flow
+        - Never raises â€” WhatsApp failures must not crash the flow
 
     WhatsApp message delivery is best-effort. If a template message
     fails to send after 1 retry, the failure is logged but the
@@ -206,11 +206,11 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
                     "WhatsApp call failed (attempt %d/%d), retrying: %s",
                     attempt + 1, total_attempts, str(e)
                 )
-                # Brief pause before retry — prevents simultaneous burst failures
+                # Brief pause before retry â€” prevents simultaneous burst failures
                 # from all retrying at the same instant and colliding again.
                 await asyncio.sleep(0.5)
             else:
-                # Final attempt failed — log error but do not raise.
+                # Final attempt failed â€” log error but do not raise.
                 # WhatsApp failures must never crash the processing flow.
                 logger.error(
                     "WhatsApp call failed after %d attempts. "
@@ -219,3 +219,4 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
                 )
 
     return None
+

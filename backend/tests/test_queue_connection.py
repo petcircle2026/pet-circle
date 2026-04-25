@@ -1,4 +1,4 @@
-"""
+﻿"""
 RabbitMQ Queue Connectivity Test
 
 Verifies that the CloudAMQP connection is working correctly:
@@ -8,7 +8,7 @@ Verifies that the CloudAMQP connection is working correctly:
     4. Consumes both messages back (round-trip confirmation)
     5. Reports queue stats
 
-Does NOT require a database, OpenAI key, or WhatsApp — purely tests
+Does NOT require a database, OpenAI key, or WhatsApp â€” purely tests
 the queue infrastructure.
 
 Usage:
@@ -55,7 +55,7 @@ async def main():
         print("      Check CLOUDAMQP_URL and that the CloudAMQP instance is running.")
         return
 
-    print("  OK — Connected. Queues declared.")
+    print("  OK â€” Connected. Queues declared.")
 
     # --- Step 2: Publish jobs ---
     print("\n[2/4] Publishing test jobs...")
@@ -76,9 +76,9 @@ async def main():
     publish_ms = (time.monotonic() - t0) * 1000
 
     if ok1 and ok2:
-        print(f"  OK — Both jobs published in {publish_ms:.0f}ms")
+        print(f"  OK â€” Both jobs published in {publish_ms:.0f}ms")
     else:
-        print(f"  FAIL — extraction publish={ok1}, precompute publish={ok2}")
+        print(f"  FAIL â€” extraction publish={ok1}, precompute publish={ok2}")
 
     # --- Step 3: Consume messages back (round-trip) ---
     print("\n[3/4] Consuming messages back (round-trip check)...")
@@ -123,23 +123,23 @@ async def main():
 
     if received["extract"]:
         job = received["extract"]
-        print(f"  OK — document.extract received in {consume_ms:.0f}ms")
+        print(f"  OK â€” document.extract received in {consume_ms:.0f}ms")
         print(f"       job_id={job.get('job_id')}, source={job.get('source')}, "
               f"docs={len(job.get('document_ids', []))}")
     else:
-        print("  FAIL — No message received from document.extract within 10s")
+        print("  FAIL â€” No message received from document.extract within 10s")
 
     if received["precompute"]:
         job = received["precompute"]
-        print(f"  OK — dashboard.precompute received")
+        print(f"  OK â€” dashboard.precompute received")
         print(f"       job_id={job.get('job_id')}, pet_id={job.get('pet_id')}")
     else:
-        print("  FAIL — No message received from dashboard.precompute within 10s")
+        print("  FAIL â€” No message received from dashboard.precompute within 10s")
 
     # --- Step 4: Close ---
     print("\n[4/4] Closing connection...")
     await queue_service.close()
-    print("  OK — Connection closed cleanly.")
+    print("  OK â€” Connection closed cleanly.")
 
     # --- Summary ---
     print(f"\n{'='*60}")
@@ -149,9 +149,10 @@ async def main():
         print("        CloudAMQP is wired up correctly.")
         print("        Start the API and document uploads will flow through the queue.")
     else:
-        print("RESULT: SOME CHECKS FAILED — review errors above.")
+        print("RESULT: SOME CHECKS FAILED â€” review errors above.")
     print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+

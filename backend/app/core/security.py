@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Security Utilities
+﻿"""
+PetCircle Phase 1 â€” Security Utilities
 
 Provides webhook signature verification and admin authentication.
 
@@ -8,7 +8,7 @@ Security model:
     - Admin endpoints: validates X-ADMIN-KEY header against ADMIN_SECRET_KEY
     - Dashboard: token-based access (validated in dashboard router)
 
-All security checks are structural — they run before any business logic.
+All security checks are structural â€” they run before any business logic.
 """
 
 import hashlib
@@ -85,9 +85,10 @@ async def validate_admin_key(x_admin_key: str = Header(None, alias="X-ADMIN-KEY"
     """
     # Constant-time comparison to prevent timing attacks.
     if not x_admin_key or not hmac.compare_digest(x_admin_key, settings.ADMIN_SECRET_KEY):
-        logger.warning("Admin authentication failed — invalid X-ADMIN-KEY.")
+        logger.warning("Admin authentication failed â€” invalid X-ADMIN-KEY.")
         raise HTTPException(
             status_code=403,
-            detail="Forbidden — invalid admin key.",
+            detail="Forbidden â€” invalid admin key.",
         )
     return x_admin_key
+

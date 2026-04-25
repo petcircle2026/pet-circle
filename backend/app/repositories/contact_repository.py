@@ -1,5 +1,5 @@
-"""
-Contact Repository — Pet contact management.
+﻿"""
+Contact Repository â€” Pet contact management.
 
 Manages:
 - Veterinarian contacts
@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.models.contact import Contact
+from app.models.core.contact import Contact
 
 
 class ContactRepository:
@@ -203,3 +203,4 @@ class ContactRepository:
         )
         self.db.flush()
         return count
+

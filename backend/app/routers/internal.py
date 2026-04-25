@@ -180,7 +180,7 @@ async def execute_extraction_replay(db: Session = Depends(get_db)):
         Dict with replayed, skipped, and per-document errors.
     """
     from app.core.constants import EXTRACTION_MAX_AUTO_RETRIES
-    from app.models.document import Document
+    from app.models.auth.document import Document
     from app.services.shared.document_upload import download_from_supabase
     from app.services.shared.gpt_extraction import extract_and_process_document
     from app.services.shared.document_upload import get_extraction_semaphore

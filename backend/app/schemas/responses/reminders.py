@@ -1,4 +1,4 @@
-"""Reminders response DTOs."""
+﻿"""Reminders response DTOs."""
 
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -79,3 +79,4 @@ class RemindersListResponse(BaseModel):
                 ],
             }
         }
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Base repository interface for all data access patterns.
 
 Defines the common CRUD operations that all repositories implement.
@@ -37,3 +37,4 @@ class Repository(Generic[T], Protocol):
     def delete(self, id: UUID) -> bool:
         """Delete entity by ID. Return True if found and deleted."""
         ...
+

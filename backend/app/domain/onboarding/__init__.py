@@ -1,4 +1,4 @@
-"""Onboarding domain — state machine, validators, parsers, orchestrator."""
+﻿"""Onboarding domain â€” state machine, validators, parsers, orchestrator."""
 
 from app.domain.onboarding.state_machine import (
     OnboardingState,
@@ -63,3 +63,4 @@ __all__ = [
     # Service
     "OnboardingService",
 ]
+

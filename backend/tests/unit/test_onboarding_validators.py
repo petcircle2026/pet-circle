@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for onboarding validators (pure functions, no DB).
 
 Tests: pet name, breed, weight, age, gender, phone validation.
@@ -230,3 +230,4 @@ class TestDocSkipIntent:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

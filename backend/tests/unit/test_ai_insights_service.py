@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 from types import SimpleNamespace
 from typing import Any, cast
@@ -77,7 +77,7 @@ def test_format_found_diet_summary_keeps_main_items_and_supplements():
         SimpleNamespace(
             type="packaged",
             label="Royal Canin Adult kibble",
-            detail="50g x 3/day . times a day · small treat · in the evening",
+            detail="50g x 3/day . times a day Â· small treat Â· in the evening",
         ),
         SimpleNamespace(
             type="homemade",
@@ -201,8 +201,8 @@ class _FakeInsightDB:
 @pytest.mark.asyncio
 async def test_generate_recognition_bullets_orders_conditions_preventive_diet():
     # scalar_values consumed in order:
-    # 1st query → active_condition_count (scalar) = 4
-    # 2nd query → preventive base; then .count() calls: vaccines=0, total=2 → 2 "other" items
+    # 1st query â†’ active_condition_count (scalar) = 4
+    # 2nd query â†’ preventive base; then .count() calls: vaccines=0, total=2 â†’ 2 "other" items
     db = _FakeSession(
         scalar_values=[4, [0, 2]],
         all_rows=[
@@ -218,11 +218,11 @@ async def test_generate_recognition_bullets_orders_conditions_preventive_diet():
     bullets = await generate_recognition_bullets(cast(Any, db), cast(Any, pet))
 
     assert len(bullets) == 3
-    assert bullets[0]["icon"] == "🩺"
+    assert bullets[0]["icon"] == "ðŸ©º"
     assert "active condition" in bullets[0]["label"]
-    assert bullets[1]["icon"] == "💉"
+    assert bullets[1]["icon"] == "ðŸ’‰"
     assert "preventive care item" in bullets[1]["label"]
-    assert bullets[2]["icon"] == "🍽️"
+    assert bullets[2]["icon"] == "ðŸ½ï¸"
     assert bullets[2]["label"] == "Royal Canin Adult kibble. Boiled rice and chicken. Supplements - Omega."
 
 
@@ -373,7 +373,7 @@ async def test_get_or_generate_insight_accepts_namespaced_vet_questions(monkeypa
     db = _FakeInsightDB()
 
     async def fake_questions(_context):
-        return [{"priority": "high", "icon": "🩺", "q": "Any follow-up panel needed?", "context": ""}]
+        return [{"priority": "high", "icon": "ðŸ©º", "q": "Any follow-up panel needed?", "context": ""}]
 
     monkeypatch.setattr("app.services.ai_insights_service._generate_vet_questions_gpt", fake_questions)
 
@@ -392,9 +392,9 @@ async def test_get_or_generate_insight_accepts_namespaced_vet_questions(monkeypa
     assert db.executed[0]["insight_type"] == "vet_questions:condition-1"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Bug 2: Kennel Cough & CCoV must be bucketed as vaccines in What We Found
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_vaccine_bullet_terms_include_kennel_cough_and_ccov():
@@ -411,3 +411,4 @@ def test_vaccine_bullet_terms_include_kennel_cough_and_ccov():
     assert not any(kw in "Deworming".lower() for kw in _VACCINE_BULLET_TERMS)
     assert not any(kw in "Tick/Flea".lower() for kw in _VACCINE_BULLET_TERMS)
     assert not any(kw in "Preventive Blood Test".lower() for kw in _VACCINE_BULLET_TERMS)
+

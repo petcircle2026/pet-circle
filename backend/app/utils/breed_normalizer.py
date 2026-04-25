@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Breed Normalizer
+﻿"""
+PetCircle Phase 1 â€” Breed Normalizer
 
 Maps common abbreviations, nicknames, and misspellings of dog and cat
 breeds to their standardized names. Applied during onboarding when
@@ -271,7 +271,7 @@ def normalize_breed(breed: str, species: str | None = None) -> str:
 
         return canonical
 
-    # No match found — return title-cased original for now.
+    # No match found â€” return title-cased original for now.
     # Caller can use normalize_breed_with_ai() as async fallback.
     return original.strip().title()
 
@@ -331,3 +331,4 @@ async def normalize_breed_with_ai(breed: str, species: str | None = None) -> str
     except Exception as e:
         logger.error("AI breed identification failed for '%s': %s", breed, str(e))
         return breed.strip().title()
+

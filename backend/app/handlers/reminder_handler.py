@@ -1,4 +1,4 @@
-"""
+﻿"""
 Reminder response handler.
 
 Routes reminder-related button payloads to the reminder engine.
@@ -56,3 +56,4 @@ class ReminderHandler(BaseHandler):
         except Exception as e:
             logger.exception("Reminder handler failed: %s", str(e))
             raise
+

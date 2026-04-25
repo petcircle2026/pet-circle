@@ -1,4 +1,4 @@
-"""
+﻿"""
 Onboarding State Machine
 
 Pure state transition logic for the onboarding flow.
@@ -68,7 +68,7 @@ class OnboardingStateMachine:
     """
     Manages onboarding state transitions.
 
-    Pure logic — no database access, fully testable.
+    Pure logic â€” no database access, fully testable.
     """
 
     def __init__(self):
@@ -184,3 +184,4 @@ class OnboardingStateMachine:
             return min(progress, 100)
         except ValueError:
             return 0
+

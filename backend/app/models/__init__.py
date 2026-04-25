@@ -10,33 +10,27 @@ Subpackages:
   app.models.cache   — write-heavy ephemeral rows (logs, GPT caches)
 """
 
-# ── Active domain models (stay in app/models/) ───────────────────────────────
-from app.models.agent_order_session import AgentOrderSession
-from app.models.cart_item import CartItem
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.conflict_flag import ConflictFlag
-from app.models.contact import Contact
-from app.models.custom_preventive_item import CustomPreventiveItem
-from app.models.dashboard_token import DashboardToken
-from app.models.deferred_care_plan_pending import DeferredCarePlanPending
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.diet_item import DietItem
-from app.models.document import Document
-from app.models.hygiene_preference import HygienePreference
-from app.models.message_log import MessageLog
-from app.models.nudge import Nudge
-from app.models.order import Order
-from app.models.order_recommendation import OrderRecommendation
-from app.models.pet import Pet
-from app.models.pet_ai_insight import PetAiInsight
-from app.models.pet_life_stage_trait import PetLifeStageTrait
-from app.models.pet_preference import PetPreference
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
-from app.models.user import User
-from app.models.weight_history import WeightHistory
+# ── Active domain models (organized by domain) ─────────────────────────────────
+from app.models.auth import DashboardToken, Document
+from app.models.commerce import AgentOrderSession, CartItem, Order, OrderRecommendation
+from app.models.core import Contact, Pet, User
+from app.models.health import (
+    Condition,
+    ConditionMedication,
+    ConditionMonitoring,
+    ConflictFlag,
+    DiagnosticTestResult,
+    WeightHistory,
+)
+from app.models.messaging import MessageLog, Nudge
+from app.models.nutrition import DietItem, HygienePreference
+from app.models.pet_profile import PetAiInsight, PetLifeStageTrait, PetPreference
+from app.models.preventive import (
+    CustomPreventiveItem,
+    DeferredCarePlanPending,
+    PreventiveRecord,
+    Reminder,
+)
 
 # ── Lookup / seed tables (app/models/lookup/) ─────────────────────────────────
 from app.models.lookup import (

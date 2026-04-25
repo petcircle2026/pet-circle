@@ -31,7 +31,7 @@ from app.core.log_sanitizer import mask_phone, sanitize_payload
 from app.core.rate_limiter import rate_limiter
 from app.core.security import verify_webhook_signature
 from app.database import get_db
-from app.models.message_log import MessageLog
+from app.models.messaging.message_log import MessageLog
 
 logger = logging.getLogger(__name__)
 
@@ -525,7 +525,7 @@ async def handle_whatsapp_message(request: Request, db: Session = Depends(get_db
         if from_number and from_number != "unknown":
             try:
                 from app.core.encryption import hash_field as _hash_field
-                from app.models.user import User as _User
+                from app.models.core.user import User as _User
                 _mobile_hash = _hash_field(from_number)
                 _row = (
                     db.query(_User.onboarding_state)

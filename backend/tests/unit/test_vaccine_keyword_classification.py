@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 os.environ.setdefault("APP_ENV", "test")
 
@@ -21,3 +21,4 @@ def test_ccov_is_classified_as_vaccine_everywhere() -> None:
     assert classify_nudge_item(item_name) == "vaccine"
     assert classify_reminder_item(item_name) == "vaccine"
     assert _classify_preventive_item(item_name) == "vaccine"
+

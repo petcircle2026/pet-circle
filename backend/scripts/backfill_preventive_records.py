@@ -1,4 +1,4 @@
-"""
+﻿"""
 from app.models import (
     PreventiveMaster,
 )
@@ -9,7 +9,7 @@ Nail Trimming, Ear Cleaning, Food Ordering, Nutrition Planning, Supplements),
 existing pets won't have records for those items yet.
 
 This script creates missing preventive records for all active pets.
-Safe to re-run — skips items that already have a record for the pet.
+Safe to re-run â€” skips items that already have a record for the pet.
 
 Usage:
     cd backend
@@ -23,8 +23,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
 
 
 def main():
@@ -62,7 +62,7 @@ def main():
                 )
                 db.add(record)
                 total_created += 1
-                print(f"  Created: {pet.name} ({pet.species}) → {master.item_name}")
+                print(f"  Created: {pet.name} ({pet.species}) â†’ {master.item_name}")
 
         db.commit()
         print(f"\nDone. Created {total_created} new preventive record(s).")
@@ -77,3 +77,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

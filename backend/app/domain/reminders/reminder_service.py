@@ -1,5 +1,5 @@
-"""
-ReminderService — Orchestrator for reminder operations.
+﻿"""
+ReminderService â€” Orchestrator for reminder operations.
 
 Responsible for:
 1. Using reminder_logic for stage determination and calculations
@@ -115,3 +115,4 @@ class ReminderService:
         except Exception as e:
             logger.exception("Reminder engine failed: %s", str(e))
             raise
+

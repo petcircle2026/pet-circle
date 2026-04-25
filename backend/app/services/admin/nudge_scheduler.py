@@ -46,8 +46,8 @@ from app.core.constants import (
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
 from app.models.cache.nudge_delivery_log import NudgeDeliveryLog
-from app.models.pet import Pet
-from app.models.user import User
+from app.models.core.pet import Pet
+from app.models.core.user import User
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.care_repository import CareRepository
 from app.repositories.diet_repository import DietRepository
@@ -680,7 +680,7 @@ def _get_or_generate_nudge_insight(db: Session, user: User, pet: Pet) -> str | N
     Saves to pet_ai_insights with insight_type='nudge_personal' for caching.
     Cache TTL: 30 days.
     """
-    from app.models.pet_ai_insight import PetAiInsight
+    from app.models.pet_profile.pet_ai_insight import PetAiInsight
 
     INSIGHT_TYPE = "nudge_personal"
     CACHE_DAYS = 30

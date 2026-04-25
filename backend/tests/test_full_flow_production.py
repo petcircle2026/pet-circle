@@ -1,9 +1,9 @@
-"""
-PetCircle — Full End-to-End Test Flow (Production Credentials)
+﻿"""
+PetCircle â€” Full End-to-End Test Flow (Production Credentials)
 
 Uses TEST_PHONE_NUMBER from .env.production to run the complete pipeline:
   1. Clean up any existing test data for the phone number
-  2. Full onboarding (consent → name → pincode → pet profile → food/grooming)
+  2. Full onboarding (consent â†’ name â†’ pincode â†’ pet profile â†’ food/grooming)
   3. Upload all supported docs from 'pet condition docs' folder to Supabase
   4. Run GPT extraction on every uploaded document
   5. Report all results
@@ -47,14 +47,14 @@ from app.models.condition import Condition
 from app.models.condition_medication import ConditionMedication
 from app.models.condition_monitoring import ConditionMonitoring
 from app.models.conflict_flag import ConflictFlag
-from app.models.contact import Contact
+from app.models.core.contact import Contact
 from app.models.dashboard_token import DashboardToken
 from app.models.diagnostic_test_result import DiagnosticTestResult
 from app.models.document import Document
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
-from app.models.user import User
+from app.models.core.user import User
 from app.services.shared.document_upload import (
     build_storage_path,
     create_document_record,
@@ -88,7 +88,7 @@ def section(title: str) -> None:
     print("=" * 65)
 
 
-# Mock WhatsApp sender — captures what would be sent without hitting the API.
+# Mock WhatsApp sender â€” captures what would be sent without hitting the API.
 _sent_messages: list[dict] = []
 
 
@@ -113,7 +113,7 @@ _MIME_MAP = {
     ".pdf": "application/pdf",
 }
 
-# Priority list — upload these first (most medically relevant)
+# Priority list â€” upload these first (most medically relevant)
 _PRIORITY_FILES = [
     "Zayn_Vaccination_Record_1(1).jpg",
     "Zayn_Vaccination_Record_2(1).jpg",
@@ -154,7 +154,7 @@ def _get_upload_files(max_files: int = 10) -> list[dict]:
         fpath = os.path.join(docs_dir, fname)
         size = os.path.getsize(fpath)
         if size > 10 * 1024 * 1024:
-            logger.warning("Skipping %s — exceeds 10MB (%d bytes)", fname, size)
+            logger.warning("Skipping %s â€” exceeds 10MB (%d bytes)", fname, size)
             continue
         chosen.append({"name": fname, "path": fpath, "mime": mime, "size": size})
 
@@ -172,7 +172,7 @@ def _get_upload_files(max_files: int = 10) -> list[dict]:
         fpath = os.path.join(docs_dir, fname)
         size = os.path.getsize(fpath)
         if size > 10 * 1024 * 1024:
-            logger.warning("Skipping %s — exceeds 10MB (%d bytes)", fname, size)
+            logger.warning("Skipping %s â€” exceeds 10MB (%d bytes)", fname, size)
             continue
         chosen.append({"name": fname, "path": fpath, "mime": mime, "size": size})
 
@@ -235,7 +235,7 @@ async def run() -> int:
 
     test_mobile = raw_phone.lstrip("+")  # e.g. "15551657226"
     print(f"\n{'#' * 65}")
-    print(f"  PetCircle Full Flow Test — Phone: +{test_mobile}")
+    print(f"  PetCircle Full Flow Test â€” Phone: +{test_mobile}")
     print(f"  ENV: {os.environ.get('APP_ENV', 'production')}")
     print(f"  DB:  {settings.DATABASE_URL[:40]}...")
     print(f"{'#' * 65}")
@@ -244,12 +244,12 @@ async def run() -> int:
 
     try:
         # ===========================================================
-        section("STEP 0 — CLEANUP")
+        section("STEP 0 â€” CLEANUP")
         # ===========================================================
         _cleanup_test_user(db, test_mobile)
 
         # ===========================================================
-        section("STEP 1 — ONBOARDING: CONSENT & OWNER DETAILS")
+        section("STEP 1 â€” ONBOARDING: CONSENT & OWNER DETAILS")
         # ===========================================================
 
         user = create_pending_user(db, test_mobile)
@@ -262,22 +262,22 @@ async def run() -> int:
         await handle_onboarding_step(db, user, "yes", mock_send)
         db.refresh(user)
         check("Consent accepted", user.consent_given == True)
-        check("State → awaiting_name", user.onboarding_state == "awaiting_name")
+        check("State â†’ awaiting_name", user.onboarding_state == "awaiting_name")
 
         # 2. Owner name
         await handle_onboarding_step(db, user, "Rahul Sharma", mock_send)
         db.refresh(user)
         check("Name stored", user.full_name == "Rahul Sharma")
-        check("State → awaiting_pincode", user.onboarding_state == "awaiting_pincode")
+        check("State â†’ awaiting_pincode", user.onboarding_state == "awaiting_pincode")
 
         # 3. Pincode
         await handle_onboarding_step(db, user, "400001", mock_send)
         db.refresh(user)
         check("Pincode stored (encrypted)", decrypt_field(user.pincode) == "400001")
-        check("State → awaiting_pet_name", user.onboarding_state == "awaiting_pet_name")
+        check("State â†’ awaiting_pet_name", user.onboarding_state == "awaiting_pet_name")
 
         # ===========================================================
-        section("STEP 2 — ONBOARDING: PET PROFILE")
+        section("STEP 2 â€” ONBOARDING: PET PROFILE")
         # ===========================================================
 
         # 4. Pet name
@@ -287,7 +287,7 @@ async def run() -> int:
         check("Pet created with name 'Zayn'", pet is not None and pet.name == "Zayn")
         print(f"    State after pet name: {user.onboarding_state}")
 
-        # 5. Pet photo — skip
+        # 5. Pet photo â€” skip
         if user.onboarding_state == "awaiting_pet_photo":
             await handle_onboarding_step(db, user, "skip", mock_send)
             db.refresh(user)
@@ -330,14 +330,14 @@ async def run() -> int:
         check("Species = dog", pet is not None and pet.species == "dog")
         check("Breed stored", pet is not None and pet.breed is not None)
         print(f"    Breed: {pet.breed if pet else 'N/A'}")
-        check("State → awaiting_gender", user.onboarding_state == "awaiting_gender")
+        check("State â†’ awaiting_gender", user.onboarding_state == "awaiting_gender")
 
         # 8. Gender
         await handle_onboarding_step(db, user, "male", mock_send)
         db.refresh(user)
         db.refresh(pet)
         check("Gender = male", pet.gender == "male")
-        check("State → awaiting_dob", user.onboarding_state == "awaiting_dob")
+        check("State â†’ awaiting_dob", user.onboarding_state == "awaiting_dob")
 
         # 9. DOB
         await handle_onboarding_step(db, user, "15/06/2019", mock_send)
@@ -354,7 +354,7 @@ async def run() -> int:
 
         check("DOB stored", pet.dob is not None)
         print(f"    DOB: {pet.dob}")
-        check("State → awaiting_weight", user.onboarding_state == "awaiting_weight")
+        check("State â†’ awaiting_weight", user.onboarding_state == "awaiting_weight")
 
         # 10. Weight
         await handle_onboarding_step(db, user, "28", mock_send)
@@ -371,7 +371,7 @@ async def run() -> int:
 
         check("Weight stored", pet.weight is not None)
         print(f"    Weight: {pet.weight} kg")
-        check("State → awaiting_neutered", user.onboarding_state == "awaiting_neutered")
+        check("State â†’ awaiting_neutered", user.onboarding_state == "awaiting_neutered")
 
         # 11. Neutered
         await handle_onboarding_step(db, user, "yes", mock_send)
@@ -381,7 +381,7 @@ async def run() -> int:
         print(f"    State after neutered: {user.onboarding_state}")
 
         # ===========================================================
-        section("STEP 3 — ONBOARDING: FOOD, SUPPLEMENTS & GROOMING")
+        section("STEP 3 â€” ONBOARDING: FOOD, SUPPLEMENTS & GROOMING")
         # ===========================================================
 
         # 12. Packaged food
@@ -409,7 +409,7 @@ async def run() -> int:
             db.refresh(user)
             print(f"    State after grooming: {user.onboarding_state}")
 
-        # 16. Document upload window — skip to complete onboarding
+        # 16. Document upload window â€” skip to complete onboarding
         if user.onboarding_state == "awaiting_documents":
             await handle_onboarding_step(db, user, "skip", mock_send)
             db.refresh(user)
@@ -435,14 +435,14 @@ async def run() -> int:
             print(f"    Dashboard URL (local): http://localhost:3000/dashboard/{token_rec.token}")
 
         # ===========================================================
-        section("STEP 4 — DOCUMENT UPLOAD TO SUPABASE")
+        section("STEP 4 â€” DOCUMENT UPLOAD TO SUPABASE")
         # ===========================================================
 
         upload_files = _get_upload_files(max_files=10)
         check("Pet condition docs found", len(upload_files) > 0, f"found {len(upload_files)}")
         print(f"\n  Files to upload ({len(upload_files)}):")
         for f in upload_files:
-            print(f"    • {f['name']} ({f['mime']}, {f['size'] // 1024} KB)")
+            print(f"    â€¢ {f['name']} ({f['mime']}, {f['size'] // 1024} KB)")
 
         uploaded_doc_ids: list = []
 
@@ -491,11 +491,11 @@ async def run() -> int:
         print(f"\n  Total uploaded: {len(uploaded_doc_ids)} / {len(upload_files)}")
 
         # ===========================================================
-        section("STEP 5 — GPT EXTRACTION ON UPLOADED DOCUMENTS")
+        section("STEP 5 â€” GPT EXTRACTION ON UPLOADED DOCUMENTS")
         # ===========================================================
 
         if not uploaded_doc_ids:
-            print("  No documents uploaded — skipping extraction.")
+            print("  No documents uploaded â€” skipping extraction.")
         else:
             extraction_results: list[dict] = []
 
@@ -523,7 +523,7 @@ async def run() -> int:
                     result = await extract_and_process_document(
                         db=db,
                         document_id=doc_id,
-                        document_text="",  # Empty — extraction uses file_bytes for vision
+                        document_text="",  # Empty â€” extraction uses file_bytes for vision
                         file_bytes=file_bytes,
                     )
                     extraction_results.append(result)
@@ -564,7 +564,7 @@ async def run() -> int:
             print(f"    Total items processed: {total_processed}")
 
         # ===========================================================
-        section("STEP 6 — VERIFY EXTRACTED DATA IN DB")
+        section("STEP 6 â€” VERIFY EXTRACTED DATA IN DB")
         # ===========================================================
 
         final_records = db.query(PreventiveRecord).filter(PreventiveRecord.pet_id == pet.id).all()
@@ -573,12 +573,12 @@ async def run() -> int:
             iname = (r.preventive_master.item_name if r.preventive_master else
                      r.custom_preventive_item.item_name if r.custom_preventive_item else "?")
             if r.last_done_date:
-                print(f"    • {iname}: last={r.last_done_date}, next={r.next_due_date}, status={r.status}")
+                print(f"    â€¢ {iname}: last={r.last_done_date}, next={r.next_due_date}, status={r.status}")
 
         conditions = db.query(Condition).filter(Condition.pet_id == pet.id).all()
         print(f"\n  Conditions extracted ({len(conditions)}):")
         for c in conditions:
-            print(f"    • {c.name} (type={c.condition_type}, active={c.is_active})")
+            print(f"    â€¢ {c.name} (type={c.condition_type}, active={c.is_active})")
             meds = db.query(ConditionMedication).filter(ConditionMedication.condition_id == c.id).all()
             for m in meds:
                 print(f"        Medication: {m.name} {m.dose or ''} {m.frequency or ''}")
@@ -590,17 +590,17 @@ async def run() -> int:
         print(f"\n  Diagnostic test results ({len(diag_results)}):")
         for d in diag_results[:10]:  # Show first 10 to avoid wall of text
             val = d.value_text or (str(d.value_numeric) if d.value_numeric else "N/A")
-            print(f"    • [{d.test_type}] {d.parameter_name} ({d.observed_at}): {val[:60]} [{d.status_flag}]")
+            print(f"    â€¢ [{d.test_type}] {d.parameter_name} ({d.observed_at}): {val[:60]} [{d.status_flag}]")
 
         contacts = db.query(Contact).filter(Contact.pet_id == pet.id).all()
         print(f"\n  Contacts extracted ({len(contacts)}):")
         for c in contacts:
-            print(f"    • {c.role}: {c.name} — {c.clinic_name}")
+            print(f"    â€¢ {c.role}: {c.name} â€” {c.clinic_name}")
 
         final_docs = db.query(Document).filter(Document.pet_id == pet.id).all()
         print(f"\n  Documents in DB ({len(final_docs)}):")
         for d in final_docs:
-            print(f"    • {d.document_name or os.path.basename(d.file_path)} "
+            print(f"    â€¢ {d.document_name or os.path.basename(d.file_path)} "
                   f"[{d.document_category or 'uncategorized'}] "
                   f"status={d.extraction_status}")
 
@@ -618,7 +618,7 @@ async def run() -> int:
                          rec.custom_preventive_item.item_name if rec and rec.custom_preventive_item else "?")
                 rec2 = db.query(PreventiveRecord).filter(PreventiveRecord.id == cf.preventive_record_id).first()
                 existing = rec2.last_done_date if rec2 else "?"
-                print(f"    • {rname}: existing={existing} vs new={cf.new_date} (status={cf.status})")
+                print(f"    â€¢ {rname}: existing={existing} vs new={cf.new_date} (status={cf.status})")
 
     except Exception as e:
         import traceback
@@ -652,3 +652,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

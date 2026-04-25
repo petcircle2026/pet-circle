@@ -13,8 +13,8 @@ from datetime import date as DateType
 
 from sqlalchemy.orm import Session
 
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
 from app.utils.date_utils import get_today_ist
 
 logger = logging.getLogger(__name__)

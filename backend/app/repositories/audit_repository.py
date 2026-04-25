@@ -1,5 +1,5 @@
-"""
-Audit Repository — Audit trail and engagement tracking.
+﻿"""
+Audit Repository â€” Audit trail and engagement tracking.
 
 Manages:
 - Conflict flags
@@ -16,10 +16,10 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from app.models.conflict_flag import ConflictFlag
-from app.models.deferred_care_plan_pending import DeferredCarePlanPending
-from app.models.pet_ai_insight import PetAIInsight
-from app.models.agent_order_session import AgentOrderSession
+from app.models.health.conflict_flag import ConflictFlag
+from app.models.preventive.deferred_care_plan_pending import DeferredCarePlanPending
+from app.models.pet_profile.pet_ai_insight import PetAIInsight
+from app.models.commerce.agent_order_session import AgentOrderSession
 from app.models.cache.dashboard_visit import DashboardVisit
 
 
@@ -372,3 +372,4 @@ class AuditRepository:
                 PetAIInsight.pet_id == pet_id
             ).scalar() or 0,
         }
+

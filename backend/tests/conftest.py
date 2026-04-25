@@ -1,5 +1,5 @@
-"""
-PetCircle — Shared Test Fixtures
+﻿"""
+PetCircle â€” Shared Test Fixtures
 
 Sets APP_ENV=test before any imports so config.py loads test env vars.
 """
@@ -24,3 +24,4 @@ def app():
 def client(app):
     """Provide a test HTTP client."""
     return TestClient(app)
+

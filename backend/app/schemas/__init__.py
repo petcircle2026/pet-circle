@@ -1,4 +1,4 @@
-"""Schemas — DTOs for API requests and responses."""
+﻿"""Schemas â€” DTOs for API requests and responses."""
 
 from app.schemas.requests import (
     # Onboarding
@@ -43,3 +43,4 @@ __all__ = [
     "ReminderResponse",
     "RemindersListResponse",
 ]
+

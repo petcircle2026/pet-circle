@@ -1,4 +1,4 @@
-"""Onboarding request DTOs."""
+﻿"""Onboarding request DTOs."""
 
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -46,3 +46,4 @@ class OnboardingStepRequest(BaseModel):
                 "text": "Buddy, Labrador, 2 years",
             }
         }
+

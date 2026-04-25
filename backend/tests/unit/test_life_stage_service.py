@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
@@ -75,7 +75,7 @@ async def test_get_life_stage_data_boundary_senior_for_all_breed_sizes(
                 life_stage="senior",
                 breed_size=breed_size.value,
                 traits=[{"label": "Calmer energy", "color": "neutral"}],
-                essential_care=[{"icon": "🩺", "title": "Checkup", "detail": "Annual panel"}],
+                essential_care=[{"icon": "ðŸ©º", "title": "Checkup", "detail": "Annual panel"}],
             )
         ]
     )
@@ -97,7 +97,7 @@ async def test_cache_hit_returns_cached_traits_without_gpt(monkeypatch):
         life_stage="adult",
         breed_size="large",
         traits=[{"label": "Stable appetite", "color": "green"}],
-        essential_care=[{"icon": "🥗", "title": "Diet", "detail": "Maintain balanced portions"}],
+        essential_care=[{"icon": "ðŸ¥—", "title": "Diet", "detail": "Maintain balanced portions"}],
     )
     db = FakeSession(rows=[cached])
 
@@ -141,7 +141,7 @@ async def test_cache_miss_generates_and_invalidates_old_stage(monkeypatch):
     async def fake_generate(*args, **kwargs):
         return SimpleNamespace(
             traits=[{"label": "Mature energy", "color": "neutral"}],
-            essential_care=[{"icon": "🩺", "title": "Annual checks", "detail": "Track bloodwork yearly"}],
+            essential_care=[{"icon": "ðŸ©º", "title": "Annual checks", "detail": "Track bloodwork yearly"}],
         )
 
     monkeypatch.setattr("app.services.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
@@ -174,7 +174,7 @@ async def test_cache_miss_generates_when_breed_size_changes_same_stage(monkeypat
     async def fake_generate(*args, **kwargs):
         return SimpleNamespace(
             traits=[{"label": "Updated profile", "color": "green"}],
-            essential_care=[{"icon": "🩺", "title": "Annual checks", "detail": "Use current size profile"}],
+            essential_care=[{"icon": "ðŸ©º", "title": "Annual checks", "detail": "Use current size profile"}],
         )
 
     monkeypatch.setattr("app.services.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
@@ -211,3 +211,4 @@ async def test_gpt_failure_returns_empty_payload(monkeypatch):
     assert db.added == []
     assert db.deleted == []
     assert db.commit_count == 0
+

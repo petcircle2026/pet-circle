@@ -1,11 +1,11 @@
-"""
-PetCircle Phase 1 — FastAPI Application Entry Point
+﻿"""
+PetCircle Phase 1 â€” FastAPI Application Entry Point
 
 This is the main application module. It initializes the FastAPI app,
 validates environment configuration at startup, registers routers,
 and configures security middleware.
 
-No business logic lives here — only app bootstrapping.
+No business logic lives here â€” only app bootstrapping.
 """
 
 from fastapi import FastAPI, Request
@@ -26,7 +26,7 @@ from app.services.admin import queue_service, document_consumer
 # Swagger/redoc disabled in production to avoid exposing full API schema.
 app = FastAPI(
     title=APP_API_TITLE,
-    description="WhatsApp-based preventive pet health system — Phase 1",
+    description="WhatsApp-based preventive pet health system â€” Phase 1",
     version="1.0.0",
     docs_url=None if settings.APP_ENV == "production" else "/docs",
     redoc_url=None if settings.APP_ENV == "production" else "/redoc",
@@ -110,3 +110,4 @@ async def health_check():
         "status": "healthy",
         "timezone": settings.TIMEZONE,
     }
+

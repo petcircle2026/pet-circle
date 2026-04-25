@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 
 from app.services import message_router
 
@@ -52,3 +52,4 @@ def test_route_message_sends_error_once_per_inbound_message(monkeypatch):
     # New inbound message failure should send again once.
     asyncio.run(message_router.route_message(db, second_message))
     assert len(sent_messages) == 2
+

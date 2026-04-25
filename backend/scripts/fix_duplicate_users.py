@@ -1,4 +1,4 @@
-"""
+﻿"""
 One-time script to fix duplicate users in the database.
 
 Finds users with the same mobile_hash, keeps the one with onboarding
@@ -129,3 +129,4 @@ def fix_duplicates():
 
 if __name__ == "__main__":
     fix_duplicates()
+

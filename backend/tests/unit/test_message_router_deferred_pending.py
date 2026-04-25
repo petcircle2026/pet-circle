@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 from app.services import message_router
 
@@ -48,3 +48,4 @@ def test_has_pending_deferred_care_plan_false_without_marker_or_legacy_flag():
 
     assert result is False
     assert db.add_calls == 0
+

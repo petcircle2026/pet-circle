@@ -1,4 +1,4 @@
-"""
+﻿"""
 Clear all data from the database (keeps preventive_master reference data).
 
 Truncates tables in FK-safe order (children first) using CASCADE.
@@ -21,7 +21,7 @@ from sqlalchemy import text
 
 
 # Tables to truncate in FK-safe order (children before parents).
-# preventive_master is excluded — it holds static reference data.
+# preventive_master is excluded â€” it holds static reference data.
 TABLES_TO_CLEAR = [
     "message_logs",
     "conflict_flags",
@@ -53,3 +53,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

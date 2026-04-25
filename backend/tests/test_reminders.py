@@ -1,8 +1,8 @@
-"""
+﻿"""
 from app.models import (
     PreventiveMaster,
 )
-PetCircle — Comprehensive Reminder System Test
+PetCircle â€” Comprehensive Reminder System Test
 
 Tests the complete reminder pipeline:
     1. Reminder engine: creates reminders for upcoming/overdue records
@@ -34,10 +34,10 @@ from app.core.constants import (
 )
 from app.core.encryption import encrypt_field, hash_field
 from app.database import SessionLocal
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
-from app.models.user import User
+from app.models.core.user import User
 from app.services.admin.reminder_engine import run_reminder_engine
 from app.services.whatsapp.reminder_response import (
     apply_reschedule_date,
@@ -104,10 +104,10 @@ def create_test_preventive_records(db, pet):
     trigger conditions for today.
 
     Trigger rules (exact-date matching in _determine_stage_simple):
-        t7:             today == due_date - 7   → due_date = today + 7
-        up_to_date:     due far in future        → no stage fires
-        overdue:        today >= due_date + 7    → due_date = today - 10
-                        (but requires prior 'due' reminder sent — engine skips it;
+        t7:             today == due_date - 7   â†’ due_date = today + 7
+        up_to_date:     due far in future        â†’ no stage fires
+        overdue:        today >= due_date + 7    â†’ due_date = today - 10
+                        (but requires prior 'due' reminder sent â€” engine skips it;
                          reminder is pre-seeded directly in seed_test_reminders)
         upcoming_snooze/upcoming/upcoming_cancel: non-triggering due dates
                         (reminders pre-seeded directly in seed_test_reminders)
@@ -124,7 +124,7 @@ def create_test_preventive_records(db, pet):
 
     records = []
 
-    # Record 1 (t7): due = today+7 — engine fires T-7 stage today
+    # Record 1 (t7): due = today+7 â€” engine fires T-7 stage today
     if len(masters) > 0:
         rec = PreventiveRecord(
             id=uuid.uuid4(),
@@ -137,7 +137,7 @@ def create_test_preventive_records(db, pet):
         db.add(rec)
         records.append(("t7", rec, masters[0]))
 
-    # Record 2 (up_to_date): due far ahead — engine ignores (status filter)
+    # Record 2 (up_to_date): due far ahead â€” engine ignores (status filter)
     if len(masters) > 1:
         rec = PreventiveRecord(
             id=uuid.uuid4(),
@@ -209,7 +209,7 @@ def create_test_preventive_records(db, pet):
 
 def seed_test_reminders(db, pet, records):
     """
-    Pre-seed Reminder rows directly for response-flow tests (TEST 3–6).
+    Pre-seed Reminder rows directly for response-flow tests (TEST 3â€“6).
     Bypasses the engine for records whose due dates don't trigger any stage today.
     Returns a dict keyed by label.
     """
@@ -312,7 +312,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 1: REMINDER ENGINE — Create reminders")
+        print("TEST 1: REMINDER ENGINE â€” Create reminders")
         print("=" * 60)
         # ==================================================================
 
@@ -345,7 +345,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 2: DEDUPLICATION — Re-run engine")
+        print("TEST 2: DEDUPLICATION â€” Re-run engine")
         print("=" * 60)
         # ==================================================================
 
@@ -365,7 +365,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 3: REMINDER RESPONSE — DONE")
+        print("TEST 3: REMINDER RESPONSE â€” DONE")
         print("=" * 60)
         # ==================================================================
 
@@ -408,7 +408,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 4: REMINDER RESPONSE — SNOOZE")
+        print("TEST 4: REMINDER RESPONSE â€” SNOOZE")
         print("=" * 60)
         # ==================================================================
 
@@ -443,7 +443,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 5: REMINDER RESPONSE — RESCHEDULE")
+        print("TEST 5: REMINDER RESPONSE â€” RESCHEDULE")
         print("=" * 60)
         # ==================================================================
 
@@ -486,7 +486,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 6: REMINDER RESPONSE — CANCEL")
+        print("TEST 6: REMINDER RESPONSE â€” CANCEL")
         print("=" * 60)
         # ==================================================================
 
@@ -543,7 +543,7 @@ def main():
         except ValueError as e:
             test("Reject non-existent reminder", "not found" in str(e))
 
-        # 7d: Re-run engine after CANCEL — cancelled records excluded
+        # 7d: Re-run engine after CANCEL â€” cancelled records excluded
         results3 = run_reminder_engine(db)
         # The cancelled record should not produce a new reminder
         cancelled_reminders = db.query(Reminder).filter(
@@ -560,7 +560,7 @@ def main():
 
         # ==================================================================
         print("\n" + "=" * 60)
-        print("TEST 8: REMINDER ENGINE — Internal endpoint simulation")
+        print("TEST 8: REMINDER ENGINE â€” Internal endpoint simulation")
         print("=" * 60)
         # ==================================================================
 
@@ -607,3 +607,4 @@ def main():
 if __name__ == "__main__":
     exit_code = main()
     sys.exit(exit_code)
+

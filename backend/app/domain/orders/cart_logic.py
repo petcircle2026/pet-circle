@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pure cart calculation logic (no DB, no I/O).
 
 Handles cart totals, item validation, and delivery fee calculations.
@@ -141,9 +141,10 @@ def meets_minimum_order(subtotal_paise: int) -> tuple[bool, int]:
         subtotal_paise: Cart subtotal in paise
 
     Returns:
-        (meets_minimum, shortfall_paise) — if meets_minimum=True, shortfall=0
+        (meets_minimum, shortfall_paise) â€” if meets_minimum=True, shortfall=0
     """
     min_paise = MIN_ORDER_VALUE * 100
     if subtotal_paise >= min_paise:
         return True, 0
     return False, min_paise - subtotal_paise
+

@@ -11,7 +11,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.models.diet_item import DietItem
+from app.models.nutrition.diet_item import DietItem
 from app.repositories.diet_repository import DietRepository
 
 logger = logging.getLogger(__name__)

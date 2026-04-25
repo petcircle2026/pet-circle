@@ -1,16 +1,16 @@
-"""
+﻿"""
 Preventive Care Calculation Logic
 
 Pure business logic for calculating preventive care status and due dates.
-No database access, no side effects — fully testable in isolation.
+No database access, no side effects â€” fully testable in isolation.
 
 Core formula:
     next_due_date = last_done_date + frequency_days
 
 Status determination:
-    - today > next_due_date → 'overdue'
-    - today + reminder_before_days >= next_due_date → 'upcoming'
-    - else → 'up_to_date'
+    - today > next_due_date â†’ 'overdue'
+    - today + reminder_before_days >= next_due_date â†’ 'upcoming'
+    - else â†’ 'up_to_date'
 """
 
 from datetime import date, timedelta
@@ -39,9 +39,9 @@ def get_preventive_status(
     Determine preventive status based on due date.
 
     Status logic (all comparisons use current date):
-    - today > next_due_date → 'overdue'
-    - today + reminder_before_days >= next_due_date → 'upcoming'
-    - else → 'up_to_date'
+    - today > next_due_date â†’ 'overdue'
+    - today + reminder_before_days >= next_due_date â†’ 'upcoming'
+    - else â†’ 'up_to_date'
 
     Args:
         next_due_date: When preventive is due
@@ -112,12 +112,12 @@ def parse_frequency_string(frequency_str: str) -> int | None:
     Parse frequency from string like "Every 3 months" or "Monthly".
 
     Supports patterns:
-    - "Every N weeks" → N * 7 days
-    - "Every N months" → N * 30 days
-    - "Every N days" → N days
-    - "Monthly" → 30 days
-    - "Quarterly" → 90 days
-    - "Annually" → 365 days
+    - "Every N weeks" â†’ N * 7 days
+    - "Every N months" â†’ N * 30 days
+    - "Every N days" â†’ N days
+    - "Monthly" â†’ 30 days
+    - "Quarterly" â†’ 90 days
+    - "Annually" â†’ 365 days
 
     Returns:
         Frequency in days, or None if unable to parse
@@ -212,3 +212,4 @@ def get_frequency_label(frequency_days: int) -> str:
         months = frequency_days // 30
         return f"Every {months} months"
     return f"Every {frequency_days} days"
+

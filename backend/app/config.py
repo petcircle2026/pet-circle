@@ -1,11 +1,11 @@
-"""
-PetCircle Phase 1 — Application Configuration
+﻿"""
+PetCircle Phase 1 â€” Application Configuration
 
 Uses Pydantic BaseSettings to load and validate all environment variables.
 If any required variable is missing, the application will refuse to start
 and print a clear error message identifying the missing variable.
 
-All credentials are loaded from environment files only — never hardcoded.
+All credentials are loaded from environment files only â€” never hardcoded.
 
 Environment selection:
   - Set APP_ENV to 'development', 'test', or 'production'.
@@ -25,7 +25,7 @@ from app.core.constants import SYSTEM_TIMEZONE
 APP_ENV: str = os.getenv("APP_ENV", "development")
 
 # Resolve the env file path relative to the backend/ directory.
-# In production, the hosting provider injects env vars directly — no file needed.
+# In production, the hosting provider injects env vars directly â€” no file needed.
 _backend_dir = Path(__file__).resolve().parent.parent
 _env_file = _backend_dir / "envs" / f".env.{APP_ENV}"
 _env_file_path: str | None = str(_env_file) if _env_file.exists() else None
@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     WHATSAPP_TEMPLATE_NUDGE_BREED: str | None = None
     WHATSAPP_TEMPLATE_NUDGE_BREED_DATA: str | None = None
 
-    # No-breed fallback templates (v6) — fired when pet has no breed set.
+    # No-breed fallback templates (v6) â€” fired when pet has no breed set.
     # Registered in Meta separately; body_text seeded via migration 032.
     WHATSAPP_TEMPLATE_NUDGE_NO_BREED: str | None = None
     WHATSAPP_TEMPLATE_NUDGE_ENGAGEMENT_NO_BREED: str | None = None
@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str
 
     # --- GCP Cloud Storage ---
-    # Optional at startup — if absent, all document uploads fall back to Supabase silently.
+    # Optional at startup â€” if absent, all document uploads fall back to Supabase silently.
     # GCP_CREDENTIALS_JSON: base64-encoded service account JSON string.
     # Generate with: base64 -w 0 service-account.json
     GCP_CREDENTIALS_JSON: str | None = None
@@ -124,27 +124,27 @@ class Settings(BaseSettings):
     CLOUDAMQP_URL: str | None = None
 
     # --- Razorpay ---
-    # Live/test keys from Razorpay dashboard → Settings → API Keys.
-    # Optional at startup — payment endpoints will raise 503 if missing.
+    # Live/test keys from Razorpay dashboard â†’ Settings â†’ API Keys.
+    # Optional at startup â€” payment endpoints will raise 503 if missing.
     RAZORPAY_KEY_ID: str | None = None
     RAZORPAY_KEY_SECRET: str | None = None
 
     # --- Order Notifications ---
     # WhatsApp phone number to notify when a new order is placed.
     # Format: country code + number, no + prefix (e.g., "919095705762").
-    # Optional — if not set, only dashboard notification (no WhatsApp alert).
+    # Optional â€” if not set, only dashboard notification (no WhatsApp alert).
     ORDER_NOTIFICATION_PHONE: str | None = None
 
     # --- Click-to-Chat ---
     # Dialable WhatsApp Business phone number for wa.me link generation.
     # Digits only, no + prefix (e.g. "919876543210").
-    # Optional — only used by /admin/chat-link. App runs without it.
+    # Optional â€” only used by /admin/chat-link. App runs without it.
     WHATSAPP_BUSINESS_PHONE: str | None = None
 
     # --- AI Provider ---
     # Controls which AI backend is used across all services.
-    # "claude" → Anthropic (claude-opus-4-6 / claude-sonnet-4-6)
-    # "openai" → OpenAI (gpt-4.1)
+    # "claude" â†’ Anthropic (claude-opus-4-6 / claude-sonnet-4-6)
+    # "openai" â†’ OpenAI (gpt-4.1)
     # Must match the AI_PROVIDER value in constants.py (both read the same env var).
     AI_PROVIDER: str = "claude"
 
@@ -163,7 +163,7 @@ class Settings(BaseSettings):
         """Load variables from the environment-specific env file."""
         env_file = _env_file_path
         env_file_encoding = "utf-8"
-        # Do not allow extra fields — catches typos in .env
+        # Do not allow extra fields â€” catches typos in .env
         extra = "ignore"
 
 
@@ -181,14 +181,15 @@ def get_settings() -> Settings:
         # Extract which fields are missing from the validation error.
         # Pydantic v2 raises ValidationError with details per field.
         raise RuntimeError(
-            f"Application startup failed — missing or invalid environment variables.\n"
+            f"Application startup failed â€” missing or invalid environment variables.\n"
             f"APP_ENV={APP_ENV}, env_file={_env_file_path}\n"
             f"Details: {e}\n"
             f"Ensure all variables in envs/.env.example are set."
         ) from e
 
 
-# Singleton settings instance — initialized at import time.
+# Singleton settings instance â€” initialized at import time.
 # If env vars are missing, the application crashes immediately on startup
 # rather than failing silently at runtime.
 settings = get_settings()
+

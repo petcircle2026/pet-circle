@@ -1,15 +1,15 @@
-"""
+﻿"""
 Unit tests for get_diet_summary() and _diet_summary_threshold() in nutrition_service.py.
 
 Covers:
   - _diet_summary_threshold: all 4 macros across every threshold boundary
-  - Omega-3 at exactly 15 % → RED / "Critical gap"   (explicit requirement)
+  - Omega-3 at exactly 15 % â†’ RED / "Critical gap"   (explicit requirement)
   - Green is never returned for >110 %
   - get_diet_summary: correct colour mapping from analyse_nutrition mock output
   - get_diet_summary: max 3 missing_micros, sorted by priority
   - get_diet_summary: graceful empty fallback when analyze_nutrition raises
 
-All tests are pure Python — no DB, no network, no OpenAI.
+All tests are pure Python â€” no DB, no network, no OpenAI.
 analyze_nutrition is patched via unittest.mock.patch so nothing I/O-bound runs.
 """
 
@@ -26,7 +26,7 @@ from app.services.dashboard.nutrition_service import (
 )
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold — Calories
+# _diet_summary_threshold â€” Calories
 # ---------------------------------------------------------------------------
 
 
@@ -46,13 +46,13 @@ class TestDietSummaryThresholdCalories:
         assert note == "Slightly over target"
 
     def test_calories_well_over_is_amber_not_red(self):
-        # Calories has no red zone — only green / amber
+        # Calories has no red zone â€” only green / amber
         color, _ = _diet_summary_threshold("Calories", 200.0)
         assert color == "amber"
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold — Omega-3
+# _diet_summary_threshold â€” Omega-3
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +107,7 @@ class TestDietSummaryThresholdOmega3:
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold — Protein
+# _diet_summary_threshold â€” Protein
 # ---------------------------------------------------------------------------
 
 
@@ -137,7 +137,7 @@ class TestDietSummaryThresholdProtein:
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold — Fat
+# _diet_summary_threshold â€” Fat
 # ---------------------------------------------------------------------------
 
 
@@ -160,7 +160,7 @@ class TestDietSummaryThresholdFat:
 
 
 # ---------------------------------------------------------------------------
-# get_diet_summary — integration with mocked analyze_nutrition
+# get_diet_summary â€” integration with mocked analyze_nutrition
 # ---------------------------------------------------------------------------
 
 def _make_pet(pet_id="pet-001") -> SimpleNamespace:
@@ -190,19 +190,19 @@ def _base_analysis() -> dict:
              "supplement": None, "price": None},
         ],
         "minerals": [
-            {"name": "Glucosamine", "icon": "🦴", "status": "Low", "priority": "medium",
+            {"name": "Glucosamine", "icon": "ðŸ¦´", "status": "Low", "priority": "medium",
              "reason": "Supports joint health", "actual": 200, "target": 500},
-            {"name": "Calcium", "icon": "🦷", "status": "Adequate", "priority": "ok",
+            {"name": "Calcium", "icon": "ðŸ¦·", "status": "Adequate", "priority": "ok",
              "reason": "Essential for bones", "actual": 1.0, "target": 1.0},
-            {"name": "Phosphorus", "icon": "⚡", "status": "Adequate", "priority": "ok",
+            {"name": "Phosphorus", "icon": "âš¡", "status": "Adequate", "priority": "ok",
              "reason": "Works with calcium", "actual": 0.8, "target": 0.8},
         ],
         "others": [
-            {"name": "Omega-3", "icon": "🐟", "status": "Missing", "priority": "urgent",
+            {"name": "Omega-3", "icon": "ðŸŸ", "status": "Missing", "priority": "urgent",
              "reason": "Critical for skin and joints", "actual": 45, "target": 300},
-            {"name": "Omega-6", "icon": "🌻", "status": "Adequate", "priority": "ok",
+            {"name": "Omega-6", "icon": "ðŸŒ»", "status": "Adequate", "priority": "ok",
              "actual": 1500, "target": 1500},
-            {"name": "Probiotics", "icon": "🦠", "status": "Low", "priority": "medium",
+            {"name": "Probiotics", "icon": "ðŸ¦ ", "status": "Low", "priority": "medium",
              "actual": 0, "target": 1},
         ],
         "improvements": [],
@@ -255,7 +255,7 @@ class TestGetDietSummary:
     # --- Colour correctness ---
 
     def test_calories_under_target_is_green(self):
-        """1100 kcal / 1200 target = ~91.7 % → green."""
+        """1100 kcal / 1200 target = ~91.7 % â†’ green."""
         pet = _make_pet()
         with self._patch_analysis(_base_analysis()):
             result = self._run(get_diet_summary(None, pet))
@@ -263,10 +263,10 @@ class TestGetDietSummary:
         assert calories_macro["color"] == "green"
 
     def test_omega3_critical_deficiency_is_red(self):
-        """45 mg / 300 mg = 15.0 % → Omega-3 critical → RED."""
+        """45 mg / 300 mg = 15.0 % â†’ Omega-3 critical â†’ RED."""
         pet = _make_pet()
         analysis = _base_analysis()
-        # Set Omega-3 actual=45, target=300 → 15 %
+        # Set Omega-3 actual=45, target=300 â†’ 15 %
         for item in analysis["others"]:
             if item["name"] == "Omega-3":
                 item["actual"] = 45
@@ -280,7 +280,7 @@ class TestGetDietSummary:
         assert omega3_macro["pct_of_need"] == 15.0
 
     def test_fat_slightly_over_is_amber(self):
-        """fat actual=16, target=14 → 114.3 % → amber."""
+        """fat actual=16, target=14 â†’ 114.3 % â†’ amber."""
         pet = _make_pet()
         analysis = _base_analysis()
         for m in analysis["macros"]:
@@ -294,7 +294,7 @@ class TestGetDietSummary:
         assert fat_macro["color"] == "amber"
 
     def test_protein_deficient_is_red(self):
-        """protein actual=18, target=25 → 72 % → red."""
+        """protein actual=18, target=25 â†’ 72 % â†’ red."""
         pet = _make_pet()
         analysis = _base_analysis()
         for m in analysis["macros"]:
@@ -403,3 +403,4 @@ class TestGetDietSummary:
             result = self._run(get_diet_summary(None, pet))
         assert "macros" in result
         assert "missing_micros" in result
+

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import time
 from types import SimpleNamespace
 
@@ -338,3 +338,4 @@ def test_chat_transcript_flow_avoids_duplicates_and_respects_dashboard_precedenc
     pending_state["value"] = False
     asyncio.run(message_router._handle_text(router_db, router_user, {"text": "dashboard link"}))  # type: ignore[arg-type]
     assert calls["dashboard_links"] == 1
+

@@ -1,5 +1,5 @@
-"""
-Document Repository — Document and message log access.
+﻿"""
+Document Repository â€” Document and message log access.
 
 Manages:
 - Document upload records
@@ -15,8 +15,8 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from app.models.document import Document
-from app.models.message_log import MessageLog
+from app.models.auth.document import Document
+from app.models.messaging.message_log import MessageLog
 
 
 class DocumentRepository:
@@ -363,3 +363,4 @@ class DocumentRepository:
             )
             .count()
         )
+

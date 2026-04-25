@@ -1,4 +1,4 @@
-"""Orders response DTOs."""
+﻿"""Orders response DTOs."""
 
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ class CartItemResponse(BaseModel):
     category: str = Field(..., description="food | supplement")
     price_inr: float = Field(..., description="Price in INR")
     quantity: int = Field(..., description="Quantity in cart")
-    subtotal_inr: float = Field(..., description="price_inr × quantity")
+    subtotal_inr: float = Field(..., description="price_inr Ã— quantity")
     expires_at: Optional[str] = Field(None, description="ISO datetime when cart item expires")
 
     class Config:
@@ -96,3 +96,4 @@ class OrderResponse(BaseModel):
                 "estimated_delivery": "2026-04-27",
             }
         }
+

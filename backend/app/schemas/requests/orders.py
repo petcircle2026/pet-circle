@@ -1,4 +1,4 @@
-"""Orders request DTOs."""
+﻿"""Orders request DTOs."""
 
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -65,3 +65,4 @@ class CheckoutRequest(BaseModel):
                 "notes": "Please deliver in the morning",
             }
         }
+

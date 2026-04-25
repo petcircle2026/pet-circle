@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Database Connection
+﻿"""
+PetCircle Phase 1 â€” Database Connection
 
 Establishes SQLAlchemy engine and session factory using DATABASE_URL
 from environment configuration. All database access flows through
@@ -9,14 +9,14 @@ Connection strategy:
     - Supabase uses PgBouncer/Supavisor (port 6543) in transaction mode.
     - QueuePool with pool_pre_ping=True validates each connection before
       use, but cannot prevent the TOCTOU race where SSL drops after ping.
-    - pool_recycle=120 refreshes connections aggressively — well under any
+    - pool_recycle=120 refreshes connections aggressively â€” well under any
       idle-timeout Supabase/Supavisor might enforce server-side.
     - Pool (pool_size=5, max_overflow=10) keeps fewer idle connections alive,
       reducing the target surface for server-side SSL termination while still
       supporting burst webhook + background task concurrency.
     - keepalives settings prevent OS-level TCP idle drops on long queries.
 
-No business logic lives here — only connection infrastructure.
+No business logic lives here â€” only connection infrastructure.
 """
 
 import logging
@@ -44,7 +44,7 @@ if "supabase" in settings.DATABASE_URL:
         "keepalives_count": 5,
     }
 
-# SQLAlchemy engine — QueuePool with pre_ping to detect dead connections.
+# SQLAlchemy engine â€” QueuePool with pre_ping to detect dead connections.
 # pool_pre_ping re-enabled: SSL drop errors confirmed in production logs.
 # The ~150ms cross-region ping cost is acceptable vs. 500 errors on stale
 # connections. pool_recycle=120 still limits how often the ping fires.
@@ -53,11 +53,11 @@ engine = create_engine(
     poolclass=QueuePool,
     pool_pre_ping=True,
     pool_size=20,       # Handles 20 concurrent message handlers (MAX_CONCURRENT_MESSAGE_PROCESSING)
-    max_overflow=20,    # Hard cap at 40 total — covers 20 handlers + 15 uploads + 8 extractions
+    max_overflow=20,    # Hard cap at 40 total â€” covers 20 handlers + 15 uploads + 8 extractions
     pool_recycle=120,   # Refresh well before Supabase/Supavisor idle-timeout
     pool_timeout=30,
     connect_args=connect_args,
-    # Disable SQL echo in production — only enable for debugging.
+    # Disable SQL echo in production â€” only enable for debugging.
     echo=False,
 )
 
@@ -68,7 +68,7 @@ def _on_checkout(dbapi_conn, connection_rec, connection_proxy):
     logger.debug("DB connection checked out from pool")
 
 
-# Session factory — autocommit and autoflush disabled for explicit transaction control.
+# Session factory â€” autocommit and autoflush disabled for explicit transaction control.
 # Every DB write must be committed explicitly to prevent silent data loss.
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -123,7 +123,7 @@ def safe_db_execute(db: Session, operation, max_retries: int = 1):
         max_retries: Number of retries on OperationalError (default 1).
 
     Returns:
-        Tuple of (result, session) — session may be a new one if retry occurred.
+        Tuple of (result, session) â€” session may be a new one if retry occurred.
     """
     try:
         result = operation(db)
@@ -143,3 +143,4 @@ def safe_db_execute(db: Session, operation, max_retries: int = 1):
             new_db = SessionLocal()
             return safe_db_execute(new_db, operation, max_retries - 1)
         raise
+

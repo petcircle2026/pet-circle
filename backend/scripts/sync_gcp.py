@@ -1,5 +1,5 @@
-"""
-PetCircle — GCP Storage Sync Script
+﻿"""
+PetCircle â€” GCP Storage Sync Script
 
 Migrates document files from Supabase (fallback) to GCP Cloud Storage (primary).
 
@@ -62,7 +62,7 @@ async def sync_all_documents(
 
     if not is_gcp_available():
         logger.error(
-            "GCP is not available — check GCP_CREDENTIALS_JSON and GCP_BUCKET_NAME env vars. "
+            "GCP is not available â€” check GCP_CREDENTIALS_JSON and GCP_BUCKET_NAME env vars. "
             "Aborting sync."
         )
         return {"total": 0, "migrated": 0, "failed": 0, "skipped": 0}
@@ -156,7 +156,7 @@ def main():
     args = parser.parse_args()
 
     if args.dry_run:
-        logger.info("Running in dry-run mode — no changes will be made.")
+        logger.info("Running in dry-run mode â€” no changes will be made.")
 
     summary = asyncio.run(sync_all_documents(limit=args.limit, dry_run=args.dry_run))
 
@@ -172,3 +172,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

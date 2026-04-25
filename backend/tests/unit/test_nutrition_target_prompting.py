@@ -1,4 +1,4 @@
-"""Unit tests for nutrition target prompting and weight approximation behavior."""
+﻿"""Unit tests for nutrition target prompting and weight approximation behavior."""
 
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -155,3 +155,4 @@ async def test_get_nutrition_targets_does_not_use_default_weight_fallback():
     args = retry_mock.await_args.args
     assert args[4] is None
     assert args[5] == "male"
+

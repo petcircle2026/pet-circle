@@ -1,5 +1,5 @@
-"""
-Pet Repository — Centralized Pet entity data access.
+﻿"""
+Pet Repository â€” Centralized Pet entity data access.
 
 All queries about pets live here. This is the single source of truth
 for how pets are fetched, created, updated, and deleted.
@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session, selectinload, joinedload
 
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 
 
 class PetRepository:
@@ -214,7 +214,7 @@ class PetRepository:
 
     def find_onboarded_active(self) -> list[Pet]:
         """Fetch all active pets whose owners have completed onboarding."""
-        from app.models.user import User
+        from app.models.core.user import User
         return (
             self.db.query(Pet)
             .join(User)
@@ -229,3 +229,4 @@ class PetRepository:
         """Count total active pets in the system."""
         from sqlalchemy import func
         return self.db.query(func.count(Pet.id)).filter(Pet.is_deleted == False).scalar() or 0
+

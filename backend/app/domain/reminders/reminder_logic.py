@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pure reminder calculation logic (no DB, no I/O).
 
 Handles reminder stage determination, snooze calculations, and batching logic.
@@ -187,3 +187,4 @@ def min_days_between_same_item_reminders() -> int:
 def ignored_threshold() -> int:
     """Number of ignored reminders before activating monthly_fallback."""
     return 3
+

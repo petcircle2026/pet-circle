@@ -1,4 +1,4 @@
-"""
+﻿"""
 One-time script to enable Row Level Security (RLS) on users, pets, and documents tables.
 
 Creates policies that:
@@ -82,7 +82,7 @@ def enable_rls():
         print()
 
         # --- Step 4: Verify ---
-        print("Verification — RLS status after changes:")
+        print("Verification â€” RLS status after changes:")
         for table in TABLES:
             result = db.execute(text(
                 "SELECT relrowsecurity FROM pg_class WHERE relname = :table"
@@ -109,3 +109,4 @@ def enable_rls():
 
 if __name__ == "__main__":
     enable_rls()
+

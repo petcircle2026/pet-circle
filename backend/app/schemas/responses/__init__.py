@@ -1,4 +1,4 @@
-"""Response DTOs — structured output for all API endpoints."""
+﻿"""Response DTOs â€” structured output for all API endpoints."""
 
 from app.schemas.responses.onboarding import (
     OnboardingStepResponse,
@@ -26,3 +26,4 @@ __all__ = [
     "ReminderResponse",
     "RemindersListResponse",
 ]
+

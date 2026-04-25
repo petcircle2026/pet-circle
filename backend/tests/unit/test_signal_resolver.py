@@ -1,9 +1,9 @@
-"""
+﻿"""
 from app.models import (
     ProductFood,
     ProductSupplement,
 )
-Unit tests for signal_resolver.py — covers all food rules (A1-A6),
+Unit tests for signal_resolver.py â€” covers all food rules (A1-A6),
 supplement rules (B1-B4), cross-cutting rules (OOS filtering, max 3 trim,
 ranking), and edge cases.
 
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.database import Base
 from app.models.condition import Condition
 from app.models.diet_item import DietItem
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 from app.services.dashboard.signal_resolver import (
     CTA_ORDER_NOW,
     L1_MESSAGE,
@@ -55,7 +55,7 @@ def db():
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.close()
 
-    # Create only the tables we need — avoids JSONB errors from other models.
+    # Create only the tables we need â€” avoids JSONB errors from other models.
     tables = [
         ProductFood.__table__,
         ProductSupplement.__table__,
@@ -131,7 +131,7 @@ def _make_condition(name: str, is_active: bool = True) -> Condition:
 def seed_food_products(db: Session) -> list[ProductFood]:
     """Insert a representative subset of food products."""
     products = [
-        # Royal Canin — Labrador Adult line, 3 sizes
+        # Royal Canin â€” Labrador Adult line, 3 sizes
         ProductFood(
             sku_id="F001", brand_id="BR01", brand_name="Royal Canin",
             product_line="Labrador Adult", life_stage="Adult", breed_size="Large",
@@ -156,7 +156,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=False, active=True, popularity_rank=3,
             monthly_units_sold=60, price_per_kg=614, in_stock=True,
         ),
-        # Royal Canin — Medium Adult line
+        # Royal Canin â€” Medium Adult line
         ProductFood(
             sku_id="F004", brand_id="BR01", brand_name="Royal Canin",
             product_line="Medium Adult", life_stage="Adult", breed_size="Medium",
@@ -165,7 +165,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=False, active=True, popularity_rank=4,
             monthly_units_sold=50, price_per_kg=625, in_stock=True,
         ),
-        # Royal Canin — Pug Adult (breed-specific)
+        # Royal Canin â€” Pug Adult (breed-specific)
         ProductFood(
             sku_id="F005", brand_id="BR01", brand_name="Royal Canin",
             product_line="Pug Adult", life_stage="Adult", breed_size="Small",
@@ -174,7 +174,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=False, active=True, popularity_rank=5,
             monthly_units_sold=40, price_per_kg=720, in_stock=True,
         ),
-        # Hills Science Diet — Sensitive Stomach (condition-tagged)
+        # Hills Science Diet â€” Sensitive Stomach (condition-tagged)
         ProductFood(
             sku_id="F006", brand_id="BR02", brand_name="Hills Science Diet",
             product_line="Sensitive Stomach", life_stage="Adult", breed_size="All",
@@ -184,7 +184,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=True, active=True, popularity_rank=6,
             monthly_units_sold=35, price_per_kg=691, in_stock=True,
         ),
-        # Hills Science Diet — Kidney Care (condition-tagged)
+        # Hills Science Diet â€” Kidney Care (condition-tagged)
         ProductFood(
             sku_id="F007", brand_id="BR02", brand_name="Hills Science Diet",
             product_line="Kidney Care", life_stage="Senior", breed_size="All",
@@ -194,7 +194,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=True, active=True, popularity_rank=7,
             monthly_units_sold=25, price_per_kg=914, in_stock=True,
         ),
-        # Pedigree — Adult (budget, all breeds)
+        # Pedigree â€” Adult (budget, all breeds)
         ProductFood(
             sku_id="F008", brand_id="BR03", brand_name="Pedigree",
             product_line="Adult Complete", life_stage="Adult", breed_size="All",
@@ -203,7 +203,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=False, active=True, popularity_rank=8,
             monthly_units_sold=200, price_per_kg=180, in_stock=True,
         ),
-        # Drools — Puppy (small breed)
+        # Drools â€” Puppy (small breed)
         ProductFood(
             sku_id="F009", brand_id="BR04", brand_name="Drools",
             product_line="Puppy Small Breed", life_stage="Puppy", breed_size="Small",
@@ -212,7 +212,7 @@ def seed_food_products(db: Session) -> list[ProductFood]:
             vet_diet_flag=False, active=True, popularity_rank=9,
             monthly_units_sold=150, price_per_kg=270, in_stock=True,
         ),
-        # Farmina — Senior Large (life stage + breed size)
+        # Farmina â€” Senior Large (life stage + breed size)
         ProductFood(
             sku_id="F010", brand_id="BR05", brand_name="Farmina",
             product_line="Senior Large Breed", life_stage="Senior", breed_size="Large",
@@ -320,12 +320,12 @@ def seed_supplement_products(db: Session) -> list[ProductSupplement]:
 
 
 # ===========================================================================
-# FOOD RULE TESTS (A1 – A6)
+# FOOD RULE TESTS (A1 â€“ A6)
 # ===========================================================================
 
 
 class TestFoodL5ExactMatch:
-    """A1: brand + product_line + pack_size → L5, exact SKU + alts."""
+    """A1: brand + product_line + pack_size â†’ L5, exact SKU + alts."""
 
     def test_exact_sku_returned(self, db):
         seed_food_products(db)
@@ -344,7 +344,7 @@ class TestFoodL5ExactMatch:
         assert result.cta_label == CTA_ORDER_NOW
 
     def test_nearest_size_fallback(self, db):
-        """A1.2: exact size not in DB → nearest size highlighted."""
+        """A1.2: exact size not in DB â†’ nearest size highlighted."""
         seed_food_products(db)
         pet = _make_pet(breed="Labrador", weight=30.0)
         # 10kg doesn't exist; nearest is 12kg (F001)
@@ -362,7 +362,7 @@ class TestFoodL5ExactMatch:
 
 
 class TestFoodL4PackSelector:
-    """A2: brand + product_line, no size → L4, pack sizes sorted by popularity."""
+    """A2: brand + product_line, no size â†’ L4, pack sizes sorted by popularity."""
 
     def test_brand_line_no_size(self, db):
         seed_food_products(db)
@@ -403,7 +403,7 @@ class TestFoodL4PackSelector:
 
 
 class TestFoodL3BrandLines:
-    """A3: brand only → L3, profile-ranked lines."""
+    """A3: brand only â†’ L3, profile-ranked lines."""
 
     def test_brand_only(self, db):
         seed_food_products(db)
@@ -419,11 +419,11 @@ class TestFoodL3BrandLines:
 
 
 class TestFoodL2cConditionMatch:
-    """A4 (condition): health condition → L2c, condition-matched products."""
+    """A4 (condition): health condition â†’ L2c, condition-matched products."""
 
     def test_condition_match(self, db):
         seed_food_products(db)
-        pet = _make_pet(weight=15.0)  # no breed → skip L2b
+        pet = _make_pet(weight=15.0)  # no breed â†’ skip L2b
         conditions = [_make_condition("IBD")]
         item = _make_diet_item(label="dog food")  # generic, no brand
         result = resolve_food_signal(db, item, pet, conditions)
@@ -435,7 +435,7 @@ class TestFoodL2cConditionMatch:
 
 
 class TestFoodL2bBreedSpecific:
-    """A5: breed known → L2b, breed-tagged products."""
+    """A5: breed known â†’ L2b, breed-tagged products."""
 
     def test_breed_tag_match(self, db):
         seed_food_products(db)
@@ -448,7 +448,7 @@ class TestFoodL2bBreedSpecific:
         assert "F005" in skus
 
     def test_fallback_breed_size(self, db):
-        """No breed tag → fallback to breed_size category."""
+        """No breed tag â†’ fallback to breed_size category."""
         seed_food_products(db)
         # "Beagle" is in _SMALL_BREED_KEYWORDS but no product has breed_tags="beagle"
         pet = _make_pet(breed="Beagle", weight=12.0, dob=date.today() - timedelta(days=3*365))
@@ -460,11 +460,11 @@ class TestFoodL2bBreedSpecific:
 
 
 class TestFoodL2CategoryProfile:
-    """A4 (profile): life stage/size → L2, top 3 brands."""
+    """A4 (profile): life stage/size â†’ L2, top 3 brands."""
 
     def test_life_stage_profile(self, db):
         seed_food_products(db)
-        # No breed → no L2b. No conditions → no L2c. Has DOB → triggers L2.
+        # No breed â†’ no L2b. No conditions â†’ no L2c. Has DOB â†’ triggers L2.
         pet = _make_pet(dob=date.today() - timedelta(days=3*365), weight=15.0)
         item = _make_diet_item(label="dog food")
         result = resolve_food_signal(db, item, pet)
@@ -474,11 +474,11 @@ class TestFoodL2CategoryProfile:
 
 
 class TestFoodL1NoData:
-    """A6: nothing known → L1, no products, prompt message."""
+    """A6: nothing known â†’ L1, no products, prompt message."""
 
     def test_l1_empty(self, db):
         seed_food_products(db)
-        # Pet with no breed, no DOB, no weight → L1
+        # Pet with no breed, no DOB, no weight â†’ L1
         pet = _make_pet()
         item = _make_diet_item(label="food")
         result = resolve_food_signal(db, item, pet)
@@ -490,12 +490,12 @@ class TestFoodL1NoData:
 
 
 # ===========================================================================
-# SUPPLEMENT RULE TESTS (B1 – B4)
+# SUPPLEMENT RULE TESTS (B1 â€“ B4)
 # ===========================================================================
 
 
 class TestSupplementL5Exact:
-    """B1: brand + type + pack_size → L5, exact SKU."""
+    """B1: brand + type + pack_size â†’ L5, exact SKU."""
 
     def test_exact_match(self, db):
         seed_supplement_products(db)
@@ -515,7 +515,7 @@ class TestSupplementL5Exact:
         assert result.cta_label == CTA_ORDER_NOW
 
     def test_closest_variant(self, db):
-        """B1.2: exact pack size not found → closest variant."""
+        """B1.2: exact pack size not found â†’ closest variant."""
         seed_supplement_products(db)
         pet = _make_pet()
         item = _make_diet_item(
@@ -533,7 +533,7 @@ class TestSupplementL5Exact:
 
 
 class TestSupplementL4SizeSelector:
-    """B2: brand + type → L4, sizes sorted by popularity."""
+    """B2: brand + type â†’ L4, sizes sorted by popularity."""
 
     def test_brand_type_no_size(self, db):
         seed_supplement_products(db)
@@ -552,7 +552,7 @@ class TestSupplementL4SizeSelector:
 
 
 class TestSupplementL3TypeOnly:
-    """B3: type known → L3, 2 bestsellers + 1 budget."""
+    """B3: type known â†’ L3, 2 bestsellers + 1 budget."""
 
     def test_type_only(self, db):
         seed_supplement_products(db)
@@ -570,10 +570,10 @@ class TestSupplementL3TypeOnly:
 
 
 class TestSupplementL1Generic:
-    """B4: generic mention → L1, no products."""
+    """B4: generic mention â†’ L1, no products."""
 
     def test_generic_supplements(self, db):
-        """Generic mention like "supplements" → L1 (no identifiable type)."""
+        """Generic mention like "supplements" â†’ L1 (no identifiable type)."""
         seed_supplement_products(db)
         pet = _make_pet()
         item = _make_diet_item(
@@ -613,7 +613,7 @@ class TestOOSFiltering:
         assert result.products[0]["in_stock"] is True
 
     def test_oos_all_products_fallback(self, db):
-        """All matching OOS → show nearest in-stock (fallback keeps them)."""
+        """All matching OOS â†’ show nearest in-stock (fallback keeps them)."""
         # Create products where all for a specific line are OOS
         db.add_all([
             ProductFood(
@@ -649,7 +649,7 @@ class TestMax3Trim:
     """C8: always trim to 3."""
 
     def test_max_3_food(self, db):
-        """DB has >3 matches → only 3 returned."""
+        """DB has >3 matches â†’ only 3 returned."""
         # Add 5 products for same brand, different lines
         for i in range(5):
             db.add(ProductFood(
@@ -728,7 +728,7 @@ class TestSignalPriority:
     def test_l5_over_l4(self, db):
         seed_food_products(db)
         pet = _make_pet(breed="Labrador", weight=30.0)
-        # Full info: brand + line + size → should be L5, not L4
+        # Full info: brand + line + size â†’ should be L5, not L4
         item = _make_diet_item(
             label="Royal Canin Labrador Adult",
             brand="Royal Canin",
@@ -770,7 +770,7 @@ class TestEdgeCases:
         assert result.products == []
 
     def test_no_products_in_db(self, db):
-        """Empty product tables → L1."""
+        """Empty product tables â†’ L1."""
         pet = _make_pet(breed="Labrador", weight=30.0, dob=date.today() - timedelta(days=3*365))
         item = _make_diet_item(
             label="Royal Canin Labrador Adult 12kg",
@@ -783,7 +783,7 @@ class TestEdgeCases:
         assert result.message == L1_MESSAGE
 
     def test_no_supplement_products_in_db(self, db):
-        """Empty supplement table → L1."""
+        """Empty supplement table â†’ L1."""
         pet = _make_pet()
         item = _make_diet_item(
             type="supplement",
@@ -817,7 +817,7 @@ class TestEdgeCases:
         assert result.products == []
 
     def test_supplement_form_as_hint(self, db):
-        """Form is a soft hint — used when matches exist, ignored otherwise."""
+        """Form is a soft hint â€” used when matches exist, ignored otherwise."""
         seed_supplement_products(db)
         pet = _make_pet()
         # Honst fish oil exists as liquid; request "chew" form
@@ -872,3 +872,4 @@ class TestEdgeCases:
         assert set(product.keys()) == expected_keys
         assert product["category"] == "supplement"
         assert product["unit_label"] == "per unit"
+

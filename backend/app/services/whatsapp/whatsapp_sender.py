@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.core.log_sanitizer import mask_phone, sanitize_payload
 from app.core.rate_limiter import rate_limiter
-from app.models.message_log import MessageLog
+from app.models.messaging.message_log import MessageLog
 from app.utils.retry import retry_whatsapp_call
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,5 @@
-"""
-Unit tests for care_plan_engine.py — covers all 7 classification paths,
+﻿"""
+Unit tests for care_plan_engine.py â€” covers all 7 classification paths,
 redundancy guards, prescription override, conflict resolution, exclusion
 of next-year items, and orderable diet items.
 
@@ -33,9 +33,9 @@ from app.services.shared.care_plan_engine import (
 TODAY = date.today()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _normalize_item_name
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestNormalizeItemName:
@@ -107,9 +107,9 @@ class TestNormalizeItemName:
         assert _normalize_item_name("cbc chemistry") == "cbc_chemistry"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _get_breed_size
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestGetBreedSize:
@@ -129,7 +129,7 @@ class TestGetBreedSize:
         assert _get_breed_size(55.0, None) == BreedSize.EXTRA_LARGE
 
     def test_exact_boundary_small(self):
-        # weight == max_weight_kg for MINI_TOY (5 kg) → SMALL (not MINI_TOY)
+        # weight == max_weight_kg for MINI_TOY (5 kg) â†’ SMALL (not MINI_TOY)
         assert _get_breed_size(5.0, None) == BreedSize.SMALL
 
     def test_no_weight_chihuahua_keyword(self):
@@ -145,9 +145,9 @@ class TestGetBreedSize:
         assert _get_breed_size(None, "Labrador Retriever") == BreedSize.LARGE
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _get_life_stage
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestGetLifeStage:
@@ -172,17 +172,17 @@ class TestGetLifeStage:
         assert _get_life_stage(48, BreedSize.EXTRA_LARGE) == LifeStage.ADULT
 
     def test_exact_junior_start(self):
-        # age 12 = junior_start → JUNIOR (not PUPPY)
+        # age 12 = junior_start â†’ JUNIOR (not PUPPY)
         assert _get_life_stage(12, BreedSize.MEDIUM) == LifeStage.JUNIOR
 
     def test_exact_adult_start(self):
-        # age 24 = adult_start → ADULT (not JUNIOR)
+        # age 24 = adult_start â†’ ADULT (not JUNIOR)
         assert _get_life_stage(24, BreedSize.MEDIUM) == LifeStage.ADULT
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _get_baseline_protocol
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestGetBaselineProtocol:
@@ -196,7 +196,7 @@ class TestGetBaselineProtocol:
         assert _get_baseline_protocol(LifeStage.ADULT, "chest_xray") == 1095
 
     def test_unknown_type_defaults(self):
-        # "other" is not in BASELINE_PROTOCOL → default 365
+        # "other" is not in BASELINE_PROTOCOL â†’ default 365
         result = _get_baseline_protocol(LifeStage.ADULT, "other")
         assert result == 365
 
@@ -204,9 +204,9 @@ class TestGetBaselineProtocol:
         assert _get_baseline_protocol(LifeStage.SENIOR, "dental") == 180
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _filter_redundant_reports
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestFilterRedundantReports:
@@ -232,7 +232,7 @@ class TestFilterRedundantReports:
 
     def test_non_rx_within_30_days_removed(self):
         r1 = _Report(report_date=TODAY - timedelta(days=100))
-        r2 = _Report(report_date=TODAY - timedelta(days=85))  # 15 days later → redundant
+        r2 = _Report(report_date=TODAY - timedelta(days=85))  # 15 days later â†’ redundant
         result = _filter_redundant_reports([r1, r2])
         assert len(result) == 1
         assert result[0].report_date == TODAY - timedelta(days=100)
@@ -256,9 +256,9 @@ class TestFilterRedundantReports:
         assert result[0].report_date < result[1].report_date
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# _classify_test — all 7 paths
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# _classify_test â€” all 7 paths
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestClassifyTest:
@@ -266,21 +266,21 @@ class TestClassifyTest:
 
     BASELINE = 365  # days
 
-    # ── Path 1: NO_HISTORY ────────────────────────────────────────────────────
+    # â”€â”€ Path 1: NO_HISTORY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_no_history(self):
         assert _classify_test([], self.BASELINE) == Classification.NO_HISTORY
 
-    # ── Path 2: SINGLE ───────────────────────────────────────────────────────
+    # â”€â”€ Path 2: SINGLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_single_report(self):
         reports = [_Report(report_date=TODAY - timedelta(days=200))]
         assert _classify_test(reports, self.BASELINE) == Classification.SINGLE
 
-    # ── Path 3 & 4: SPORADIC (large gap) ─────────────────────────────────────
+    # â”€â”€ Path 3 & 4: SPORADIC (large gap) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_sporadic_large_gap(self):
-        # Gap = 900 days > 2 × 365 = 730 → SPORADIC
+        # Gap = 900 days > 2 Ã— 365 = 730 â†’ SPORADIC
         reports = [
             _Report(report_date=TODAY - timedelta(days=1000)),
             _Report(report_date=TODAY - timedelta(days=100)),
@@ -291,21 +291,21 @@ class TestClassifyTest:
         # Gap = 730 > 730? No, 730 is NOT > 730. Edge: > not >=.
         # Exactly double should NOT be sporadic from step 4.
         # But let's check median_gap > baseline + tolerance = 365 * 1.4 = 511.
-        # Gap = 730 > 511 → SPORADIC in step 6.
+        # Gap = 730 > 511 â†’ SPORADIC in step 6.
         gap = self.BASELINE * 2  # 730
         reports = [
             _Report(report_date=TODAY - timedelta(days=gap + 10)),
             _Report(report_date=TODAY - timedelta(days=10)),
         ]
         # gap = (today - 10) - (today - 740) = 730 days
-        # 730 > 730? No → step 4 NOT triggered.
-        # 730 > 365 + 146 = 511 → SPORADIC from step 6.
+        # 730 > 730? No â†’ step 4 NOT triggered.
+        # 730 > 365 + 146 = 511 â†’ SPORADIC from step 6.
         assert _classify_test(reports, self.BASELINE) == Classification.SPORADIC
 
-    # ── Path 5: PERIODIC ─────────────────────────────────────────────────────
+    # â”€â”€ Path 5: PERIODIC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_periodic_regular_gaps(self):
-        # Gaps of 365 days each - exactly matches baseline → PERIODIC
+        # Gaps of 365 days each - exactly matches baseline â†’ PERIODIC
         reports = [
             _Report(report_date=TODAY - timedelta(days=730)),
             _Report(report_date=TODAY - timedelta(days=365)),
@@ -315,18 +315,18 @@ class TestClassifyTest:
 
     def test_periodic_gaps_within_tolerance(self):
         # Baseline = 365, tolerance = 0.40*365 = 146
-        # Gaps: 350, 360 — both within [219, 511] and median 355 ≤ 511 → PERIODIC
+        # Gaps: 350, 360 â€” both within [219, 511] and median 355 â‰¤ 511 â†’ PERIODIC
         r0 = TODAY - timedelta(days=710)
         r1 = TODAY - timedelta(days=360)
         r2 = TODAY
         reports = [_Report(r0), _Report(r1), _Report(r2)]
         assert _classify_test(reports, self.BASELINE) == Classification.PERIODIC
 
-    # ── Path 6: PERIODIC_INSUFFICIENT (gaps slightly above baseline) ──────────
+    # â”€â”€ Path 6: PERIODIC_INSUFFICIENT (gaps slightly above baseline) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_periodic_insufficient(self):
         # Baseline = 180.  Tolerance = 0.40 * 180 = 72.  Upper = 252.
-        # Gap = 200 days: 200 ≤ 252 (not sporadic) but 200 > 180 → PERIODIC_INSUFFICIENT
+        # Gap = 200 days: 200 â‰¤ 252 (not sporadic) but 200 > 180 â†’ PERIODIC_INSUFFICIENT
         baseline = 180
         reports = [
             _Report(report_date=TODAY - timedelta(days=400)),
@@ -335,17 +335,17 @@ class TestClassifyTest:
         ]
         assert _classify_test(reports, baseline) == Classification.PERIODIC_INSUFFICIENT
 
-    # ── Path 7: full SPORADIC (median exceeds upper tolerance) ───────────────
+    # â”€â”€ Path 7: full SPORADIC (median exceeds upper tolerance) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_sporadic_median_exceeds_tolerance(self):
         # Baseline = 90.  Upper = 90 + 0.40*90 = 126.
-        # Gaps: 100, 140 → no gap > 180.
-        # median = 120 ≤ 126 → not SPORADIC from step 6.
-        # Wait, let me recalculate: median([100, 140]) = 120 ≤ 126 → PERIODIC candidate.
-        # 120 > 90 → PERIODIC_INSUFFICIENT.
+        # Gaps: 100, 140 â†’ no gap > 180.
+        # median = 120 â‰¤ 126 â†’ not SPORADIC from step 6.
+        # Wait, let me recalculate: median([100, 140]) = 120 â‰¤ 126 â†’ PERIODIC candidate.
+        # 120 > 90 â†’ PERIODIC_INSUFFICIENT.
         # Use gaps that push median above upper:
         # Baseline = 90, upper = 126.
-        # Gaps: 130, 130 → median = 130 > 126 → SPORADIC from step 6.
+        # Gaps: 130, 130 â†’ median = 130 > 126 â†’ SPORADIC from step 6.
         baseline = 90
         reports = [
             _Report(report_date=TODAY - timedelta(days=260)),
@@ -354,17 +354,17 @@ class TestClassifyTest:
         ]
         assert _classify_test(reports, baseline) == Classification.SPORADIC
 
-    # ── Prescription override ─────────────────────────────────────────────────
+    # â”€â”€ Prescription override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def test_prescription_override_no_post_rx(self):
-        # Active prescription due in future — no reports after due date.
+        # Active prescription due in future â€” no reports after due date.
         rx = _Prescription(due_date=TODAY + timedelta(days=30), medicine_name="Med")
         reports = [_Report(report_date=TODAY - timedelta(days=200))]
         result = _classify_test(reports, self.BASELINE, prescription=rx)
         assert result == Classification.PRESCRIPTION_ACTIVE
 
     def test_prescription_no_override_with_post_rx(self):
-        # Prescription exists but there IS a report after the due date → not ATTEND TO.
+        # Prescription exists but there IS a report after the due date â†’ not ATTEND TO.
         rx = _Prescription(due_date=TODAY - timedelta(days=90), medicine_name="Med")
         # Report on same day as due_date counts as post-Rx.
         reports = [
@@ -372,7 +372,7 @@ class TestClassifyTest:
             _Report(report_date=TODAY - timedelta(days=730)),
         ]
         result = _classify_test(reports, self.BASELINE, prescription=rx)
-        # With these two reports, gap = 640 > 2*365=730? No. Median = 640 > 365+146=511 → SPORADIC.
+        # With these two reports, gap = 640 > 2*365=730? No. Median = 640 > 365+146=511 â†’ SPORADIC.
         assert result != Classification.PRESCRIPTION_ACTIVE
 
     def test_prescription_none_no_effect(self):
@@ -385,9 +385,9 @@ class TestClassifyTest:
         assert _classify_test(reports, self.BASELINE, None) == Classification.PERIODIC
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _compute_next_due
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestComputeNextDue:
@@ -438,9 +438,9 @@ class TestComputeNextDue:
         assert result is None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _days_to_freq_label
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestDaysToFreqLabel:
@@ -469,9 +469,9 @@ class TestDaysToFreqLabel:
         assert _days_to_freq_label(1095) == "Every 3+ years"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _status_tag
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestStatusTag:
@@ -494,9 +494,9 @@ class TestStatusTag:
         assert _status_tag(None, Classification.SPORADIC) == "Review needed"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # _to_sections
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestToSections:
@@ -546,12 +546,12 @@ class TestToSections:
             "unknown": self._make_item("unknown_type"),
         }
         sections = _to_sections(items)
-        assert sections[-1]["icon"] == "🏥"  # default section
+        assert sections[-1]["icon"] == "ðŸ¥"  # default section
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# compute_care_plan — integration-style (mocked DB)
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# compute_care_plan â€” integration-style (mocked DB)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 class TestComputeCarePlan:
@@ -642,7 +642,7 @@ class TestComputeCarePlan:
         """A pet with no records should have suggested (add) items from baseline."""
         pet = self._make_pet(dob_months_ago=48, weight=15.0)
         result = self._run_care_plan(pet)
-        # With no records and life_stage=ADULT, all items are NO_HISTORY → Suggested
+        # With no records and life_stage=ADULT, all items are NO_HISTORY â†’ Suggested
         assert len(result["add_items"]) > 0
 
     def test_periodic_record_goes_to_continue_bucket(self):
@@ -732,8 +732,8 @@ class TestComputeCarePlan:
         """Items due more than 365 days from today must not appear."""
         pet = self._make_pet(dob_months_ago=48, weight=15.0)
 
-        # Single CBC record done today → next_due = today + 730 (adult baseline).
-        # 730 > 365 → should be EXCLUDED.
+        # Single CBC record done today â†’ next_due = today + 730 (adult baseline).
+        # 730 > 365 â†’ should be EXCLUDED.
         master = MagicMock()
         master.item_name = "CBC Chemistry"
         rec = MagicMock()
@@ -955,7 +955,7 @@ class TestComputeCarePlan:
         """The same test_type must not appear in more than one bucket."""
         pet = self._make_pet(dob_months_ago=48, weight=15.0)
 
-        # Periodic CBC records (→ Continue) + active prescription (→ Attend To wins).
+        # Periodic CBC records (â†’ Continue) + active prescription (â†’ Attend To wins).
         master = MagicMock()
         master.item_name = "CBC Chemistry"
         records = []
@@ -986,7 +986,7 @@ class TestComputeCarePlan:
         """A 3-month-old puppy should use puppy baselines (e.g. CBC every 56 days)."""
         pet = self._make_pet(dob_months_ago=3, weight=3.0, breed="Mixed")
 
-        # Single CBC record → SINGLE classification, next_due = last + 56.
+        # Single CBC record â†’ SINGLE classification, next_due = last + 56.
         master = MagicMock()
         master.item_name = "CBC"
         rec = MagicMock()
@@ -1002,5 +1002,6 @@ class TestComputeCarePlan:
             if item["test_type"] == "cbc_chemistry"
         ]
         if cbc_items:
-            # Puppy baseline is 56 days, not excluded (10 + 56 = 66 ≤ 365).
+            # Puppy baseline is 56 days, not excluded (10 + 56 = 66 â‰¤ 365).
             assert cbc_items[0]["next_due"] is not None
+

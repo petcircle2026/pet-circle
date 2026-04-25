@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Date Utility (Module 18)
+﻿"""
+PetCircle Phase 1 â€” Date Utility (Module 18)
 
 Accepts multiple date formats commonly used in India and converts
 them to the canonical YYYY-MM-DD format for database storage.
@@ -31,7 +31,7 @@ from app.core.constants import (
 
 logger = logging.getLogger(__name__)
 
-# Timezone object for Asia/Kolkata — used for all date operations.
+# Timezone object for Asia/Kolkata â€” used for all date operations.
 IST = pytz.timezone(SYSTEM_TIMEZONE)
 
 # Matches short and long month names (jan/january ... dec/december).
@@ -73,7 +73,7 @@ def parse_date(raw_date: str) -> date:
         except ValueError:
             continue
 
-    # Try month+year formats — day defaults to 1.
+    # Try month+year formats â€” day defaults to 1.
     for fmt in MONTH_YEAR_FORMATS:
         try:
             parsed = datetime.strptime(cleaned, fmt)
@@ -82,14 +82,14 @@ def parse_date(raw_date: str) -> date:
         except ValueError:
             continue
 
-    # Try extracting just a year (e.g., "2022") — default to Jan 1.
+    # Try extracting just a year (e.g., "2022") â€” default to Jan 1.
     year_match = re.fullmatch(r"(\d{4})", cleaned)
     if year_match:
         year = int(year_match.group(1))
         if 1900 <= year <= 2100:
             return date(year, 1, 1)
 
-    # None of the formats matched — raise error.
+    # None of the formats matched â€” raise error.
     raise ValueError(
         f"Invalid date format: '{raw_date}'. "
         f"Please use DD/MM/YYYY, DD-MM-YYYY, March 2024, or similar formats."
@@ -212,3 +212,4 @@ def get_today_ist() -> date:
         Today's date in Asia/Kolkata timezone.
     """
     return datetime.now(IST).date()
+

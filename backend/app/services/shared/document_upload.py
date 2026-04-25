@@ -49,7 +49,7 @@ from app.core.constants import (
     MAX_UPLOADS_PER_PET_PER_DAY,
     STORAGE_PATH_TEMPLATE,
 )
-from app.models.document import Document
+from app.models.auth.document import Document
 from app.repositories.document_repository import DocumentRepository
 from app.utils.date_utils import IST
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Conflict resolution handler.
 
 Routes conflict-related button payloads (e.g., "use new value" vs "keep existing").
@@ -64,3 +64,4 @@ class ConflictHandler(BaseHandler):
         except Exception as e:
             logger.exception("Conflict handler failed: %s", str(e))
             raise
+

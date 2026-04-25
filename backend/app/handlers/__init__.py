@@ -1,4 +1,4 @@
-"""Message handlers — routable components for different message types."""
+﻿"""Message handlers â€” routable components for different message types."""
 
 from app.handlers.base_handler import BaseHandler
 from app.handlers.onboarding_handler import OnboardingHandler
@@ -17,3 +17,4 @@ __all__ = [
     "QueryHandler",
     "ConflictHandler",
 ]
+

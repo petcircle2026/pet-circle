@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — In-Memory Rate Limiter
+﻿"""
+PetCircle Phase 1 â€” In-Memory Rate Limiter
 
 Enforces per-key rate limiting using a sliding window algorithm.
 Used for WhatsApp messages (per phone number), dashboard (per IP),
@@ -11,7 +11,7 @@ Implementation:
     - If the count exceeds the limit, the request is rejected.
 
 Limitations:
-    - In-memory only — resets on server restart.
+    - In-memory only â€” resets on server restart.
     - Not shared across multiple worker processes.
     - Sufficient for Phase 1 single-process deployment on Render.
 """
@@ -73,7 +73,7 @@ class RateLimiter:
         while timestamps and timestamps[0] < window_start:
             timestamps.popleft()
 
-        # Remove the key entirely if no timestamps remain — prevents memory leak
+        # Remove the key entirely if no timestamps remain â€” prevents memory leak
         # from accumulating keys for users who are no longer active.
         if not timestamps:
             del self._requests[key]
@@ -89,15 +89,15 @@ class RateLimiter:
 
 # --- Singleton instances ---
 
-# WhatsApp message rate limiter — 20 requests/min per phone number.
+# WhatsApp message rate limiter â€” 20 requests/min per phone number.
 rate_limiter = RateLimiter()
 
-# Dashboard endpoint rate limiter — 120 requests/min per IP.
+# Dashboard endpoint rate limiter â€” 120 requests/min per IP.
 # Raised from 30: Vercel edge nodes share IPs across users, so the lower
 # limit caused legitimate users to hit 429s during normal tab browsing.
 dashboard_rate_limiter = RateLimiter(max_requests=120, window_seconds=60)
 
-# Admin endpoint rate limiter — 10 requests/min per IP.
+# Admin endpoint rate limiter â€” 10 requests/min per IP.
 # Stricter limit to protect admin key brute-force attempts.
 admin_rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
 
@@ -147,7 +147,7 @@ async def check_dashboard_rate_limit(request: Request) -> None:
         logger.warning(
             "Dashboard rate limit exceeded for %s=%s",
             "token" if token else "IP",
-            key[:8] + "…" if token else key,
+            key[:8] + "â€¦" if token else key,
         )
         raise HTTPException(
             status_code=429,
@@ -168,3 +168,4 @@ async def check_admin_rate_limit(request: Request) -> None:
             status_code=429,
             detail="Too many requests. Please try again later.",
         )
+

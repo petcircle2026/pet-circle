@@ -1,4 +1,4 @@
-"""Reminders domain — reminder logic, calculations, and orchestration."""
+﻿"""Reminders domain â€” reminder logic, calculations, and orchestration."""
 
 from app.domain.reminders.reminder_logic import (
     ReminderStage,
@@ -43,3 +43,4 @@ __all__ = [
     # Service
     "ReminderService",
 ]
+

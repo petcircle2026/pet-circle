@@ -1,4 +1,4 @@
-"""Orders domain — cart logic, calculations, and orchestration."""
+﻿"""Orders domain â€” cart logic, calculations, and orchestration."""
 
 from app.domain.orders.cart_logic import (
     CartSummary,
@@ -29,3 +29,4 @@ __all__ = [
     # Service
     "OrderService",
 ]
+

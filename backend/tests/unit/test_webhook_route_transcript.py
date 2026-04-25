@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 from app.database import get_db
 from app.routers import webhook
@@ -281,3 +281,4 @@ def test_extract_message_data_interactive_button_includes_title() -> None:
     assert result["type"] == "button"
     assert result["button_payload"] == "no"
     assert result["text"] == "No"
+

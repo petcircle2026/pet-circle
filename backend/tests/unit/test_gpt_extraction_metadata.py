@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -298,3 +298,4 @@ def test_filter_non_applicable_puppy_series_removes_puppy_dose_rows_for_adult_fl
 
     names = [m.item_name for m in filtered]
     assert names == ["DHPPi", "Kennel Cough (Nobivac KC)"]
+
