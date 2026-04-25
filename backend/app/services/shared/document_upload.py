@@ -38,7 +38,6 @@ from datetime import datetime
 from uuid import UUID
 
 import pytz
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -51,6 +50,7 @@ from app.core.constants import (
     STORAGE_PATH_TEMPLATE,
 )
 from app.models.document import Document
+from app.repositories.document_repository import DocumentRepository
 from app.utils.date_utils import IST
 
 logger = logging.getLogger(__name__)
@@ -167,18 +167,8 @@ def check_daily_upload_limit(
     ist_midnight_utc = ist_midnight.astimezone(pytz.utc).replace(tzinfo=None)
     ist_end_utc = (ist_midnight + timedelta(days=1)).astimezone(pytz.utc).replace(tzinfo=None)
 
-    # Count documents uploaded within today's IST boundaries (converted to UTC).
-    # Only count pending or successful documents — failed extractions (e.g.,
-    # OpenAI quota exceeded) should not block the user from uploading again.
-    today_count = (
-        db.query(func.count(Document.id))
-        .filter(
-            Document.pet_id == pet_id,
-            Document.created_at >= ist_midnight_utc,
-            Document.created_at < ist_end_utc,
-            Document.extraction_status.in_(["pending", "success"]),
-        )
-        .scalar()
+    today_count = DocumentRepository(db).count_uploads_in_window(
+        pet_id, ist_midnight_utc, ist_end_utc, ["pending", "success"]
     )
 
     if today_count >= MAX_UPLOADS_PER_PET_PER_DAY:
@@ -341,14 +331,8 @@ def find_duplicate_document(
     Returns:
         Existing Document if found, None otherwise.
     """
-    return (
-        db.query(Document)
-        .filter(
-            Document.pet_id == pet_id,
-            Document.content_hash == content_hash,
-            Document.extraction_status.in_(["success", "partially_extracted"]),
-        )
-        .first()
+    return DocumentRepository(db).find_by_content_hash(
+        pet_id, content_hash, ["success", "partially_extracted"]
     )
 
 
