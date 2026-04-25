@@ -52,6 +52,3 @@ def get_nudge_config_int(db: Session, key: str, default: int = 0) -> int:
         return default
 
 
-def clear_cache():
-    """Clear the in-memory config cache (useful for testing)."""
-    _cache.clear()

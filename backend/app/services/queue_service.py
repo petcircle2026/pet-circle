@@ -24,7 +24,6 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 import aio_pika
 from aio_pika import DeliveryMode, ExchangeType, Message
@@ -39,11 +38,11 @@ QUEUE_DASHBOARD_PRECOMPUTE = "dashboard.precompute"
 EXCHANGE_DOCUMENT_DLX = "document.extract.dlx"
 
 # Module-level connection handles (set by connect(), cleared by close()).
-_connection: Optional[AbstractRobustConnection] = None
-_channel: Optional[AbstractRobustChannel] = None
+_connection: AbstractRobustConnection | None = None
+_channel: AbstractRobustChannel | None = None
 
 
-def _broker_url() -> Optional[str]:
+def _broker_url() -> str | None:
     """
     Return the broker URL, or None if not configured.
 

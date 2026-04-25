@@ -42,21 +42,6 @@ _MONTH_PATTERN = (
 )
 
 
-def is_ambiguous_date_input(raw_date: str) -> bool:
-    """
-    Return True when a date-like input is inherently ambiguous.
-
-    Current rule: month + 1-2 digit token (e.g., ``jan 26`` or ``26 jan``),
-    because it could mean ``26 January`` (missing year) or ``January 2026``.
-    """
-    cleaned = (raw_date or "").strip().lower()
-    if not cleaned:
-        return False
-
-    return bool(
-        re.fullmatch(rf"{_MONTH_PATTERN}\s+\d{{1,2}}", cleaned)
-        or re.fullmatch(rf"\d{{1,2}}\s+{_MONTH_PATTERN}", cleaned)
-    )
 
 
 def parse_date(raw_date: str) -> date:
@@ -113,10 +98,10 @@ def parse_date(raw_date: str) -> date:
 
 async def parse_date_with_ai(raw_date: str) -> date:
     """
-    Use OpenAI to parse an ambiguous date string into a Python date.
+    Use AI to parse an ambiguous date string into a Python date.
 
     Called as a fallback when standard format parsing fails.
-    Uses GPT (gpt-4.1) via OPENAI_QUERY_MODEL.
+    Uses the unified AI client (Claude or OpenAI based on AI_PROVIDER).
 
     Args:
         raw_date: The raw date string that couldn't be parsed.

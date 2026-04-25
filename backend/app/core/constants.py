@@ -10,12 +10,8 @@ import os
 
 # --- Application Branding ---
 APP_BRAND_NAME: str = "PetCircle"
-APP_BRAND_SLUG: str = "petcircle"
 APP_BRAND_PAW_ICON: str = "🐾"
 APP_API_TITLE: str = f"{APP_BRAND_NAME} API"
-APP_TAGLINE: str = f"{APP_BRAND_NAME} — Preventive Pet Health System"
-APP_ADMIN_TITLE: str = f"{APP_BRAND_NAME} Admin"
-APP_WELCOME_HEADING: str = f"Hey there! Welcome to *{APP_BRAND_NAME}* {APP_BRAND_PAW_ICON}"
 APP_RETURNING_HEADING: str = f"Welcome back to *{APP_BRAND_NAME}* {APP_BRAND_PAW_ICON}"
 
 # --- User & Pet Limits ---
@@ -133,7 +129,6 @@ REMINDER_PAYLOADS: frozenset[str] = frozenset({
 # Number of days to push next_due_date forward when user snoozes a reminder.
 # Per-category constants allow future independent tuning.
 # All currently set to 7 days — change individual values to configure.
-REMINDER_SNOOZE_DAYS: int = 7  # legacy / default fallback
 SNOOZE_DAYS_VACCINE: int = 7
 SNOOZE_DAYS_DEWORMING: int = 7
 SNOOZE_DAYS_FLEA: int = 7
@@ -196,7 +191,7 @@ AI_QUERY_MODEL: str = (
     _CLAUDE_QUERY_MODEL if AI_PROVIDER == "claude" else _OPENAI_QUERY_MODEL
 )
 
-# Backward-compatible aliases — all existing imports continue to work unchanged.
+# Aliases for existing imports — these resolve to the models above based on AI_PROVIDER
 OPENAI_EXTRACTION_MODEL: str = AI_EXTRACTION_MODEL
 OPENAI_QUERY_MODEL: str = AI_QUERY_MODEL
 

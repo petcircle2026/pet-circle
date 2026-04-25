@@ -7,11 +7,6 @@ from datetime import time
 
 from app.core.constants import STAGE_D3, STAGE_DUE, STAGE_OVERDUE, STAGE_T7
 
-# Send-rule constants for reminder orchestration.
-MAX_REMINDERS_PER_PET_PER_DAY: int = 1
-MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS: int = 3
-IGNORED_REMINDERS_MONTHLY_FALLBACK_THRESHOLD: int = 3
-
 # Time rules (IST).
 STANDARD_STAGE_SEND_TIMES: dict[str, time] = {
     STAGE_T7: time(hour=9, minute=0),

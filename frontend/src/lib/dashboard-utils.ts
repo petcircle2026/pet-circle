@@ -36,23 +36,6 @@ export const DEWORMING_KW = ["deworming", "deworm"];
 export const FLEA_TICK_KW = ["tick", "flea"];
 export const CHECKUP_KW = ["checkup", "annual", "wellness", "blood test", "preventive blood"];
 
-// ─── Nudge Constants ─────────────────────────────────────────────
-export const NUDGE_CATEGORY_ICONS: Record<string, string> = {
-  vaccine: '💉',
-  deworming: '💊',
-  flea: '🐛',
-  condition: '📋',
-  nutrition: '🍽️',
-  grooming: '✂️',
-  checkup: '🩸',
-};
-
-export const NUDGE_PRIORITY_COLORS: Record<string, { color: string; bg: string; label: string }> = {
-  urgent: { color: '#FF3B30', bg: '#FFF0F0', label: 'Urgent' },
-  high:   { color: '#FF9500', bg: '#FFF6ED', label: 'High' },
-  medium: { color: '#007AFF', bg: '#F0F6FF', label: 'Medium' },
-};
-
 // ─── Date Helpers ────────────────────────────────────────────────
 export function formatDMY(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
@@ -108,25 +91,6 @@ export function formatApiDate(isoDate: string | null): string {
   return formatDMY(d);
 }
 
-export function addMonths(lastDone: string, freqMonths: number): string {
-  const d = parseDMY(lastDone);
-  if (!d) return '—';
-  d.setMonth(d.getMonth() + freqMonths);
-  return formatDMY(d);
-}
-
-export function addByUnit(last: string, freq: number, unit: string): string {
-  const d = parseDMY(last);
-  if (!d) return '—';
-  switch (unit) {
-    case 'day': d.setDate(d.getDate() + freq); break;
-    case 'week': d.setDate(d.getDate() + freq * 7); break;
-    case 'month': d.setMonth(d.getMonth() + freq); break;
-    case 'year': d.setFullYear(d.getFullYear() + freq); break;
-  }
-  return formatDMY(d);
-}
-
 export function diffDaysFromToday(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const target = new Date(dateStr);
@@ -156,25 +120,6 @@ export function deriveStatus(lastDone: string | null, nextDue: string | null): s
   return 'done';
 }
 
-/** Convert freq + unit to approximate days for the API. */
-export function freqToDays(freq: number, unit: string): number {
-  switch (unit) {
-    case 'day': return freq;
-    case 'week': return freq * 7;
-    case 'month': return freq * 30;
-    case 'year': return freq * 365;
-    default: return freq * 30;
-  }
-}
-
-/** Convert days to best-fit freq + unit. */
-export function daysToFreq(days: number): { freq: number; unit: string } {
-  if (days >= 365 && days % 365 === 0) return { freq: days / 365, unit: 'year' };
-  if (days >= 30 && days % 30 === 0) return { freq: days / 30, unit: 'month' };
-  if (days >= 7 && days % 7 === 0) return { freq: days / 7, unit: 'week' };
-  return { freq: days, unit: 'day' };
-}
-
 export function freqLabel(freq: number, unit: string): string {
   if (freq === 1 && unit === 'day') return 'Daily';
   if (freq === 1 && unit === 'week') return 'Weekly';
@@ -197,74 +142,7 @@ export function ageFromDob(dob: string | null): string {
 
 // ─── Location Helpers ────────────────────────────────────────────
 
-/** Map Indian pincode prefix (3 digits) to city name. */
-const PINCODE_CITY_MAP: Record<string, string> = {
-  '110': 'Delhi', '111': 'Delhi',
-  '201': 'Noida', '202': 'Ghaziabad',
-  '122': 'Gurugram', '123': 'Gurugram', '121': 'Faridabad',
-  '400': 'Mumbai', '401': 'Mumbai', '402': 'Mumbai',
-  '410': 'Navi Mumbai',
-  '411': 'Pune', '412': 'Pune', '413': 'Pune', '414': 'Pune',
-  '403': 'Goa',
-  '560': 'Bengaluru', '561': 'Bengaluru', '562': 'Bengaluru',
-  '600': 'Chennai', '601': 'Chennai', '602': 'Chennai', '603': 'Chennai',
-  '500': 'Hyderabad', '501': 'Hyderabad', '502': 'Hyderabad', '503': 'Hyderabad',
-  '700': 'Kolkata', '711': 'Howrah', '712': 'Hooghly',
-  '380': 'Ahmedabad', '382': 'Ahmedabad', '383': 'Ahmedabad',
-  '395': 'Surat', '394': 'Surat', '396': 'Surat',
-  '641': 'Coimbatore', '642': 'Coimbatore',
-  '302': 'Jaipur', '303': 'Jaipur',
-  '226': 'Lucknow', '227': 'Lucknow',
-  '208': 'Kanpur', '209': 'Kanpur',
-  '440': 'Nagpur', '441': 'Nagpur',
-  '452': 'Indore', '453': 'Indore',
-  '462': 'Bhopal', '463': 'Bhopal',
-  '800': 'Patna', '801': 'Patna',
-  '682': 'Kochi', '683': 'Kochi', '684': 'Kochi',
-  '160': 'Chandigarh',
-  '530': 'Visakhapatnam', '531': 'Visakhapatnam',
-  '520': 'Vijayawada', '521': 'Vijayawada',
-  '625': 'Madurai',
-  '620': 'Tiruchirappalli', '621': 'Tiruchirappalli',
-  '628': 'Tirunelveli',
-  '575': 'Mangalore', '576': 'Mangalore',
-  '570': 'Mysuru', '571': 'Mysuru',
-  '695': 'Thiruvananthapuram',
-  '673': 'Kozhikode',
-  '143': 'Amritsar',
-  '141': 'Ludhiana', '142': 'Ludhiana',
-  '221': 'Varanasi',
-  '211': 'Prayagraj',
-  '282': 'Agra',
-  '248': 'Dehradun',
-  '144': 'Jalandhar',
-  '324': 'Kota',
-  '342': 'Jodhpur',
-  '313': 'Udaipur',
-  '450': 'Bhopal',
-  '492': 'Raipur',
-  '360': 'Rajkot',
-  '390': 'Vadodara', '391': 'Vadodara',
-  '365': 'Bhavnagar',
-  '361': 'Jamnagar',
-};
-
-/** Derive city name from a 6-digit Indian pincode. Returns null if unknown. */
-export function pincodeToCity(pincode: string | null | undefined): string | null {
-  if (!pincode || pincode.length < 3) return null;
-  const prefix = pincode.slice(0, 3);
-  return PINCODE_CITY_MAP[prefix] || null;
-}
-
 // ─── Pet Age Helpers ─────────────────────────────────────────────
-
-/** Returns age of pet in days from DOB string. Returns null if DOB is missing/invalid. */
-export function ageInDaysFromDob(dob: string | null): number | null {
-  if (!dob) return null;
-  const birth = new Date(dob);
-  if (isNaN(birth.getTime())) return null;
-  return Math.floor((Date.now() - birth.getTime()) / 86400000);
-}
 
 /**
  * Puppy vaccine names and the minimum dog age (in days) at which they become relevant.
@@ -296,80 +174,4 @@ export function filterVaccinesByAge(vaccines: PreventiveRecord[], dob: string | 
   });
 }
 
-// ─── Record Helpers ──────────────────────────────────────────────
-export function filterByCircle(records: PreventiveRecord[], circle: string): PreventiveRecord[] {
-  return records.filter(r => r.circle?.toLowerCase() === circle.toLowerCase());
-}
-
-export function filterByKeywords(records: PreventiveRecord[], keywords: string[]): PreventiveRecord[] {
-  return records.filter(r =>
-    keywords.some(kw => r.item_name.toLowerCase().includes(kw.toLowerCase()))
-  );
-}
-
-export function countOverdue(records: PreventiveRecord[]): number {
-  return records.filter(r => r.status === 'overdue').length;
-}
-
-export function getStatusForRecord(record: PreventiveRecord): string {
-  if (record.status === 'cancelled') return 'cancelled';
-  if (!record.last_done_date) return 'missing';
-  return record.status || deriveStatus(record.last_done_date, record.next_due_date);
-}
-
-
-/** Extract the first price from strings like "₹1,499 / ₹4,599" → 1499 */
-export function parseFirstPrice(priceStr: string | null | undefined): number {
-  if (!priceStr) return 0;
-  const m = priceStr.replace(/\s/g, '').match(/[\d,]+/);
-  return m ? parseInt(m[0].replace(/,/g, ''), 10) || 0 : 0;
-}
-
-export const FREE_DELIVERY_THRESHOLD = 500;
-export const DELIVERY_FEE = 49;
-
-export const PAYMENT_METHODS = [
-  { id: 'upi', label: 'UPI', icon: '📱', sub: 'Pay via any UPI app' },
-  { id: 'card', label: 'Card', icon: '💳', sub: 'Credit / Debit card' },
-  { id: 'net', label: 'Net Banking', icon: '🏦', sub: 'All major banks' },
-  { id: 'cod', label: 'Cash on Delivery', icon: '💵', sub: 'Pay when delivered' },
-];
-
-
-export const WA_REMINDER_COLORS: Record<string, string> = { upcoming: '#FF9500', due: '#D44800', overdue: '#FF3B30' };
-export const WA_REMINDER_BG: Record<string, string> = { upcoming: '#FFF6ED', due: '#FFF3EE', overdue: '#FFF0F0' };
-export const WA_REMINDER_LABELS: Record<string, string> = { upcoming: '1 WEEK BEFORE', due: 'DUE TODAY', overdue: 'OVERDUE' };
-
-export const REMINDER_EXPLAINER = [
-  ['1 week before', 'UPCOMING reminder with option to pre-order medicine, book home vet, or reorder meds.'],
-  ['Due date', 'Due today message sent at 9am with one-tap order or log action.'],
-  ['No action taken', 'Overdue follow-up sent every 7 days until the action is logged or completed.'],
-  ['Action taken', 'Reminder series stops automatically. Next cycle scheduled based on due date.'],
-  ['Condition meds', 'Separate refill reminder series for each chronic medication — never miss a dose.'],
-];
-
-export const NET_BANKS = ['HDFC Bank', 'ICICI Bank', 'SBI', 'Axis Bank', 'Kotak Bank', 'Yes Bank'];
-
-export const FREQ_MODAL_UNITS = ['day', 'week', 'month', 'year'];
-export const FREQ_MODAL_OPTIONS: Record<string, number[]> = { day: [1, 2, 3], week: [1, 2, 3, 4, 6], month: [1, 2, 3, 6], year: [1] };
-export const VAX_FREQ_OPTS = [6, 9, 12, 18, 24];
-export const VAX_FREQ_LABELS: Record<number, string> = { 6: 'Every 6 months', 9: 'Every 9 months', 12: 'Yearly', 18: 'Every 18 months', 24: 'Every 2 years' };
-
-export function formatFrequency(days: number): string {
-  if (days >= 360) return 'Yearly';
-  if (days >= 175 && days <= 195) return 'Every 6 months';
-  if (days >= 85 && days <= 95) return 'Every 3 months';
-  if (days >= 28 && days <= 32) return 'Monthly';
-  if (days === 14) return 'Every 2 weeks';
-  if (days === 7) return 'Weekly';
-  return `Every ${days} days`;
-}
-
-export const DASHBOARD_TABS: [string, string][] = [
-  ['overview', 'Overview'],
-  ['medical', 'Health'],
-  ['grooming', 'Hygiene'],
-  ['nutrition', 'Nutrition'],
-  ['conditions', 'Conditions'],
-];
 

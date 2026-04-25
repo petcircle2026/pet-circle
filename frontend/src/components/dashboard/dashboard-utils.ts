@@ -237,29 +237,6 @@ export function normalizeConditions(data: DashboardData): HealthConditionSummary
   return sortConditionsBySeverityAndRecency(withPuppyGaps, conditionDates);
 }
 
-export function normalizeMacros(macros: DietMacroSummary[] = []): DietMacroSummary[] {
-  const byName = new Map(macros.map((m) => [m.name.toLowerCase(), m]));
-
-  const pick = (name: string): DietMacroSummary => {
-    const fallback: DietMacroSummary = { name, pct_of_need: 0, color: "red", note: "No data" };
-    return byName.get(name.toLowerCase()) || fallback;
-  };
-
-  return [pick("Calories"), pick("Protein"), pick("Fat"), pick("Fibre")];
-}
-
-export function macroStatus(name: string, pct: number): "green" | "amber" | "red" {
-  const metric = name.toLowerCase();
-  if (metric.includes("calorie")) {
-    if (pct > 110) return "amber";
-    if (pct < 80) return "red";
-    return "green";
-  }
-  // Protein, Fat, Fibre share the same thresholds
-  if (pct > 110) return "amber";
-  if (pct < 80) return "red";
-  return "green";
-}
 
 export function buildCarePlanBuckets(data: DashboardData): Record<"continue" | "attend" | "add", CarePlanSection[]> {
   const source = data.care_plan_v2;
