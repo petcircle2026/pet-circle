@@ -383,7 +383,6 @@ async def test_get_or_generate_insight_accepts_namespaced_vet_questions(monkeypa
         insight_type="vet_questions:condition-1",
         pet={"name": "Bruno", "species": "dog", "breed": "Labrador"},
         conditions=[{"name": "Dermatitis", "condition_type": "chronic", "medications": [], "monitoring": []}],
-        health_score={"score": None},
         force=False,
     )
 

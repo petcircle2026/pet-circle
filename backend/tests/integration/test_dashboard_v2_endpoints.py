@@ -31,7 +31,6 @@ async def test_dashboard_get_returns_enriched_payload(monkeypatch, api_client):
             "diagnostic_results": [],
             "conditions": [],
             "contacts": [],
-            "health_score": {"score": 90},
             "nutrition": [],
             "conflict_flags": [],
             "vet_summary": {"name": "Dr. Mehta", "last_visit": "2026-03-01"},

@@ -247,6 +247,14 @@ _document_window_sweeper_task: asyncio.Task | None = None
 _DOCUMENT_WINDOW_SWEEP_INTERVAL_SECONDS: int = 60
 from app.models.conflict_flag import ConflictFlag
 from app.models.deferred_care_plan_pending import DeferredCarePlanPending
+from app.domain.onboarding import OnboardingService
+from app.handlers import (
+    ConflictHandler,
+    DocumentHandler,
+    OrderHandler,
+    QueryHandler,
+    ReminderHandler,
+)
 from app.models.document import Document
 from app.models.pet import Pet
 from app.models.reminder import Reminder
@@ -775,6 +783,45 @@ REMINDER_PAYLOADS = _REMINDER_PAYLOADS_CONST
 CONFLICT_PAYLOADS = {CONFLICT_USE_NEW, CONFLICT_KEEP_EXISTING}
 
 
+async def _dispatch_to_handlers(
+    db: Session,
+    user,
+    message_data: dict,
+    send_fn,
+) -> bool:
+    """
+    Try to route message to a handler.
+
+    Handlers are tried in priority order. Returns True if a handler
+    processed the message, False if no handler matched.
+
+    Priority order:
+        1. Conflicts (highest priority — take precedence)
+        2. Reminders (due items user is acting on)
+        3. Documents (images/records)
+        4. Orders (commerce)
+        5. Queries (fallback for text)
+    """
+    handlers = [
+        ConflictHandler(),
+        ReminderHandler(),
+        DocumentHandler(),
+        OrderHandler(),
+        QueryHandler(),
+    ]
+
+    for handler in handlers:
+        if handler.can_handle(message_data):
+            try:
+                await handler.handle(db, user, message_data, send_fn)
+                return True
+            except Exception as e:
+                logger.exception("Handler %s failed: %s", handler, str(e))
+                raise
+
+    return False
+
+
 async def route_message(db: Session, message_data: dict) -> None:
     """
     Route an incoming WhatsApp message to the appropriate handler.
@@ -881,8 +928,9 @@ async def route_message(db: Session, message_data: dict) -> None:
                 text = (message_data.get("text") or message_data.get("button_payload") or "").strip()
                 if text:
                     try:
+                        onboarding_service = OnboardingService(db)
                         await asyncio.wait_for(
-                            handle_onboarding_step(db, user, text, send_text_message, message_data=message_data),
+                            onboarding_service.handle_message(user, text, send_text_message, message_data=message_data),
                             timeout=70,
                         )
                     except asyncio.TimeoutError:
@@ -925,8 +973,9 @@ async def route_message(db: Session, message_data: dict) -> None:
                     )
                 return
             try:
+                onboarding_service = OnboardingService(db)
                 await asyncio.wait_for(
-                    handle_onboarding_step(db, user, text, send_text_message, message_data=message_data),
+                    onboarding_service.handle_message(user, text, send_text_message, message_data=message_data),
                     timeout=60,
                 )
             except asyncio.TimeoutError:
@@ -941,20 +990,26 @@ async def route_message(db: Session, message_data: dict) -> None:
                 )
             return
 
-        # --- Step 3: User is fully onboarded — route by message type ---
-        if msg_type == "button":
-            await _handle_button(db, user, message_data)
+        # --- Step 3: User is fully onboarded — route using handlers ---
+        # Try new handler system first (conflict, reminder, document, order, query).
+        # If no handler matches, fall back to old routing for backwards compatibility.
+        handled = await _dispatch_to_handlers(db, user, message_data, send_fn)
 
-        elif msg_type in ("image", "document"):
-            await _handle_media(db, user, message_data)
+        if not handled:
+            # Fallback to old routing system
+            if msg_type == "button":
+                await _handle_button(db, user, message_data)
 
-        elif msg_type == "text":
-            await _handle_text(db, user, message_data)
+            elif msg_type in ("image", "document"):
+                await _handle_media(db, user, message_data)
 
-        else:
-            # Safety net — non-actionable types are filtered at the top of
-            # route_message(), so this branch should be unreachable.
-            logger.info("Unhandled message type '%s' from %s", msg_type, mask_phone(from_number))
+            elif msg_type == "text":
+                await _handle_text(db, user, message_data)
+
+            else:
+                # Safety net — non-actionable types are filtered at the top of
+                # route_message(), so this branch should be unreachable.
+                logger.info("Unhandled message type '%s' from %s", msg_type, mask_phone(from_number))
 
         # Clear error state on successful processing
         _error_sent.pop(from_number, None)
