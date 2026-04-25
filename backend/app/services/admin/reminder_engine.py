@@ -29,8 +29,6 @@ Ignore Detection (runs before creating/sending new reminders):
 
 Routes: /internal/run-reminder-engine (full) / /internal/detect-ignores (detect only)
 """
-from app.models import BreedConsequenceLibrary, PreventiveMaster
-
 import asyncio
 import logging
 import re
@@ -60,18 +58,17 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
-from app.models.condition import Condition
 from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.contact import Contact
-from app.models.custom_preventive_item import CustomPreventiveItem
 from app.models.diet_item import DietItem
-from app.models.hygiene_preference import HygienePreference
-from app.models.message_log import MessageLog
 from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
-from app.models.user import User
+from app.repositories.care_repository import CareRepository
+from app.repositories.contact_repository import ContactRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.reminder_repository import ReminderRepository
 from app.services.shared.care_plan_engine import get_display_name
 from app.services.admin.reminder_templates import (
     MAX_REMINDERS_PER_PET_PER_DAY,
@@ -228,36 +225,17 @@ def _detect_ignores(db: Session, today: date) -> int:
     Increment ignore_count; set monthly_fallback when threshold reached.
     """
     cutoff = datetime.now(IST) - timedelta(hours=24)
+    reminder_repo = ReminderRepository(db)
+    doc_repo = DocumentRepository(db)
 
-    # Find reminders that were sent > 24h ago and still have status='sent'
-    sent_reminders = (
-        db.query(Reminder, Pet, User)
-        .join(Pet, Reminder.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .filter(
-            Reminder.status == "sent",
-            Reminder.sent_at <= cutoff,
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    sent_reminders = reminder_repo.find_sent_unacknowledged_older_than(cutoff)
 
     ignores = 0
     for reminder, pet, user in sent_reminders:
         if reminder.last_ignored_at and reminder.sent_at and reminder.last_ignored_at >= reminder.sent_at:
             continue
 
-        # Check if user sent ANY inbound message after the reminder was sent
-        reply_count = (
-            db.query(MessageLog)
-            .filter(
-                MessageLog.phone_number == user.mobile_hash,
-                MessageLog.direction == "inbound",
-                MessageLog.created_at > reminder.sent_at,
-            )
-            .count()
-        )
+        reply_count = doc_repo.count_inbound_after(user.mobile_hash, reminder.sent_at)
 
         if reply_count == 0:
             # No reply — increment ignore counter
@@ -316,20 +294,7 @@ def _collect_candidates(db: Session, today: date) -> list[ReminderCandidate]:
 
 def _candidates_from_preventive_records(db: Session, today: date) -> list[ReminderCandidate]:
     """Build candidates from preventive_records with status upcoming/overdue."""
-    rows = (
-        db.query(PreventiveRecord, Pet, User, PreventiveMaster, CustomPreventiveItem)
-        .join(Pet, PreventiveRecord.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .outerjoin(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .outerjoin(CustomPreventiveItem, PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id)
-        .filter(
-            PreventiveRecord.status.in_(["upcoming", "overdue"]),
-            PreventiveRecord.next_due_date.isnot(None),
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    rows = PreventiveRepository(db).find_all_upcoming_overdue_with_pets()
 
     # Group vaccines by (pet_id, stage) for batching
     vaccine_groups: dict[tuple, list] = {}
@@ -414,17 +379,7 @@ def _candidates_from_preventive_records(db: Session, today: date) -> list[Remind
 
 def _candidates_from_diet_items(db: Session, today: date) -> list[ReminderCandidate]:
     """Build food order and supplement order candidates from diet_items."""
-    rows = (
-        db.query(DietItem, Pet, User)
-        .join(Pet, DietItem.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .filter(
-            DietItem.type.in_(["packaged", "supplement"]),
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    rows = DietRepository(db).find_packaged_and_supplements_with_pets()
 
     candidates: list[ReminderCandidate] = []
 
@@ -471,18 +426,7 @@ def _candidates_from_diet_items(db: Session, today: date) -> list[ReminderCandid
 
 def _candidates_from_chronic_medicine(db: Session, today: date) -> list[ReminderCandidate]:
     """Build chronic medicine candidates from condition_medications.refill_due_date."""
-    rows = (
-        db.query(ConditionMedication, Condition, Pet, User)
-        .join(Condition, ConditionMedication.condition_id == Condition.id)
-        .join(Pet, Condition.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .filter(
-            ConditionMedication.status == "active",
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    rows = CareRepository(db).find_active_medications_with_pets()
 
     candidates: list[ReminderCandidate] = []
 
@@ -533,18 +477,8 @@ def _candidates_from_chronic_medicine(db: Session, today: date) -> list[Reminder
 
 def _candidates_from_vet_followup(db: Session, today: date) -> list[ReminderCandidate]:
     """Build vet follow-up candidates from condition_monitoring.next_due_date."""
-    rows = (
-        db.query(ConditionMonitoring, Condition, Pet, User)
-        .join(Condition, ConditionMonitoring.condition_id == Condition.id)
-        .join(Pet, Condition.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .filter(
-            ConditionMonitoring.next_due_date.isnot(None),
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    rows = CareRepository(db).find_monitoring_with_due_date_and_pets()
+    contact_repo = ContactRepository(db)
 
     candidates: list[ReminderCandidate] = []
 
@@ -554,13 +488,7 @@ def _candidates_from_vet_followup(db: Session, today: date) -> list[ReminderCand
         if stage is None:
             continue
 
-        # Try to get vet name from contacts
-        vet = (
-            db.query(Contact)
-            .filter(Contact.pet_id == pet.id, Contact.role == "veterinarian")
-            .order_by(Contact.created_at)
-            .first()
-        )
+        vet = contact_repo.find_vet_for_pet(pet.id)
         vet_name = vet.name if vet else "your vet"
 
         item_desc = f"Vet Follow-up with {vet_name}: {monitoring.name}"
@@ -583,17 +511,7 @@ def _candidates_from_hygiene(db: Session, today: date) -> list[ReminderCandidate
     Groups all due hygiene items per pet into a single combined candidate.
     Hygiene: due-only stage (no T-7 or D+3 per spec).
     """
-    rows = (
-        db.query(HygienePreference, Pet, User)
-        .join(Pet, HygienePreference.pet_id == Pet.id)
-        .join(User, Pet.user_id == User.id)
-        .filter(
-            HygienePreference.reminder == True,
-            Pet.is_deleted == False,
-            User.is_deleted == False,
-        )
-        .all()
-    )
+    rows = CareRepository(db).find_hygiene_prefs_with_reminder_and_pets()
 
     # Group by pet_id — one combined reminder per pet
     pet_items: dict[str, dict] = {}
@@ -621,24 +539,14 @@ def _candidates_from_hygiene(db: Session, today: date) -> list[ReminderCandidate
         category_label = _hygiene_category_label(pref.item_id, pref.name)
         pet_items[pet_key]["items"].append(category_label)
 
+    reminder_repo = ReminderRepository(db)
     candidates: list[ReminderCandidate] = []
     for pet_key, grp in pet_items.items():
         pet, user = grp["pet"], grp["user"]
         item_desc = " · ".join(sorted(set(grp["items"])))
         due = grp["due"]
 
-        # Check if already sent a hygiene due reminder today for this pet
-        existing = (
-            db.query(Reminder)
-            .filter(
-                Reminder.pet_id == pet.id,
-                Reminder.source_type == "hygiene_preference",
-                Reminder.next_due_date == due,
-                Reminder.stage == STAGE_DUE,
-            )
-            .first()
-        )
-        if existing:
+        if reminder_repo.find_hygiene_dedup(pet.id, due, STAGE_DUE):
             continue
 
         candidates.append(ReminderCandidate(
@@ -665,20 +573,13 @@ def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: d
     - Dedup exact source_id + stage combinations sent today
     """
     day_start = datetime.combine(today, time.min)
+    reminder_repo = ReminderRepository(db)
 
-    # Build set of (source_id, stage) already sent today to deduplicate per item.
     already_sent_today: set[tuple[str, str]] = set()
     pets_sent_today_count: dict[str, int] = {}
     last_sent_by_source: dict[str, datetime] = {}
 
-    sent_today_rows = (
-        db.query(Reminder.source_id, Reminder.stage, Reminder.pet_id)
-        .filter(
-            Reminder.status == "sent",
-            Reminder.sent_at >= day_start,
-        )
-        .all()
-    )
+    sent_today_rows = reminder_repo.find_sent_today_summary(day_start)
 
     for source_id, stage, pet_id in sent_today_rows:
         if source_id and stage:
@@ -690,16 +591,7 @@ def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: d
     candidate_source_ids = {cand.source_id for cand in candidates}
     min_gap_cutoff = datetime.combine(today - timedelta(days=MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS - 1), time.min)
 
-    recent_sent_rows = (
-        db.query(Reminder.source_id, Reminder.sent_at)
-        .filter(
-            Reminder.status == "sent",
-            Reminder.sent_at.isnot(None),
-            Reminder.source_id.in_(candidate_source_ids),
-            Reminder.sent_at >= min_gap_cutoff,
-        )
-        .all()
-    )
+    recent_sent_rows = reminder_repo.find_recently_sent_for_sources(candidate_source_ids, min_gap_cutoff)
 
     for source_id, sent_at in recent_sent_rows:
         if not source_id or not sent_at:
@@ -935,12 +827,7 @@ def _build_variable_dict(cand: ReminderCandidate, db: Session) -> dict[str, str]
     if "(" in item_desc and ")" in item_desc:
         condition = item_desc[item_desc.find("(") + 1:item_desc.rfind(")")]
 
-    vet = (
-        db.query(Contact)
-        .filter(Contact.pet_id == cand.pet.id, Contact.role == "veterinarian")
-        .order_by(Contact.created_at)
-        .first()
-    )
+    vet = ContactRepository(db).find_vet_for_pet(cand.pet.id)
     vet_name = vet.name if vet else "your vet"
 
     days_overdue = max(0, (today - cand.due_date).days)
@@ -1006,15 +893,7 @@ def _determine_stage_simple(db: Session, source_id: UUID, due_date: date, today:
     d3_date = due_date + timedelta(days=3)
     d7_date = due_date + timedelta(days=7)
 
-    # Check existing reminders for this source to understand lifecycle state
-    existing = (
-        db.query(Reminder)
-        .filter(
-            Reminder.source_id == source_id,
-            Reminder.next_due_date == due_date,
-        )
-        .all()
-    )
+    existing = ReminderRepository(db).find_by_source_and_due(source_id, due_date)
     existing_stages = {r.stage: r for r in existing}
 
     # Check if on monthly_fallback — only send overdue_insight at 30-day intervals
@@ -1075,7 +954,6 @@ def _calculate_reorder_date(item: DietItem) -> date | None:
 
 def _get_breed_consequence(db: Session, breed: str | None, category: str) -> str:
     """Look up breed-specific consequence text for the overdue insight message."""
-    # Normalize category to match breed_consequence_library
     cat_map = {
         "vaccine": "vaccine",
         "deworming": "deworming",
@@ -1085,33 +963,18 @@ def _get_breed_consequence(db: Session, breed: str | None, category: str) -> str
         "chronic_medicine": "chronic_medicine",
         "vet_followup": "vet_followup",
         "blood_checkup": "blood_checkup",
-        "hygiene": "flea_tick",         # fallback hygiene to flea_tick row
-        "vet_diagnostics": "blood_checkup",  # fallback diagnostics
+        "hygiene": "flea_tick",
+        "vet_diagnostics": "blood_checkup",
     }
     mapped_category = cat_map.get(category, category)
+    master_repo = PreventiveMasterRepository(db)
 
-    # Try breed-specific row first
     if breed:
-        row = (
-            db.query(BreedConsequenceLibrary)
-            .filter(
-                BreedConsequenceLibrary.breed == breed,
-                BreedConsequenceLibrary.category == mapped_category,
-            )
-            .first()
-        )
+        row = master_repo.find_breed_consequence(breed, mapped_category)
         if row:
             return row.consequence_text
 
-    # Generic fallback
-    fallback = (
-        db.query(BreedConsequenceLibrary)
-        .filter(
-            BreedConsequenceLibrary.breed == "Other",
-            BreedConsequenceLibrary.category == mapped_category,
-        )
-        .first()
-    )
+    fallback = master_repo.find_generic_consequence(mapped_category)
     if fallback:
         return fallback.consequence_text
 

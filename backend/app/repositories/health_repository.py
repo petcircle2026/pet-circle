@@ -338,3 +338,24 @@ class HealthRepository:
             .filter(DiagnosticTestResult.pet_id == pet_id)
             .count()
         )
+
+    def find_active_conditions(self, pet_id: UUID) -> list[Condition]:
+        """Alias for get_active_conditions_with_relations — used by nudge engine."""
+        return self.get_active_conditions_with_relations(pet_id)
+
+    def has_active_condition(self, pet_id: UUID) -> bool:
+        """Return True if the pet has at least one active condition."""
+        return (
+            self.db.query(Condition.id)
+            .filter(Condition.pet_id == pet_id, Condition.is_active == True)
+            .first() is not None
+        )
+
+    def has_active_medication(self, pet_id: UUID) -> bool:
+        """Return True if the pet has any medication under an active condition."""
+        return (
+            self.db.query(ConditionMedication.id)
+            .join(Condition)
+            .filter(Condition.pet_id == pet_id)
+            .first() is not None
+        )

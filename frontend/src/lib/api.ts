@@ -165,27 +165,6 @@ export interface ContactItem {
   created_at: string | null;
 }
 
-export interface HealthScoreBreakdown {
-  category: string;
-  key: string;
-  weight: number;
-  score: number;
-  done: number | null;
-  total: number | null;
-}
-
-export interface HealthScoreDragger {
-  category: string;
-  score: number;
-  weight: number;
-}
-
-export interface HealthScore {
-  score: number;
-  label: string;
-  breakdown: HealthScoreBreakdown[];
-  draggers: HealthScoreDragger[];
-}
 
 export interface MonthlyCompletion {
   month: string;
@@ -563,7 +542,6 @@ export interface DashboardData {
   diagnostic_results: DiagnosticResultItem[];
   conditions: ConditionItem[];
   contacts: ContactItem[];
-  health_score: HealthScore | null;
   vet_summary?: VetSummary | null;
   life_stage?: LifeStageData | null;
   health_conditions_summary?: HealthConditionSummary[];

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.preventive_record import PreventiveRecord
 from app.models.custom_preventive_item import CustomPreventiveItem
+from app.models.preventive_master import PreventiveMaster
 
 
 class PreventiveRepository:
@@ -88,6 +89,25 @@ class PreventiveRepository:
                 selectinload(PreventiveRecord.custom_preventive_item),
             )
             .order_by(desc(PreventiveRecord.created_at))
+            .all()
+        )
+
+    def get_by_pet_with_master_for_dashboard(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """
+        Fetch all preventive records for dashboard, sorted by next due date.
+
+        Orders by next_due_date ascending (soonest due first) and eager-loads
+        both master and custom items. Used by dashboard service to show
+        preventive care timeline.
+        """
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
+            )
+            .order_by(PreventiveRecord.next_due_date.asc())
             .all()
         )
 
@@ -274,3 +294,110 @@ class PreventiveRepository:
             .delete()
         )
         return count
+
+    def find_active_by_pet_id(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """Fetch non-cancelled records with eager-loaded master and custom items."""
+        return (
+            self.db.query(PreventiveRecord)
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
+            )
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.status != "cancelled",
+            )
+            .all()
+        )
+
+    def find_by_pet_id(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """Alias for get_by_pet — consistent with cross-repository naming."""
+        return self.get_by_pet(pet_id)
+
+    def has_any(self, pet_id: UUID) -> bool:
+        """Return True if the pet has at least one preventive record."""
+        return (
+            self.db.query(PreventiveRecord.id)
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .first() is not None
+        )
+
+    def find_existing_record(
+        self, pet_id: UUID, preventive_master_id: UUID, last_done_date
+    ) -> PreventiveRecord | None:
+        """Idempotency check: find a record matching pet+master+last_done_date."""
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id == preventive_master_id,
+                PreventiveRecord.last_done_date == last_done_date,
+            )
+            .first()
+        )
+
+    def find_placeholder_record(
+        self, pet_id: UUID, preventive_master_id: UUID
+    ) -> PreventiveRecord | None:
+        """Find oldest non-cancelled placeholder row with no last_done_date."""
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id == preventive_master_id,
+                PreventiveRecord.last_done_date.is_(None),
+                PreventiveRecord.status != "cancelled",
+            )
+            .order_by(PreventiveRecord.created_at.asc())
+            .first()
+        )
+
+    def find_with_master_non_cancelled(self, pet_id: UUID):
+        """Fetch (PreventiveRecord, PreventiveMaster) tuples for non-cancelled records."""
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.status != "cancelled",
+            )
+            .all()
+        )
+
+    def find_all_upcoming_overdue_with_pets(self):
+        """
+        Fetch all upcoming/overdue preventive records joined with Pet, User,
+        PreventiveMaster, and CustomPreventiveItem for the reminder engine.
+
+        Returns list of (PreventiveRecord, Pet, User, PreventiveMaster, CustomPreventiveItem).
+        """
+        from app.models.pet import Pet
+        from app.models.user import User
+        from app.models.custom_preventive_item import CustomPreventiveItem
+        return (
+            self.db.query(PreventiveRecord, Pet, User, PreventiveMaster, CustomPreventiveItem)
+            .join(Pet, PreventiveRecord.pet_id == Pet.id)
+            .join(User, Pet.user_id == User.id)
+            .outerjoin(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .outerjoin(CustomPreventiveItem, PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id)
+            .filter(
+                PreventiveRecord.status.in_(["upcoming", "overdue"]),
+                PreventiveRecord.next_due_date.isnot(None),
+                Pet.is_deleted == False,
+                User.is_deleted == False,
+            )
+            .all()
+        )
+
+    def find_with_last_done(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """Fetch records with a last_done_date set, with eager-loaded master items."""
+        return (
+            self.db.query(PreventiveRecord)
+            .join(PreventiveMaster)
+            .options(selectinload(PreventiveRecord.preventive_master))
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.last_done_date.isnot(None),
+            )
+            .all()
+        )

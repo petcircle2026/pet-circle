@@ -23,8 +23,6 @@ Rules:
     - Max 1 nudge per user per day.
     - On level transition (N7): reset slot counter, start from slot 1.
 """
-from app.models import NudgeDeliveryLog, NudgeMessageLibrary, PreventiveMaster
-
 import logging
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
@@ -47,11 +45,20 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
-from app.models.message_log import MessageLog
+from app.models.cache.nudge_delivery_log import NudgeDeliveryLog
 from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
 from app.models.user import User
+from app.repositories.audit_repository import AuditRepository
+from app.repositories.care_repository import CareRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.health_repository import HealthRepository
+from app.repositories.nudge_repository import NudgeRepository
+from app.repositories.pet_repository import PetRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.user_repository import UserRepository
 from app.utils.date_utils import get_today_ist
 
 logger = logging.getLogger(__name__)
@@ -79,23 +86,14 @@ async def run_nudge_scheduler(db: Session) -> dict:
     today = get_today_ist()
     sent = skipped = failed = 0
 
-    users = (
-        db.query(User)
-        .filter(
-            User.onboarding_state == "complete",
-            User.onboarding_completed_at.isnot(None),
-        )
-        .all()
-    )
+    user_repo = UserRepository(db)
+    pet_repo = PetRepository(db)
+
+    users = user_repo.find_onboarded_active()
 
     for user in users:
         try:
-            # Get user's active pets
-            pets = (
-                db.query(Pet)
-                .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-                .all()
-            )
+            pets = pet_repo.find_by_user_id(user.id)
             if not pets:
                 continue
 
@@ -214,12 +212,7 @@ def calculate_nudge_level(db: Session, user: User, pet: Pet) -> int:
     if not breed.strip():
         return NUDGE_LEVEL_0
 
-    has_records = (
-        db.query(PreventiveRecord.id)
-        .filter(PreventiveRecord.pet_id == pet.id)
-        .first()
-    )
-    if not has_records:
+    if not PreventiveRepository(db).has_any(pet.id):
         return NUDGE_LEVEL_1
 
     return NUDGE_LEVEL_2
@@ -238,12 +231,7 @@ def _handle_level_transition(db: Session, user: User, current_level: int) -> Non
     in the nudge_delivery_log. We detect a level-up by comparing current_level
     to the level stored on the most recent delivery log row.
     """
-    last_log = (
-        db.query(NudgeDeliveryLog)
-        .filter(NudgeDeliveryLog.user_id == user.id)
-        .order_by(NudgeDeliveryLog.sent_at.desc())
-        .first()
-    )
+    last_log = NudgeRepository(db).find_last_delivery_log(user.id)
     if not last_log:
         return  # First nudge — no transition possible
 
@@ -264,19 +252,8 @@ def _handle_level_transition(db: Session, user: User, current_level: int) -> Non
 # ---------------------------------------------------------------------------
 
 def _completed_slots(db: Session, user_id: UUID, level: int) -> int:
-    """
-    Count how many nudges have been sent at the given level.
-    Used to determine the next O+N slot.
-    """
-    return (
-        db.query(func.count(NudgeDeliveryLog.id))
-        .filter(
-            NudgeDeliveryLog.user_id == user_id,
-            NudgeDeliveryLog.nudge_level == level,
-        )
-        .scalar()
-        or 0
-    )
+    """Count how many nudges have been sent at the given level for slot tracking."""
+    return NudgeRepository(db).count_deliveries_by_level(user_id, level)
 
 
 def _select_next_message(
@@ -333,15 +310,9 @@ def _select_level0_message(
                 return None
 
     # Pick tip text from the library (level=0, breed='All'), cycling by seq
-    lib_row = (
-        db.query(NudgeMessageLibrary)
-        .filter(
-            NudgeMessageLibrary.level == 0,
-            NudgeMessageLibrary.breed == "All",
-        )
-        .order_by(NudgeMessageLibrary.seq.asc())
-        .offset(completed % _count_level0_rows(db))
-        .first()
+    master_repo = PreventiveMasterRepository(db)
+    lib_row = master_repo.find_nudge_message_by_offset(
+        level=0, breed="All", offset=completed % _count_level0_rows(db)
     )
 
     template_key = getattr(settings, "WHATSAPP_TEMPLATE_NUDGE_VALUE_ADD_PERSONAL", None)
@@ -355,13 +326,7 @@ def _select_level0_message(
 
 
 def _count_level0_rows(db: Session) -> int:
-    count = (
-        db.query(func.count(NudgeMessageLibrary.id))
-        .filter(NudgeMessageLibrary.level == 0, NudgeMessageLibrary.breed == "All")
-        .scalar()
-        or 1
-    )
-    return max(count, 1)
+    return max(PreventiveMasterRepository(db).count_nudge_messages(level=0, breed="All"), 1)
 
 
 # ---- Level 1 ----
@@ -410,18 +375,11 @@ def _build_l1_message(
     breed = (getattr(pet, "breed", None) or "").strip() or "All"
 
     if msg_type in ("engagement_only", "breed_only"):
-        # Fallback chain: specific breed → 'Generic' (no-breed rows) → 'All'
+        master_repo = PreventiveMasterRepository(db)
         lib_row = None
         for fallback_breed in [breed, "Generic", "All"]:
-            lib_row = (
-                db.query(NudgeMessageLibrary)
-                .filter(
-                    NudgeMessageLibrary.level == 1,
-                    NudgeMessageLibrary.message_type == msg_type,
-                    NudgeMessageLibrary.breed == fallback_breed,
-                )
-                .order_by(NudgeMessageLibrary.seq.asc())
-                .first()
+            lib_row = master_repo.find_nudge_message_by_type(
+                level=1, message_type=msg_type, breed=fallback_breed
             )
             if lib_row:
                 break
@@ -452,15 +410,8 @@ def _build_l1_message(
                 return None
             return (template_key, [var1, var2])
 
-    # value_add: use PERSONAL template with pet_name + tip text from library
-    lib_row = (
-        db.query(NudgeMessageLibrary)
-        .filter(
-            NudgeMessageLibrary.level == 1,
-            NudgeMessageLibrary.message_type == "value_add",
-            NudgeMessageLibrary.breed == "All",
-        )
-        .first()
+    lib_row = PreventiveMasterRepository(db).find_nudge_message_by_type(
+        level=1, message_type="value_add", breed="All"
     )
     template_key = getattr(settings, "WHATSAPP_TEMPLATE_NUDGE_VALUE_ADD_PERSONAL", None)
     if not template_key or not lib_row:
@@ -526,18 +477,12 @@ def _build_breed_data_message(
     category = _pick_data_category(db, pet, slot_idx)
 
     # Fallback chain: specific breed → 'Generic' (no-breed rows) → 'All'
+    master_repo = PreventiveMasterRepository(db)
     lib_row = None
     fallback_breeds = [breed, "Generic", "All"] if breed else ["Generic", "All"]
     for fallback_breed in fallback_breeds:
-        lib_row = (
-            db.query(NudgeMessageLibrary)
-            .filter(
-                NudgeMessageLibrary.level == 2,
-                NudgeMessageLibrary.message_type == "breed_data",
-                NudgeMessageLibrary.breed == fallback_breed,
-                NudgeMessageLibrary.category == category,
-            )
-            .first()
+        lib_row = master_repo.find_nudge_message_by_type_and_category(
+            level=2, message_type="breed_data", breed=fallback_breed, category=category
         )
         if lib_row:
             break
@@ -580,14 +525,9 @@ def _category_has_meaningful_data(db: Session, pet: Pet, category: str) -> bool:
     Defensive: any query error returns False (preserves the existing behavior
     of falling through to the static priority list).
     """
-    from app.models.condition import Condition
-    from app.models.condition_medication import ConditionMedication
-    from app.models.diagnostic_test_result import DiagnosticTestResult
-    from app.models.diet_item import DietItem
     from app.services.admin.nudge_engine import _classify_item
 
     try:
-        # Preventive-record-backed categories (keyword-classified by item_name).
         if category in ("vaccine", "flea_tick", "deworming", "grooming"):
             target = {
                 "vaccine": "vaccine",
@@ -595,15 +535,7 @@ def _category_has_meaningful_data(db: Session, pet: Pet, category: str) -> bool:
                 "deworming": "deworming",
                 "grooming": "grooming",
             }[category]
-            records = (
-                db.query(PreventiveRecord)
-                .join(PreventiveMaster)
-                .filter(
-                    PreventiveRecord.pet_id == pet.id,
-                    PreventiveRecord.last_done_date.isnot(None),
-                )
-                .all()
-            )
+            records = PreventiveRepository(db).find_with_last_done(pet.id)
             return any(
                 _classify_item(r.preventive_master.item_name) == target
                 for r in records
@@ -611,45 +543,19 @@ def _category_has_meaningful_data(db: Session, pet: Pet, category: str) -> bool:
             )
 
         if category == "nutrition":
-            return (
-                db.query(DietItem.id)
-                .filter(DietItem.pet_id == pet.id, DietItem.type != "supplement")
-                .first()
-                is not None
-            )
+            return DietRepository(db).has_food(pet.id)
 
         if category == "supplement":
-            return (
-                db.query(DietItem.id)
-                .filter(DietItem.pet_id == pet.id, DietItem.type == "supplement")
-                .first()
-                is not None
-            )
+            return DietRepository(db).has_supplement(pet.id)
 
         if category == "condition":
-            return (
-                db.query(Condition.id)
-                .filter(Condition.pet_id == pet.id, Condition.is_active == True)  # noqa: E712
-                .first()
-                is not None
-            )
+            return HealthRepository(db).has_active_condition(pet.id)
 
         if category == "medication":
-            return (
-                db.query(ConditionMedication.id)
-                .join(Condition)
-                .filter(Condition.pet_id == pet.id)
-                .first()
-                is not None
-            )
+            return HealthRepository(db).has_active_medication(pet.id)
 
         if category == "diagnostics":
-            return (
-                db.query(DiagnosticTestResult.id)
-                .filter(DiagnosticTestResult.pet_id == pet.id)
-                .first()
-                is not None
-            )
+            return CareRepository(db).has_any_diagnostic(pet.id)
 
     except Exception:
         logger.debug(
@@ -779,15 +685,8 @@ def _get_or_generate_nudge_insight(db: Session, user: User, pet: Pet) -> str | N
     INSIGHT_TYPE = "nudge_personal"
     CACHE_DAYS = 30
 
-    existing = (
-        db.query(PetAiInsight)
-        .filter(
-            PetAiInsight.pet_id == pet.id,
-            PetAiInsight.insight_type == INSIGHT_TYPE,
-        )
-        .order_by(PetAiInsight.created_at.desc())
-        .first()
-    )
+    audit_repo = AuditRepository(db)
+    existing = audit_repo.find_latest_insight_by_type(pet.id, INSIGHT_TYPE)
 
     if existing:
         age = (datetime.now(timezone.utc) - existing.created_at).days
@@ -831,7 +730,7 @@ def _get_or_generate_nudge_insight(db: Session, user: User, pet: Pet) -> str | N
             insight_type=INSIGHT_TYPE,
             insight_text=insight_text,
         )
-        db.add(row)
+        AuditRepository(db).log_ai_insight(row)
         db.commit()
         return insight_text
 
@@ -889,72 +788,22 @@ def _log_nudge_delivery(
 # ---------------------------------------------------------------------------
 
 def _reminder_sent_today(db: Session, user_id: UUID, today: date) -> bool:
-    """
-    Return True if any reminder was sent today for any pet of this user.
-    Used to give reminders precedence over nudges on the same day.
-    """
-    start = datetime.combine(today, datetime.min.time())
-    end = start + timedelta(days=1)
-
-    result = (
-        db.query(Reminder.id)
-        .join(Pet, Reminder.pet_id == Pet.id)
-        .filter(
-            Pet.user_id == user_id,
-            Pet.is_deleted == False,
-            Reminder.status == "sent",
-            Reminder.sent_at >= start,
-            Reminder.sent_at < end,
-        )
-        .first()
-    )
-    return result is not None
+    """Return True if any reminder was sent today for any of this user's pets."""
+    return ReminderRepository(db).has_sent_today_for_user(user_id, today)
 
 
 def _has_reminder_scheduled_today(db: Session, user_id: UUID, today: date) -> bool:
-    """
-    Return True if any reminder is scheduled (pending) today for this user.
-
-    This prevents sending a nudge on the same day a reminder is due,
-    even before the reminder is actually sent.
-    """
-    result = (
-        db.query(Reminder.id)
-        .join(Pet, Reminder.pet_id == Pet.id)
-        .filter(
-            Pet.user_id == user_id,
-            Pet.is_deleted == False,
-            Reminder.status == "pending",
-            Reminder.next_due_date == today,
-        )
-        .first()
-    )
-    return result is not None
+    """Return True if any reminder is pending today for this user."""
+    return ReminderRepository(db).has_pending_today_for_user(user_id, today)
 
 
 def _count_nudges_in_window(db: Session, user_id: UUID, window_days: int = 7) -> int:
     """Return sent nudge count in a rolling UTC window for this user."""
-    window_start = datetime.now(timezone.utc) - timedelta(days=window_days)
-    return (
-        db.query(func.count(NudgeDeliveryLog.id))
-        .filter(
-            NudgeDeliveryLog.user_id == user_id,
-            NudgeDeliveryLog.wa_status == "sent",
-            NudgeDeliveryLog.sent_at >= window_start,
-        )
-        .scalar()
-        or 0
-    )
+    return NudgeRepository(db).count_deliveries_in_window(user_id, window_days)
 
 
 def _check_inactivity_trigger(db: Session, user: User) -> bool:
-    """
-    Return True when the user's last message activity is older than the
-    inactivity threshold.
-
-    Activity is read from message_logs (both incoming and outgoing rows).
-    If no activity is found, treat as inactive.
-    """
+    """Return True when the user's last message activity exceeds the inactivity threshold."""
     try:
         plaintext_mobile = decrypt_field(user.mobile_number)
     except Exception:
@@ -962,32 +811,14 @@ def _check_inactivity_trigger(db: Session, user: User) -> bool:
         return False
 
     masked_mobile = mask_phone(plaintext_mobile)
-    last_activity = (
-        db.query(MessageLog.created_at)
-        .filter(MessageLog.mobile_number == masked_mobile)
-        .order_by(MessageLog.created_at.desc())
-        .first()
-    )
+    last_activity = DocumentRepository(db).find_last_message_activity(masked_mobile)
     if not last_activity:
         return True
 
-    last_activity_at = last_activity[0]
-    if not last_activity_at:
-        return True
-
-    inactivity_gap = datetime.now(timezone.utc) - last_activity_at
+    inactivity_gap = datetime.now(timezone.utc) - last_activity
     return inactivity_gap.total_seconds() >= NUDGE_INACTIVITY_TRIGGER_HOURS * 3600
 
 
 def _last_nudge_sent_at(db: Session, user_id: UUID) -> datetime | None:
     """Return the sent_at timestamp of the most recent nudge for this user."""
-    log = (
-        db.query(NudgeDeliveryLog)
-        .filter(
-            NudgeDeliveryLog.user_id == user_id,
-            NudgeDeliveryLog.wa_status == "sent",
-        )
-        .order_by(NudgeDeliveryLog.sent_at.desc())
-        .first()
-    )
-    return log.sent_at if log else None
+    return NudgeRepository(db).find_last_sent_at(user_id)
