@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  /* Colors */
   --orange: #FF6B35;
   --amber: #FF9F1C;
   --black: #1A1A1A;
@@ -19,8 +20,6 @@
   --t1: #1A1A1A;
   --t2: #4A4A4A;
   --t3: #8A8A8A;
-  --radius: 16px;
-  --rs: 10px;
   --brand-primary: #D44800;
   --brand-gradient: linear-gradient(135deg, #D44800 0%, #FF9A6C 100%);
   --bg-app: #F7F4F0;
@@ -29,6 +28,35 @@
   --status-done: #34C759;
   --status-missing: #8E8E93;
   --status-managed: #007AFF;
+
+  /* Nutrition colors */
+  --color-success: #34C759;
+  --color-warning: #FF9F1C;
+  --color-danger: #FF3B30;
+
+  /* Spacing */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 20px;
+
+  /* Font sizes */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 14px;
+  --fs-lg: 17px;
+  --fs-xl: 24px;
+
+  /* Border radius */
+  --br-sm: 8px;
+  --br-md: 10px;
+  --br-lg: 16px;
+  --br-full: 999px;
+
+  /* Legacy (for backward compatibility) */
+  --radius: 16px;
+  --rs: 10px;
 }
 
 @keyframes spin {
@@ -646,4 +674,122 @@ body {
   font-family: inherit;
   outline: none;
   margin-top: 3px;
+}
+
+/* ── Flexbox Utilities ─────────────────────────────────────────────── */
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-start {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Gap Utilities ─────────────────────────────────────────────────── */
+.flex-gap-xs { gap: var(--sp-xs); }
+.flex-gap-sm { gap: var(--sp-sm); }
+.flex-gap-md { gap: var(--sp-md); }
+.flex-gap-lg { gap: var(--sp-lg); }
+
+/* ── Button Size Classes ───────────────────────────────────────────── */
+.btn-sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--white);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* ── Close Button ──────────────────────────────────────────────────── */
+.close-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--to);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* ── Pill Utilities ────────────────────────────────────────────────── */
+.pill {
+  border-radius: var(--br-full);
+  padding: var(--sp-sm) var(--sp-md);
+}
+
+.pill-sm {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+/* ── Bottom Sheet ──────────────────────────────────────────────────── */
+.bottom-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 430px;
+  background: var(--white);
+  border-radius: 20px;
+  padding: var(--sp-lg) var(--sp-lg) var(--sp-xl);
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease-out;
+}
+
+.bottom-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-lg);
+}
+
+.bottom-sheet-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--t1);
+  margin: 0;
+}
+
+/* ── Text Utilities ────────────────────────────────────────────────── */
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

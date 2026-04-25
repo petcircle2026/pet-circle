@@ -108,6 +108,16 @@ export function diffDaysFromToday(dateStr: string | null): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
+export function ageInDaysFromDob(dob: string | null): number | null {
+  if (!dob) return null;
+  const birthDate = new Date(dob);
+  if (Number.isNaN(birthDate.getTime())) return null;
+  const now = new Date();
+  const diffTime = now.getTime() - birthDate.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(diffDays, 0);
+}
+
 const CARE_PLAN_DUE_SOON_DAYS = 7;
 
 export function deriveStatus(lastDone: string | null, nextDue: string | null): string {

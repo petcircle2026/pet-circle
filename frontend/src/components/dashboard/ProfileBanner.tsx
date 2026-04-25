@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import type { DashboardData } from "@/lib/api";
 import { getLastVetVisit } from "@/lib/api";
+import { formatVetVisitDate } from "@/utils/profile-utils";
+import { LAYOUT } from "@/lib/css-classes";
+import { ARIA_LABELS } from "@/lib/aria-labels";
 import {
   ageMonthsFromDob,
   formatAgeLabel,
@@ -15,30 +18,6 @@ interface ProfileBannerProps {
   data: DashboardData;
   token: string;
   onGoToReminders: () => void;
-}
-
-function formatVetVisitDate(value: string | null | undefined): string {
-  if (!value) return "--";
-  const dateOnlyMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    const year = Number(dateOnlyMatch[1]);
-    const month = Number(dateOnlyMatch[2]);
-    const day = Number(dateOnlyMatch[3]);
-    const safeDate = new Date(year, month - 1, day);
-    return new Intl.DateTimeFormat("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }).format(safeDate);
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(parsed);
 }
 
 export default function ProfileBanner({ data, token, onGoToReminders }: ProfileBannerProps) {
@@ -96,26 +75,26 @@ export default function ProfileBanner({ data, token, onGoToReminders }: ProfileB
   const subLine = subParts.join(" · ");
 
   return (
-    <div className="banner">
+    <div className={LAYOUT.banner}>
       <div className="bn-top">
         <span className="brand">PetCircle</span>
         <button
-          className="bell"
+          className={LAYOUT.bell}
           onClick={onGoToReminders}
           type="button"
-          title="Care Reminders"
-          aria-label="Open care reminders"
+          title={ARIA_LABELS.openReminders}
+          aria-label={ARIA_LABELS.openReminders}
         >
           🔔
         </button>
       </div>
 
-      <div className="profile">
-        <div className="avatar">{avatar}</div>
+      <div className={LAYOUT.profile}>
+        <div className={LAYOUT.avatar}>{avatar}</div>
         <div style={{ minWidth: 0 }}>
           <div className="dog-name">{data.pet.name}</div>
           {subLine && (
-            <div className="dog-sub" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div className="dog-sub truncate">
               {subLine}
             </div>
           )}
