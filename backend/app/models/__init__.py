@@ -43,7 +43,6 @@ from app.models.product_food import ProductFood
 from app.models.product_medicines import ProductMedicines
 from app.models.product_supplement import ProductSupplement
 from app.models.reminder import Reminder
-from app.models.shown_fun_fact import ShownFunFact
 from app.models.user import User
 from app.models.weight_history import WeightHistory
 from app.models.whatsapp_template_config import WhatsappTemplateConfig
@@ -60,7 +59,6 @@ __all__ = [
     "DashboardToken",
     "DeferredCarePlanPending",
     "ConflictFlag",
-    "ShownFunFact",
     "DiagnosticTestResult",
     "Order",
     "OrderRecommendation",
