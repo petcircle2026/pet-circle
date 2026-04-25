@@ -8,7 +8,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.health_trends_service import (
+from app.services.dashboard.health_trends_service import (
     _build_blood_panel,
     _build_flea_tick_cadence,
     get_health_trends,

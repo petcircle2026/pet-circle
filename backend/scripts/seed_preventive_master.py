@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
-from app.services.preventive_seeder import seed_preventive_master
+from app.services.admin.preventive_seeder import seed_preventive_master
 
 
 def main():

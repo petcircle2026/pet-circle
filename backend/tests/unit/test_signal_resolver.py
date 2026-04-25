@@ -1,4 +1,8 @@
 """
+from app.models import (
+    ProductFood,
+    ProductSupplement,
+)
 Unit tests for signal_resolver.py — covers all food rules (A1-A6),
 supplement rules (B1-B4), cross-cutting rules (OOS filtering, max 3 trim,
 ranking), and edge cases.
@@ -22,9 +26,7 @@ from app.database import Base
 from app.models.condition import Condition
 from app.models.diet_item import DietItem
 from app.models.pet import Pet
-from app.models.product_food import ProductFood
-from app.models.product_supplement import ProductSupplement
-from app.services.signal_resolver import (
+from app.services.dashboard.signal_resolver import (
     CTA_ORDER_NOW,
     L1_MESSAGE,
     MAX_OPTIONS,

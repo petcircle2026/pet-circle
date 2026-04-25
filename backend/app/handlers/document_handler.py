@@ -40,7 +40,7 @@ class DocumentHandler(BaseHandler):
             return
 
         # Import here to avoid circular deps
-        from app.services.document_upload import handle_document_upload
+        from app.services.shared.document_upload import handle_document_upload
 
         try:
             await handle_document_upload(

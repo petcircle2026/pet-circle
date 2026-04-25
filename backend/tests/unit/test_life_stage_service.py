@@ -7,8 +7,8 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.care_plan_engine import BREED_SIZE_BOUNDARIES, BreedSize
-from app.services.life_stage_service import LifeStageData, get_life_stage_data
+from app.services.shared.care_plan_engine import BREED_SIZE_BOUNDARIES, BreedSize
+from app.services.dashboard.life_stage_service import LifeStageData, get_life_stage_data
 
 
 class FakeQuery:

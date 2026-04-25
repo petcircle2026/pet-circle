@@ -1,4 +1,7 @@
 """
+from app.models import (
+    PreventiveMaster,
+)
 PetCircle — Seed Reminder Trigger Test Data
 
 Creates a complete user + pet + preventive records for +919095705762
@@ -23,7 +26,6 @@ from app.database import SessionLocal
 from app.models.user import User
 from app.models.pet import Pet
 from app.models.preventive_record import PreventiveRecord
-from app.models.preventive_master import PreventiveMaster
 from app.models.reminder import Reminder
 from app.core.encryption import encrypt_field, hash_field
 from app.utils.date_utils import get_today_ist

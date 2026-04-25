@@ -1,6 +1,6 @@
 import json
 
-from app.services.gpt_extraction import (
+from app.services.shared.gpt_extraction import (
     _pet_name_matches_document_name,
     _select_best_doctor_name,
     _validate_extraction_json,

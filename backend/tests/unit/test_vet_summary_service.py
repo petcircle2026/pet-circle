@@ -24,7 +24,7 @@ from uuid import uuid4
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.vet_summary_service import VetSummary, get_vet_summary
+from app.services.dashboard.vet_summary_service import VetSummary, get_vet_summary
 
 # ---------------------------------------------------------------------------
 # Helpers

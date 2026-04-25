@@ -24,10 +24,10 @@ from sqlalchemy.orm import Session
 from app.core.rate_limiter import check_admin_rate_limit
 from app.core.security import validate_admin_key
 from app.database import get_db
-from app.services.conflict_expiry import expire_pending_conflicts
-from app.services.nudge_engine import run_nudge_engine
-from app.services.nudge_sender import check_inactivity_nudges
-from app.services.reminder_engine import run_reminder_engine
+from app.services.admin.conflict_expiry import expire_pending_conflicts
+from app.services.admin.nudge_engine import run_nudge_engine
+from app.services.admin.nudge_sender import check_inactivity_nudges
+from app.services.admin.reminder_engine import run_reminder_engine
 
 logger = logging.getLogger(__name__)
 
@@ -181,9 +181,9 @@ async def execute_extraction_replay(db: Session = Depends(get_db)):
     """
     from app.core.constants import EXTRACTION_MAX_AUTO_RETRIES
     from app.models.document import Document
-    from app.services.document_upload import download_from_supabase
-    from app.services.gpt_extraction import extract_and_process_document
-    from app.services.document_upload import get_extraction_semaphore
+    from app.services.shared.document_upload import download_from_supabase
+    from app.services.shared.gpt_extraction import extract_and_process_document
+    from app.services.shared.document_upload import get_extraction_semaphore
 
     BATCH_LIMIT = 20
 
@@ -273,7 +273,7 @@ async def execute_nudge_scheduler(db: Session = Depends(get_db)):
     Returns:
         Dict with sent, skipped, and failed counts.
     """
-    from app.services.nudge_scheduler import run_nudge_scheduler
+    from app.services.admin.nudge_scheduler import run_nudge_scheduler
 
     try:
         results = await run_nudge_scheduler(db)

@@ -57,7 +57,7 @@ async def sync_all_documents(
         Summary dict: {total, migrated, failed, skipped}.
     """
     from app.database import SessionLocal
-    from app.services.storage_service import is_gcp_available, sync_document_to_gcp
+    from app.services.shared.storage_service import is_gcp_available, sync_document_to_gcp
     from sqlalchemy import text
 
     if not is_gcp_available():

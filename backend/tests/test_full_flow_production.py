@@ -55,14 +55,14 @@ from app.models.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
 from app.models.user import User
-from app.services.document_upload import (
+from app.services.shared.document_upload import (
     build_storage_path,
     create_document_record,
     upload_to_supabase,
     validate_file_upload,
 )
-from app.services.gpt_extraction import extract_and_process_document
-from app.services.onboarding import create_pending_user, handle_onboarding_step
+from app.services.shared.gpt_extraction import extract_and_process_document
+from app.services.whatsapp.onboarding import create_pending_user, handle_onboarding_step
 
 # ---------------------------------------------------------------------------
 # Helpers

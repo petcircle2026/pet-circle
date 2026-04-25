@@ -61,7 +61,7 @@ class ReminderService:
 
         Routes to existing reminder_engine handlers.
         """
-        from app.services.reminder_engine import get_due_items
+        from app.services.admin.reminder_engine import get_due_items
 
         try:
             reminders = await get_due_items(self.db, pet_id)
@@ -76,7 +76,7 @@ class ReminderService:
 
         Routes to existing reminder_engine handlers.
         """
-        from app.services.reminder_engine import snooze_reminder as snooze_handler
+        from app.services.admin.reminder_engine import snooze_reminder as snooze_handler
 
         try:
             result = await snooze_handler(self.db, reminder_id, days)
@@ -91,7 +91,7 @@ class ReminderService:
 
         Routes to existing reminder_engine handlers.
         """
-        from app.services.reminder_engine import mark_done as mark_done_handler
+        from app.services.admin.reminder_engine import mark_done as mark_done_handler
 
         try:
             result = await mark_done_handler(self.db, reminder_id)
@@ -107,7 +107,7 @@ class ReminderService:
         Routes to existing reminder_engine handlers.
         Typically triggered by cron at 8 AM IST.
         """
-        from app.services.reminder_engine import run_reminder_engine
+        from app.services.admin.reminder_engine import run_reminder_engine
 
         try:
             result = await run_reminder_engine(self.db)

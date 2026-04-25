@@ -40,7 +40,7 @@ class OrderService:
 
         Routes to existing cart_service handlers.
         """
-        from app.services.cart_service import get_cart
+        from app.services.dashboard.cart_service import get_cart
 
         try:
             cart = await get_cart(self.db, pet_id)
@@ -55,7 +55,7 @@ class OrderService:
 
         Routes to existing cart_service handlers.
         """
-        from app.services.cart_service import add_to_cart as add_to_cart_handler
+        from app.services.dashboard.cart_service import add_to_cart as add_to_cart_handler
 
         try:
             result = await add_to_cart_handler(self.db, pet_id, product_id, quantity)
@@ -70,7 +70,7 @@ class OrderService:
 
         Routes to existing cart_service handlers.
         """
-        from app.services.cart_service import remove_from_cart as remove_from_cart_handler
+        from app.services.dashboard.cart_service import remove_from_cart as remove_from_cart_handler
 
         try:
             result = await remove_from_cart_handler(self.db, pet_id, cart_item_id)
@@ -85,7 +85,7 @@ class OrderService:
 
         Routes to existing order_service handlers.
         """
-        from app.services.order_service import create_order as create_order_handler
+        from app.services.whatsapp.order_service import create_order as create_order_handler
 
         try:
             order = await create_order_handler(self.db, user_id, pet_id, items)

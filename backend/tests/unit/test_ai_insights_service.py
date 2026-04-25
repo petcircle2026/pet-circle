@@ -8,14 +8,14 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.ai_insights_service import (
+from app.services.dashboard.ai_insights_service import (
     _VACCINE_BULLET_TERMS,
     _format_found_diet_summary,
     generate_care_plan_reasons,
     generate_recognition_bullets,
     get_or_generate_insight,
 )
-from app.services.care_plan_engine import BreedSize, LifeStage
+from app.services.shared.care_plan_engine import BreedSize, LifeStage
 
 
 class _ScalarQuery:

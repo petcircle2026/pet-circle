@@ -41,18 +41,20 @@ from app.core.log_sanitizer import sanitize_payload
 from app.core.rate_limiter import check_admin_rate_limit
 from app.core.security import validate_admin_key
 from app.database import get_db
-from app.models.conflict_flag import ConflictFlag
-from app.models.dashboard_token import DashboardToken
-from app.models.document import Document
-from app.models.message_log import MessageLog
-from app.models.order import Order
-from app.models.order_recommendation import OrderRecommendation
-from app.models.pet import Pet
-from app.models.pet_preference import PetPreference
-from app.models.preventive_master import PreventiveMaster
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
-from app.models.user import User
+from app.models import (
+    ConflictFlag,
+    DashboardToken,
+    Document,
+    MessageLog,
+    Order,
+    OrderRecommendation,
+    Pet,
+    PetPreference,
+    PreventiveMaster,
+    PreventiveRecord,
+    Reminder,
+    User,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -775,7 +777,7 @@ def trigger_reminder_for_pet(pet_id: UUID, db: Session = Depends(get_db)):
     if not pet:
         raise HTTPException(status_code=404, detail="Pet not found.")
 
-    from app.services.reminder_engine import run_reminder_engine
+    from app.services.admin.reminder_engine import run_reminder_engine
     results = run_reminder_engine(db)
 
     logger.info(
@@ -831,7 +833,7 @@ async def trigger_gcp_sync(
     """
     import asyncio
 
-    from app.services.storage_service import is_gcp_available
+    from app.services.shared.storage_service import is_gcp_available
 
     if not is_gcp_available():
         raise HTTPException(
