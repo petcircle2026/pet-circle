@@ -62,6 +62,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://pet-circle-chi.vercel.app
+      - key: CLOUDAMQP_URL
+        sync: false
     healthCheckPath: /health
     autoDeploy: true
 
@@ -121,6 +123,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://pet-circle-chi.vercel.app
+      - key: CLOUDAMQP_URL
+        sync: false
     healthCheckPath: /health
     autoDeploy: true
 
