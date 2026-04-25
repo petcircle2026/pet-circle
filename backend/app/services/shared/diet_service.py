@@ -459,11 +459,7 @@ async def update_diet_item(db: Session, item_id, pet_id, label: str, detail: str
 
 async def delete_diet_item(db: Session, item_id, pet_id) -> None:
     """Delete a diet item."""
-    item = (
-        db.query(DietItem)
-        .filter(DietItem.id == item_id, DietItem.pet_id == pet_id)
-        .first()
-    )
+    item = DietRepository(db).find_by_id_and_pet(item_id, pet_id)
     if not item:
         raise ValueError("Diet item not found")
 
