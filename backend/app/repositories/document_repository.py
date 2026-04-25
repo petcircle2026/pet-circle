@@ -364,3 +364,28 @@ class DocumentRepository:
             .count()
         )
 
+    def update_extraction_status(
+        self, document_id: UUID, status: str, extraction_data: dict | None = None
+    ) -> Document | None:
+        """
+        Update document extraction status and optionally store extracted data.
+        Used by gpt_extraction to mark documents as extracted/failed.
+
+        Args:
+            document_id: Document ID
+            status: New extraction status ("extracted", "failed", etc.)
+            extraction_data: Optional extracted data JSON (for "extracted" status)
+
+        Returns:
+            Updated Document or None if not found.
+        """
+        doc = self.find_by_id(document_id)
+        if doc:
+            doc.extraction_status = status
+            if extraction_data is not None:
+                doc.extraction_data = extraction_data
+            self.db.merge(doc)
+            self.db.flush()
+            return doc
+        return None
+
