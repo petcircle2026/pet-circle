@@ -257,9 +257,6 @@ export interface LifeStageData {
   insights: LifeStageInsight[];
 }
 
-/** @deprecated Use LifeStageInsight */
-export type LifeStageTrait = LifeStageInsight;
-
 export interface HealthConditionSummary {
   id: string;
   icon: string;
@@ -1579,57 +1576,6 @@ export async function deleteCondition(
 
 // --- Condition Timeline & Management ---
 
-export interface TimelinePill {
-  t: string;
-  c: string;
-  bg: string;
-}
-
-export interface TimelineEvent {
-  date: string;
-  type: string;
-  icon: string;
-  title: string;
-  detail: string | null;
-  tag: string;
-  // Enriched fields for zayn-style two-column timeline card
-  label_color?: string;
-  border?: string;
-  sublabel?: string;
-  source_text?: string;
-  pills?: TimelinePill[];
-}
-
-export interface VetQuestion {
-  priority: 'urgent' | 'high' | 'medium';
-  icon: string;
-  q: string;
-  context: string;
-}
-
-export async function getConditionTimeline(
-  token: string
-): Promise<{ events: TimelineEvent[]; total?: number }> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-  try {
-    const res = await fetch(`${API_BASE}/dashboard/${token}/condition-timeline`, {
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.detail || `Request failed: ${res.status}`);
-    }
-    return res.json();
-  } catch (e: any) {
-    if (e.name === "AbortError") throw new Error("Request timed out. Please try again.");
-    throw e;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
 export async function getConditionRecommendations(
   token: string
 ): Promise<{ recommendations: ConditionRecommendation[] }> {
@@ -1862,41 +1808,6 @@ export async function getHealthSummary(
   }
 }
 
-/** Fetch GPT-generated vet consultation questions (cached 7 days). */
-export async function getVetQuestions(token: string): Promise<VetQuestion[]> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetch(`${API_BASE}/dashboard/${token}/vet-questions`, {
-      next: { revalidate: 300 }, // 5-min client cache — AI-generated, 7-day server cache
-      signal: controller.signal,
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-/** Force-regenerate vet questions and update the DB cache. */
-export async function regenerateVetQuestions(token: string): Promise<VetQuestion[]> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetch(`${API_BASE}/dashboard/${token}/vet-questions/regenerate`, {
-      method: "POST",
-      signal: controller.signal,
-    });
-    if (!res.ok) return [];
-    return res.json();
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
 
 // --- Contact CRUD ---
 

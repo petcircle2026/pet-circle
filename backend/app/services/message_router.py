@@ -38,7 +38,6 @@ from app.core.constants import (
     MAX_CONCURRENT_UPLOAD_PROCESSING,
     MAX_DOCS_PER_SESSION,
     MAX_QUEUED_UPLOADS,
-    MAX_PENDING_DOCS_PER_PET,
     MAX_PETS_PER_USER,
     NUDGE_ACTION,
     NUDGE_DISMISS,
@@ -658,7 +657,6 @@ async def _extract_vet_diet_from_chat(text: str) -> list[dict]:
     Returns a list of dicts: [{food_label, food_type, detail}].
     Returns [] on parse failure or if nothing vet-prescribed is detected.
     """
-    import json
     from app.services.nutrition_service import _parse_json_from_response
     from app.utils.ai_client import get_ai_client
 

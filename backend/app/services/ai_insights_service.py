@@ -31,7 +31,6 @@ from uuid import UUID
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import OPENAI_QUERY_MODEL
 from app.models.condition import Condition
 from app.models.custom_preventive_item import CustomPreventiveItem

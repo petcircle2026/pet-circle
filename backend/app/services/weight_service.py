@@ -17,7 +17,6 @@ from decimal import Decimal
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import (
     OPENAI_WEIGHT_LOOKUP_MAX_TOKENS,
     OPENAI_WEIGHT_LOOKUP_MODEL,

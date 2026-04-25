@@ -24,7 +24,6 @@ corrupt shared session state. Total wall-clock time drops from ~10–25 s
 import asyncio
 import json
 import logging
-from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import text

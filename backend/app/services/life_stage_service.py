@@ -13,7 +13,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import OPENAI_QUERY_MODEL
 from app.models.pet import Pet
 from app.models.pet_life_stage_trait import PetLifeStageTrait
