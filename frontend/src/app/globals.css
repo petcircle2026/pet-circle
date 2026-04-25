@@ -793,3 +793,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── Edit Button (Care Plan) ───────────────────────────────────────── */
+.edit-reminder-btn {
+  border: 1px solid #ffd9c2;
+  background: #fff4ec;
+  color: #c54c0b;
+  border-radius: var(--br-full);
+  padding: 5px 12px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
