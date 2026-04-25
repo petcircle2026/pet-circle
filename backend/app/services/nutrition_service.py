@@ -22,7 +22,6 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import (
     FOOD_CACHE_STALENESS_DAYS,
     NUTRITION_CACHE_STALENESS_DAYS,

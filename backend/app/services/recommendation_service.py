@@ -25,7 +25,6 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import (
     OPENAI_QUERY_MODEL,
     ORDER_CAT_FOOD,
@@ -304,7 +303,6 @@ def _fetch_catalog_medicines(db: Session | None, species: str, category: str) ->
         return []
     try:
         from app.models.product_medicines import ProductMedicines
-        from sqlalchemy import or_
 
         query = db.query(ProductMedicines.product_name).filter(
             ProductMedicines.active == True,

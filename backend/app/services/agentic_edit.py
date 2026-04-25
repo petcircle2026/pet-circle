@@ -21,7 +21,7 @@ IMPORTANT — JSONB mutation tracking:
 import asyncio
 import logging
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -556,7 +556,6 @@ async def _dispatch_tool(
 
 def _tool_update_pet_field(db: Session, pet, tool_input: dict) -> str:
     """Update a single field on the pets table."""
-    from app.models.pet import Pet
 
     field = tool_input.get("field", "")
     value = tool_input.get("value", "").strip()
@@ -629,7 +628,6 @@ def _tool_update_pet_field(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_update_diet_item(db: Session, pet, tool_input: dict) -> str:
     """Update an existing diet item by label (case-insensitive partial match)."""
-    from app.models.diet_item import DietItem
 
     current_label = tool_input.get("current_label", "").strip()
     new_label = tool_input.get("new_label", "").strip() or None
@@ -679,7 +677,6 @@ def _tool_add_diet_item(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_remove_diet_item(db: Session, pet, tool_input: dict) -> str:
     """Remove a diet item by label (partial match)."""
-    from app.models.diet_item import DietItem
 
     label = tool_input.get("label", "").strip()
     if not label:
@@ -697,8 +694,6 @@ def _tool_remove_diet_item(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
     """Update a preventive record's last_done_date and/or medicine_name."""
-    from app.models.preventive_record import PreventiveRecord
-    from app.models.preventive_master import PreventiveMaster
     from app.models.reminder import Reminder
     from app.services.preventive_calculator import compute_next_due_date, compute_status
 
@@ -834,7 +829,6 @@ def _tool_add_preventive_record(db: Session, user, pet, tool_input: dict) -> str
 
 def _tool_remove_preventive_record(db: Session, pet, tool_input: dict) -> str:
     """Remove a custom preventive record. Core master records cannot be removed."""
-    from app.models.preventive_record import PreventiveRecord
 
     item_name = tool_input.get("item_name", "").strip()
     if not item_name:

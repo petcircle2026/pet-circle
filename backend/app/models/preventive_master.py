@@ -45,8 +45,6 @@ class PreventiveMaster(Base):
     # UI classification for the preventive item.
     # 'essential' = mandatory (displayed as 'Mandatory' on dashboard).
     # 'complete' = recommended (displayed as 'Recommended' on dashboard).
-    # Not used for health score weighting — the 6-category score uses keyword
-    # classification on item_name (see health_score.py: classify_preventive_item).
     # CHECK constraint enforces only 'essential' or 'complete'.
     category = Column(String(20), nullable=False)
 

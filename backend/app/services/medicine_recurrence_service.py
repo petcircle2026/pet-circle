@@ -18,7 +18,6 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import OPENAI_QUERY_MODEL
 
 logger = logging.getLogger(__name__)

@@ -42,7 +42,6 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import (
     DOCUMENT_CATEGORIES,
     EXTRACTION_LOW_CONFIDENCE_THRESHOLD,

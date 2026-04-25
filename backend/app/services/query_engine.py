@@ -40,7 +40,6 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.core.constants import (
     OPENAI_QUERY_MAX_TOKENS,
     OPENAI_QUERY_MODEL,

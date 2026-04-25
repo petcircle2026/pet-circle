@@ -15,7 +15,7 @@ Data returned:
     - Preventive summary (records with status, dates, master item names).
     - Active reminders.
     - Uploaded documents (metadata only — no direct storage URLs).
-    - Health score (computed by health_score service).
+    - Health score.
 
 Editable operations:
     - Update pet weight.
@@ -35,7 +35,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import SessionLocal
@@ -49,11 +49,9 @@ from app.models.diet_item import DietItem
 from app.models.document import Document
 from app.models.pet import Pet
 from app.models.pet_ai_insight import PetAiInsight
-from app.models.custom_preventive_item import CustomPreventiveItem
 from app.models.preventive_master import PreventiveMaster
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
-from app.models.user import User
 from app.services.ai_insights_service import AI_INSIGHT_CACHE_DAYS, generate_recognition_bullets
 from app.services.care_plan_engine import compute_care_plan, get_preventive_baseline_days, _normalize_item_name
 from app.services.document_upload import download_from_supabase

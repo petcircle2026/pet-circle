@@ -51,7 +51,6 @@ from app.services.gpt_extraction import (
     _match_preventive_master_from_list,
     _validate_extraction_json,
 )
-from app.services.health_score import compute_health_score
 from app.services.onboarding import (
     create_pending_user,
     handle_onboarding_step,
@@ -251,24 +250,6 @@ def main():
         # Overdue: past due
         status = compute_status(today - timedelta(days=10), 30)
         test("Status 'overdue' for past due", status == "overdue")
-
-        # ===================================================================
-        print("\n" + "="*60)
-        print("TEST 4: HEALTH SCORE")
-        print("="*60)
-        # ===================================================================
-
-        score_data = compute_health_score(db, pet.id)
-        test("Health score returned", score_data is not None)
-        test("Score is numeric", isinstance(score_data.get("score"), (int, float)))
-        test("Score between 0-100", 0 <= score_data["score"] <= 100)
-        test("Label present", score_data.get("label") in ("Excellent", "Good", "Fair", "Poor"))
-        test("Breakdown has 6 categories", len(score_data.get("breakdown", [])) == 6)
-        test("Draggers is a list", isinstance(score_data.get("draggers"), list))
-        print(f"    Score: {score_data['score']}/100 ({score_data['label']})")
-        for b in score_data["breakdown"]:
-            done_str = f"{b['done']}/{b['total']}" if b["done"] is not None else "N/A"
-            print(f"      {b['category']} ({b['weight']}%): {b['score']}/100 [{done_str}]")
 
         # ===================================================================
         print("\n" + "="*60)
