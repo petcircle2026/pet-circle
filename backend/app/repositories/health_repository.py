@@ -259,7 +259,10 @@ class HealthRepository:
         return (
             self.db.query(DiagnosticTestResult)
             .filter(DiagnosticTestResult.pet_id == pet_id)
-            .order_by(desc(DiagnosticTestResult.test_date))
+            .order_by(
+                desc(DiagnosticTestResult.observed_at),
+                desc(DiagnosticTestResult.created_at),
+            )
             .all()
         )
 
@@ -275,7 +278,10 @@ class HealthRepository:
                     DiagnosticTestResult.test_type == test_type,
                 )
             )
-            .order_by(desc(DiagnosticTestResult.test_date))
+            .order_by(
+                desc(DiagnosticTestResult.observed_at),
+                desc(DiagnosticTestResult.created_at),
+            )
             .all()
         )
 
@@ -291,7 +297,10 @@ class HealthRepository:
                     DiagnosticTestResult.test_type == test_type,
                 )
             )
-            .order_by(desc(DiagnosticTestResult.test_date))
+            .order_by(
+                desc(DiagnosticTestResult.observed_at),
+                desc(DiagnosticTestResult.created_at),
+            )
             .first()
         )
 
