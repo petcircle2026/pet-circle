@@ -381,3 +381,34 @@ class PreventiveMasterRepository:
             .all()
         )
 
+    def find_all_active_medicines(self) -> List[ProductMedicines]:
+        """
+        Fetch all active product medicines.
+        Used by gpt_extraction to build medicine mapping cache.
+
+        Returns:
+            List of active ProductMedicines.
+        """
+        return (
+            self.db.query(ProductMedicines)
+            .filter(ProductMedicines.active == True)
+            .all()
+        )
+
+    def find_preventive_master_by_name_ilike(self, name: str) -> PreventiveMaster | None:
+        """
+        Find preventive master item by partial name match (case-insensitive).
+        Used by gpt_extraction for duplicate detection.
+
+        Args:
+            name: Product name to search (partial match)
+
+        Returns:
+            First matching PreventiveMaster or None.
+        """
+        return (
+            self.db.query(PreventiveMaster)
+            .filter(PreventiveMaster.item_name.ilike(f"%{name}%"))
+            .first()
+        )
+
