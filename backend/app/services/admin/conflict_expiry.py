@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.core.constants import CONFLICT_EXPIRY_DAYS
+from app.repositories.audit_repository import AuditRepository
 from app.utils.date_utils import IST
 
 logger = logging.getLogger(__name__)
@@ -52,39 +53,21 @@ def expire_pending_conflicts(db: Session) -> int:
     Returns:
         Number of conflicts that were auto-resolved.
     """
-    # Import here to avoid circular imports — ConflictFlag model
-    # is only needed at execution time.
-    from app.models.conflict_flag import ConflictFlag
-
-    # Compute the expiry cutoff timestamp in IST.
-    # Any pending conflict created before this timestamp is expired.
     now_ist = datetime.now(IST)
     expiry_cutoff = now_ist - timedelta(days=CONFLICT_EXPIRY_DAYS)
 
-    # Find all pending conflicts older than the expiry window.
-    expired_conflicts = (
-        db.query(ConflictFlag)
-        .filter(
-            ConflictFlag.status == "pending",
-            ConflictFlag.created_at <= expiry_cutoff,
-        )
-        .all()
-    )
+    audit_repo = AuditRepository(db)
+    expired_conflicts = audit_repo.find_conflicts_by_status_before("pending", expiry_cutoff)
 
     if not expired_conflicts:
         logger.info("No expired conflicts found. Nothing to auto-resolve.")
         return 0
 
-    # Auto-resolve each expired conflict.
-    # Strategy: KEEP_EXISTING — the new_date is discarded.
-    # No changes to the preventive record — existing data is preserved.
     resolved_count = 0
     for conflict in expired_conflicts:
         conflict.status = "auto_resolved"
         resolved_count += 1
 
-        # Log each auto-resolution as a system action.
-        # This provides an audit trail for admin review.
         logger.info(
             "Conflict auto-resolved (expired): conflict_id=%s, "
             "preventive_record_id=%s, discarded_date=%s, "

@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime
 
 from sqlalchemy import and_, desc
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, joinedload
 
 from app.models.pet import Pet
 
@@ -40,6 +40,20 @@ class PetRepository:
                 selectinload(Pet.conditions),
                 selectinload(Pet.weight_history),
             )
+            .first()
+        )
+
+    def get_by_id_with_user(self, pet_id: UUID) -> Pet | None:
+        """
+        Fetch pet WITH its owner (User).
+
+        Use when building dashboard or detail views that need owner info.
+        Prevents N+1: loads pet and user in one query.
+        """
+        return (
+            self.db.query(Pet)
+            .options(joinedload(Pet.user))
+            .filter(Pet.id == pet_id)
             .first()
         )
 
@@ -189,3 +203,29 @@ class PetRepository:
             pet.weight = weight
             return pet
         return None
+
+    def find_by_user_id(self, user_id: UUID) -> list[Pet]:
+        """Fetch all active pets for a user."""
+        return (
+            self.db.query(Pet)
+            .filter(Pet.user_id == user_id, Pet.is_deleted == False)
+            .all()
+        )
+
+    def find_onboarded_active(self) -> list[Pet]:
+        """Fetch all active pets whose owners have completed onboarding."""
+        from app.models.user import User
+        return (
+            self.db.query(Pet)
+            .join(User)
+            .filter(
+                Pet.is_deleted == False,
+                User.onboarding_state == "complete",
+            )
+            .all()
+        )
+
+    def count_all(self) -> int:
+        """Count total active pets in the system."""
+        from sqlalchemy import func
+        return self.db.query(func.count(Pet.id)).filter(Pet.is_deleted == False).scalar() or 0

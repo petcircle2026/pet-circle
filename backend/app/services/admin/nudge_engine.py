@@ -8,13 +8,10 @@ Two entry points:
     - generate_nudges(db, pet_id): For dashboard — returns cached or fresh nudges
     - run_nudge_engine(db): For daily cron — regenerates nudges for all active pets
 """
-from app.models import PreventiveMaster, ProductMedicines
-
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.constants import (
@@ -23,14 +20,16 @@ from app.core.constants import (
     NUDGE_SOURCE_ORDER,
     NUDGE_TRIGGER_CRON,
 )
-from app.models.condition import Condition
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.diet_item import DietItem
-from app.models.hygiene_preference import HygienePreference
 from app.models.nudge import Nudge
 from app.models.pet import Pet
 from app.models.preventive_record import PreventiveRecord
-from app.models.user import User
+from app.repositories.care_repository import CareRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.health_repository import HealthRepository
+from app.repositories.nudge_repository import NudgeRepository
+from app.repositories.pet_repository import PetRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.preventive_repository import PreventiveRepository
 from app.services.admin.nudge_config_service import get_nudge_config_int
 
 logger = logging.getLogger(__name__)
@@ -109,18 +108,10 @@ def _generate_vaccine_nudges(db: Session, pet_id, pet_name: str, species: str) -
     """Generate nudges for overdue/upcoming/missing vaccines."""
     nudges = []
     today = date.today()
-    records = (
-        db.query(PreventiveRecord)
-        .options(
-            selectinload(PreventiveRecord.preventive_master),
-            selectinload(PreventiveRecord.custom_preventive_item),
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.status != "cancelled",
-        )
-        .all()
-    )
+    preventive_repo = PreventiveRepository(db)
+    master_repo = PreventiveMasterRepository(db)
+
+    records = preventive_repo.find_active_by_pet_id(pet_id)
 
     for rec in records:
         item_name = _record_item_name(rec)
@@ -142,12 +133,7 @@ def _generate_vaccine_nudges(db: Session, pet_id, pet_name: str, species: str) -
                 icon="💉",
             ))
 
-    # Check for vaccines with no record at all
-    masters = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.species.in_([species, "both"]))
-        .all()
-    )
+    masters = master_repo.find_by_species(species)
     recorded_master_ids = {r.preventive_master_id for r in records}
     for m in masters:
         if _classify_item(m.item_name) == "vaccine" and m.id not in recorded_master_ids:
@@ -170,15 +156,7 @@ def _get_medicine_warning(medicine_name: str | None, db: Session) -> str:
     if not medicine_name:
         return ""
     try:
-        
-        med = (
-            db.query(ProductMedicines)
-            .filter(
-                ProductMedicines.active == True,
-                ProductMedicines.product_name.ilike(f"%{medicine_name}%"),
-            )
-            .first()
-        )
+        med = PreventiveMasterRepository(db).find_medicine_by_name_ilike(medicine_name)
         if med and med.notes and "toxic" in med.notes.lower():
             return f" ⚠️ {med.notes}"
     except Exception:
@@ -190,18 +168,7 @@ def _generate_deworming_nudges(db: Session, pet_id, pet_name: str, species: str)
     """Generate nudges for overdue/upcoming deworming."""
     nudges = []
     today = date.today()
-    records = (
-        db.query(PreventiveRecord)
-        .options(
-            selectinload(PreventiveRecord.preventive_master),
-            selectinload(PreventiveRecord.custom_preventive_item),
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.status != "cancelled",
-        )
-        .all()
-    )
+    records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
     for rec in records:
         item_name = _record_item_name(rec)
@@ -231,18 +198,7 @@ def _generate_flea_nudges(db: Session, pet_id, pet_name: str, species: str) -> l
     """Generate nudges for overdue/upcoming flea & tick treatment."""
     nudges = []
     today = date.today()
-    records = (
-        db.query(PreventiveRecord)
-        .options(
-            selectinload(PreventiveRecord.preventive_master),
-            selectinload(PreventiveRecord.custom_preventive_item),
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.status != "cancelled",
-        )
-        .all()
-    )
+    records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
     for rec in records:
         item_name = _record_item_name(rec)
@@ -273,11 +229,7 @@ def _generate_condition_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge
     nudges = []
     today = date.today()
 
-    conditions = (
-        db.query(Condition)
-        .filter(Condition.pet_id == pet_id, Condition.is_active == True)
-        .all()
-    )
+    conditions = HealthRepository(db).find_active_conditions(pet_id)
 
     for cond in conditions:
         # Medication refill nudges
@@ -324,9 +276,7 @@ def _generate_nutrition_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge
     """Generate nudges for missing diet data or nutrition gaps."""
     nudges = []
 
-    diet_count = db.query(func.count(DietItem.id)).filter(DietItem.pet_id == pet_id).scalar()
-
-    if diet_count == 0:
+    if not DietRepository(db).has_diet(pet_id):
         nudges.append(_make_nudge(
             pet_id, "nutrition", "high",
             "Add diet information",
@@ -342,11 +292,7 @@ def _generate_grooming_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge]
     nudges = []
     today = date.today()
 
-    prefs = (
-        db.query(HygienePreference)
-        .filter(HygienePreference.pet_id == pet_id)
-        .all()
-    )
+    prefs = CareRepository(db).find_hygiene_preferences_list(pet_id)
 
     for pref in prefs:
         if not pref.last_done:
@@ -386,15 +332,9 @@ def _generate_checkup_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge]:
     nudges = []
     today = date.today()
 
-    # Get most recent blood test
-    latest_blood = (
-        db.query(func.max(DiagnosticTestResult.observed_at))
-        .filter(
-            DiagnosticTestResult.pet_id == pet_id,
-            DiagnosticTestResult.test_type == "blood",
-        )
-        .scalar()
-    )
+    care_repo = CareRepository(db)
+    last_blood_test = care_repo.find_last_diagnostic(pet_id, test_type="blood")
+    latest_blood = last_blood_test.observed_at if last_blood_test else None
 
     blood_interval = get_nudge_config_int(db, "checkup_blood_test_interval_days", 365)
     panel_interval = get_nudge_config_int(db, "checkup_full_panel_interval_days", 365)
@@ -417,19 +357,7 @@ def _generate_checkup_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge]:
             icon="🩸",
         ))
 
-    # Check full preventive panel (any checkup-classified preventive record)
-    checkup_records = (
-        db.query(PreventiveRecord)
-        .options(
-            selectinload(PreventiveRecord.preventive_master),
-            selectinload(PreventiveRecord.custom_preventive_item),
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.status != "cancelled",
-        )
-        .all()
-    )
+    checkup_records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
     latest_checkup_date = None
     for rec in checkup_records:
         item_name = _record_item_name(rec)
@@ -473,31 +401,16 @@ def generate_nudges(db: Session, pet_id) -> list[dict]:
     Returns cached nudges if fresh (< NUDGE_CACHE_HOURS old),
     otherwise regenerates from all 7 category generators.
     """
+    nudge_repo = NudgeRepository(db)
     cache_cutoff = datetime.now(timezone.utc) - timedelta(hours=NUDGE_CACHE_HOURS)
 
-    # Check for fresh cached nudges
-    fresh_count = (
-        db.query(func.count(Nudge.id))
-        .filter(
-            Nudge.pet_id == pet_id,
-            Nudge.dismissed == False,
-            Nudge.created_at >= cache_cutoff,
-        )
-        .scalar()
-    )
-
-    if fresh_count and fresh_count > 0:
-        # Return existing nudges
-        existing = (
-            db.query(Nudge)
-            .filter(Nudge.pet_id == pet_id, Nudge.dismissed == False, Nudge.acted_on == False)
-            .all()
-        )
+    fresh_count = nudge_repo.count_fresh(pet_id, cache_cutoff)
+    if fresh_count > 0:
+        existing = nudge_repo.find_active_for_pet(pet_id)
         return [_nudge_to_dict(n) for n in _sort_nudges(existing)]
 
-    # Regenerate
-    pet = db.query(Pet).filter(Pet.id == pet_id, Pet.is_deleted == False).first()
-    if not pet:
+    pet = PetRepository(db).get_by_id(pet_id)
+    if not pet or pet.is_deleted:
         return []
 
     return _regenerate_nudges_for_pet(db, pet)
@@ -508,6 +421,7 @@ def _regenerate_nudges_for_pet(db: Session, pet: Pet) -> list[dict]:
     pet_id = pet.id
     pet_name = pet.name
     species = pet.species
+    nudge_repo = NudgeRepository(db)
 
     new_nudges: list[Nudge] = []
     new_nudges.extend(_generate_vaccine_nudges(db, pet_id, pet_name, species))
@@ -518,21 +432,14 @@ def _regenerate_nudges_for_pet(db: Session, pet: Pet) -> list[dict]:
     new_nudges.extend(_generate_grooming_nudges(db, pet_id, pet_name))
     new_nudges.extend(_generate_checkup_nudges(db, pet_id, pet_name))
 
-    # Dedup: check existing active nudges by (pet_id, category, title)
-    existing_keys = set()
-    existing = (
-        db.query(Nudge)
-        .filter(Nudge.pet_id == pet_id, Nudge.dismissed == False, Nudge.acted_on == False)
-        .all()
-    )
-    for n in existing:
-        existing_keys.add((str(n.pet_id), n.category, n.title))
+    existing = nudge_repo.find_active_for_pet(pet_id)
+    existing_keys = {(str(n.pet_id), n.category, n.title) for n in existing}
 
     inserted = 0
     for nudge in new_nudges:
         key = (str(nudge.pet_id), nudge.category, nudge.title)
         if key not in existing_keys:
-            db.add(nudge)
+            nudge_repo.create(nudge)
             existing.append(nudge)
             existing_keys.add(key)
             inserted += 1
@@ -554,15 +461,7 @@ def run_nudge_engine(db: Session) -> dict:
 
     Returns summary dict with counts.
     """
-    pets = (
-        db.query(Pet)
-        .join(User)
-        .filter(
-            Pet.is_deleted == False,
-            User.onboarding_state == "complete",
-        )
-        .all()
-    )
+    pets = PetRepository(db).find_onboarded_active()
 
     total_generated = 0
     errors = 0

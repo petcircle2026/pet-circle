@@ -10,6 +10,7 @@ import time
 
 from sqlalchemy.orm import Session
 
+from app.repositories.config_repository import ConfigRepository
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +23,16 @@ def get_nudge_config(db: Session, key: str, default: str | None = None) -> str |
     """Get a nudge config value by key, with 5-min in-memory cache."""
     now = time.time()
 
-    # Check cache
     if key in _cache:
         cached_value, cached_at = _cache[key]
         if now - cached_at < _CACHE_TTL_SECONDS:
             return cached_value
 
-    # Query DB
     try:
-        row = db.query(NudgeConfig).filter(NudgeConfig.key == key).first()
-        if row:
-            _cache[key] = (row.value, now)
-            return row.value
+        value = ConfigRepository(db).get_config(key)
+        if value is not None:
+            _cache[key] = (value, now)
+            return value
     except Exception:
         logger.exception("Failed to read nudge_config key=%s", key)
 

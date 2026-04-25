@@ -17,8 +17,6 @@ Rules:
     - All date comparisons use IST (Asia/Kolkata).
     - No hidden logic — every calculation is documented.
 """
-from app.models import PreventiveMaster, ProductMedicines
-
 import logging
 import re
 from datetime import date, timedelta
@@ -27,6 +25,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.preventive_record import PreventiveRecord
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.preventive_repository import PreventiveRepository
 from app.utils.date_utils import get_today_ist
 
 logger = logging.getLogger(__name__)
@@ -54,16 +54,7 @@ def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int 
         return None
 
     try:
-        
-        # Case-insensitive lookup
-        product = (
-            db.query(ProductMedicines)
-            .filter(
-                ProductMedicines.active == True,
-                ProductMedicines.product_name.ilike(f"%{medicine_name}%"),
-            )
-            .first()
-        )
+        product = PreventiveMasterRepository(db).find_medicine_by_name_ilike(medicine_name)
 
         if not product or not product.repeat_frequency:
             return None
@@ -195,25 +186,14 @@ def calculate_and_update_record(
     Raises:
         ValueError: If the preventive record or its master item is not found.
     """
-    # Load the preventive record with its linked master item.
-    record = (
-        db.query(PreventiveRecord)
-        .filter(PreventiveRecord.id == preventive_record_id)
-        .first()
-    )
+    record = PreventiveRepository(db).get_by_id(preventive_record_id)
 
     if not record:
         raise ValueError(
             f"Preventive record not found: {preventive_record_id}"
         )
 
-    # Load the preventive master item to get recurrence_days.
-    # recurrence_days is ALWAYS read from DB — never hardcoded.
-    master = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.id == record.preventive_master_id)
-        .first()
-    )
+    master = PreventiveMasterRepository(db).find_by_id(record.preventive_master_id)
 
     if not master:
         raise ValueError(
@@ -281,52 +261,27 @@ def create_preventive_record(
         sqlalchemy.exc.IntegrityError: If a duplicate record exists
             (same pet, same item, same date).
     """
-    # Load preventive master to get recurrence_days and reminder_before_days.
-    # Always read from DB — never hardcode recurrence intervals.
-    master = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.id == preventive_master_id)
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    master_repo = PreventiveMasterRepository(db)
+
+    master = master_repo.find_by_id(preventive_master_id)
 
     if not master:
         raise ValueError(
             f"Preventive master not found: {preventive_master_id}"
         )
 
-    # Compute next_due_date and status.
     next_due = compute_next_due_date(last_done_date, master.recurrence_days)
     status = compute_status(next_due, master.reminder_before_days)
 
-    # Idempotency: return the existing record when the same event was already saved.
-    existing_record = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.preventive_master_id == preventive_master_id,
-            PreventiveRecord.last_done_date == last_done_date,
-        )
-        .first()
-    )
+    existing_record = preventive_repo.find_existing_record(pet_id, preventive_master_id, last_done_date)
     if existing_record:
         existing_record.next_due_date = next_due
         existing_record.status = status
         db.commit()
         return existing_record
 
-    # When pets are pre-seeded with an incomplete placeholder row for this item,
-    # fill that row instead of creating a second entry that leaves the dashboard stale.
-    placeholder_record = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.preventive_master_id == preventive_master_id,
-            PreventiveRecord.last_done_date.is_(None),
-            PreventiveRecord.status != "cancelled",
-        )
-        .order_by(PreventiveRecord.created_at.asc())
-        .first()
-    )
+    placeholder_record = preventive_repo.find_placeholder_record(pet_id, preventive_master_id)
     if placeholder_record:
         placeholder_record.last_done_date = last_done_date
         placeholder_record.next_due_date = next_due
@@ -381,16 +336,7 @@ def recalculate_all_for_pet(db: Session, pet_id: UUID) -> int:
     Returns:
         Number of records updated.
     """
-    # Join with preventive_master to avoid N+1 queries.
-    rows = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.status != "cancelled",
-        )
-        .all()
-    )
+    rows = PreventiveRepository(db).find_with_master_non_cancelled(pet_id)
 
     updated = 0
     for record, master in rows:

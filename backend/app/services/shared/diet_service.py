@@ -12,6 +12,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.models.diet_item import DietItem
+from app.repositories.diet_repository import DietRepository
 
 logger = logging.getLogger(__name__)
 
@@ -357,12 +358,7 @@ def classify_food(label: str, food_type: str) -> tuple[str, str]:
 
 async def get_diet_items(db: Session, pet_id) -> list[dict]:
     """Returns all diet items for a pet."""
-    items = (
-        db.query(DietItem)
-        .filter(DietItem.pet_id == pet_id)
-        .order_by(DietItem.created_at)
-        .all()
-    )
+    items = DietRepository(db).find_by_pet_ordered(pet_id)
     return [
         {
             "id": str(item.id),
@@ -395,16 +391,7 @@ async def add_diet_item(
     """
     classified_type, default_icon = classify_food(label, food_type)
 
-    # Guard against duplicate-key violation on uq_diet_item_menu (pet_id, label, type)
-    existing = (
-        db.query(DietItem)
-        .filter(
-            DietItem.pet_id == pet_id,
-            DietItem.label == label,
-            DietItem.type == classified_type,
-        )
-        .first()
-    )
+    existing = DietRepository(db).find_by_pet_label_type(pet_id, label, classified_type)
     if existing:
         logger.debug(
             "Diet item already exists for pet %s: %s (%s) — skipping insert",
@@ -449,11 +436,7 @@ async def add_diet_item(
 
 async def update_diet_item(db: Session, item_id, pet_id, label: str, detail: str = None) -> dict:
     """Update an existing diet item."""
-    item = (
-        db.query(DietItem)
-        .filter(DietItem.id == item_id, DietItem.pet_id == pet_id)
-        .first()
-    )
+    item = DietRepository(db).find_by_id_and_pet(item_id, pet_id)
     if not item:
         raise ValueError("Diet item not found")
 
