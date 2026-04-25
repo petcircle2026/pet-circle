@@ -50,23 +50,6 @@ export function getSpeciesEmoji(species?: string | null): string {
   return "🐾";
 }
 
-export function buildBarStatus(point: AskVetChartPoint): "red" | "amber" | "green" {
-  const marker = point.marker.toLowerCase();
-  const status = point.status.toLowerCase();
-  if (marker.includes("pus")) {
-    if (point.value <= 0 || status.includes("nil") || status.includes("normal")) return "green";
-    if (point.value > 5 || status.includes("high")) return "red";
-    return "amber";
-  }
-
-  if (status.includes("normal")) return "green";
-  if (status.includes("high") || status.includes("low") || status.includes("positive")) return "red";
-  return "amber";
-}
-
-export function isPlateletSeries(points: AskVetChartPoint[]): boolean {
-  return points.some((point) => point.marker.toLowerCase().includes("platelet"));
-}
 
 export function bloodPanelRowOrder(rows: BloodPanelRow[]): BloodPanelRow[] {
   const groupOrder: Array<[RegExp, number]> = [
@@ -131,30 +114,3 @@ export function buildCriticalGapAnnotations(doses: FleaTickDose[]): Array<{ from
   return annotations;
 }
 
-export function compressTimelineNodes(nodes: AskVetTimelineNode[]): {
-  nodes: AskVetTimelineNode[];
-  showBreak: boolean;
-} {
-  if (nodes.length <= 5) {
-    return { nodes, showBreak: false };
-  }
-
-  return {
-    nodes: [nodes[0], ...nodes.slice(-4)],
-    showBreak: true,
-  };
-}
-
-export function timelineNodeColor(node: AskVetTimelineNode, index: number, total: number): string {
-  const source = `${node.label} ${node.icon}`.toLowerCase();
-  if (source.includes("clear") || source.includes("negative") || source.includes("nil") || source.includes("✅")) {
-    return "#34C759";
-  }
-  if (source.includes("partial") || source.includes("persist") || source.includes("retest") || source.includes("🔄") || source.includes("⚠")) {
-    return "#FF9F1C";
-  }
-  if (source.includes("detected") || source.includes("positive") || source.includes("episode") || source.includes("🦠") || source.includes("🔬") || source.includes("🔴")) {
-    return "#FF3B30";
-  }
-  return index === total - 1 ? "#FF9F1C" : "#8A8A8A";
-}

@@ -336,9 +336,9 @@ def _trim_messages(messages: list, max_turns: int = 10) -> list:
 
 async def _call_openai_with_tools(messages: list) -> object:
     """
-    Single OpenAI chat completion call with tool support.
+    Single AI chat completion call with tool support.
 
-    Uses gpt-4.1 at temperature=0 for consistent extraction.
+    Uses AI_QUERY_MODEL (resolved from AI_PROVIDER) at temperature=0 for consistent extraction.
     """
     from app.services.onboarding import _get_openai_onboarding_client
 
@@ -360,7 +360,7 @@ async def _call_openai_with_tools(messages: list) -> object:
 
 async def _call_openai_text_only(messages: list) -> object:
     """
-    OpenAI call that forces a plain text response (tool_choice='none').
+    AI call that produces a plain text response without tool use.
 
     Used exclusively for the closing message after confirm_order / cancel_order
     fires, so the model cannot call another tool and produce a blank reply.

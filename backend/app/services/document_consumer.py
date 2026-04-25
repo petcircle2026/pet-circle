@@ -31,7 +31,6 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional
 
 import aio_pika
 from aio_pika import DeliveryMode, Message
@@ -48,8 +47,8 @@ logger = logging.getLogger(__name__)
 _MAX_ATTEMPTS = 3
 _RETRY_DELAY_SECONDS = 5
 
-_stop_event: Optional[asyncio.Event] = None
-_consumer_task: Optional[asyncio.Task] = None
+_stop_event: asyncio.Event | None = None
+_consumer_task: asyncio.Task | None = None
 
 
 def _prefetch_count() -> int:
