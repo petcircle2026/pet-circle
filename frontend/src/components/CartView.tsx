@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCartCalculations } from "@/hooks/useCartCalculations";
+import { groupSearchResults, DELIVERY_FEE, FREE_THRESHOLD, type SearchResult } from "@/utils/cart-utils";
 import ProductSelectorCard, { type ResolvedProduct } from "./dashboard/ProductSelectorCard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -28,23 +30,6 @@ export interface CartItem {
   medicine_type?: string;
 }
 
-interface SearchResult {
-  sku_id: string;
-  category: "food" | "supplement" | "medicine";
-  brand_name: string;
-  product_name: string;
-  name: string;
-  pack_size: string;
-  mrp: number;
-  discounted_price: number;
-  in_stock: boolean;
-  medicine_type?: string;
-  notes?: string;
-}
-
-const DELIVERY_FEE = 49;
-const FREE_THRESHOLD = 599;
-
 export default function CartView({
   items,
   token,
@@ -54,15 +39,7 @@ export default function CartView({
   onProceedToCheckout,
   onAddBySku,
 }: CartViewProps) {
-  const inCartItems = useMemo(() => items.filter((item) => item.quantity > 0), [items]);
-
-  const subtotal = useMemo(() => {
-    return inCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  }, [inCartItems]);
-
-  const deliveryFee = subtotal >= FREE_THRESHOLD ? 0 : DELIVERY_FEE;
-  const total = subtotal + deliveryFee;
-  const amountForFreeDelivery = Math.max(0, FREE_THRESHOLD - subtotal);
+  const { inCart, subtotal, deliveryFee, total, amountForFreeDelivery } = useCartCalculations(items);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,19 +81,7 @@ export default function CartView({
     };
   }, [searchQuery, runSearch]);
 
-  // Group search results by product identity (brand + product_name) — one row per distinct product
-  const groupedResults = useMemo(() => {
-    const groups: Record<string, SearchResult[]> = {};
-    for (const r of searchResults) {
-      const key = `${r.brand_name}||${r.product_name}`;
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(r);
-    }
-    return Object.entries(groups).map(([key, skus]) => {
-      const [brand, productName] = key.split("||");
-      return { brand, productName, skus };
-    });
-  }, [searchResults]);
+  const groupedResults = useMemo(() => groupSearchResults(searchResults), [searchResults]);
 
   // Open the variant picker for the chosen product group
   const handleSearchGroupAdd = useCallback((skus: SearchResult[]) => {
@@ -181,7 +146,7 @@ export default function CartView({
     onUpdateQuantity(itemId, nextQty);
   };
 
-  const cartSkuIds = useMemo(() => new Set(inCartItems.map((i) => i.id)), [inCartItems]);
+  const cartSkuIds = useMemo(() => new Set(inCart.map((i) => i.id)), [inCart]);
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-app)" }}>
@@ -345,11 +310,11 @@ export default function CartView({
 
         {/* Cart items */}
         <div className="card" style={{ marginBottom: 12 }}>
-          {inCartItems.length === 0 && (
+          {inCart.length === 0 && (
             <div style={{ textAlign: "center", color: "var(--t3)" }}>No items in cart yet.</div>
           )}
 
-          {inCartItems.map((item) => {
+          {inCart.map((item) => {
             const section = item.section || "Care";
             const hasDiscount = item.mrp !== undefined && item.mrp > item.price;
             return (
@@ -410,13 +375,13 @@ export default function CartView({
             </div>
           </div>
 
-          {inCartItems.length > 0 && subtotal < FREE_THRESHOLD && (
+          {inCart.length > 0 && subtotal < FREE_THRESHOLD && (
             <div style={{ marginTop: 10, fontSize: 12, color: "var(--amber)" }}>
               Add Rs {amountForFreeDelivery.toLocaleString("en-IN")} more to unlock free delivery.
             </div>
           )}
 
-          {inCartItems.length > 0 && subtotal >= FREE_THRESHOLD && (
+          {inCart.length > 0 && subtotal >= FREE_THRESHOLD && (
             <div style={{ marginTop: 10, fontSize: 12, color: "var(--green)", fontWeight: 600 }}>
               Free delivery unlocked.
             </div>
@@ -425,7 +390,7 @@ export default function CartView({
           <button
             className="btn btn-or"
             type="button"
-            disabled={inCartItems.length === 0}
+            disabled={inCart.length === 0}
             onClick={onProceedToCheckout}
           >
             Proceed to Checkout
