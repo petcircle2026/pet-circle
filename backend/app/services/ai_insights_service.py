@@ -430,7 +430,7 @@ async def _generate_vet_questions_gpt(pet_context: str) -> list:
         return []
 
 
-def _build_pet_context(pet, conditions: list, health_score: dict | None) -> str:
+def _build_pet_context(pet, conditions: list) -> str:
     """
     Build a compact plain-text context string for GPT prompts.
 
@@ -441,7 +441,6 @@ def _build_pet_context(pet, conditions: list, health_score: dict | None) -> str:
 
     today = date.today()
     lines = []
-    health_score = health_score or {}
 
     # Pet basics
     age_str = ""
@@ -796,7 +795,6 @@ async def get_or_generate_insight(
     insight_type: str,
     pet: dict,
     conditions: list,
-    health_score: dict | None,
     force: bool = False,
 ) -> dict:
     """
@@ -812,7 +810,6 @@ async def get_or_generate_insight(
         insight_type: 'health_summary' or 'vet_questions'.
         pet:          Pet dict (from dashboard data).
         conditions:   List of condition dicts (from dashboard data).
-        health_score: Health score dict (from dashboard data).
         force:        If True, bypass cache and re-generate.
 
     Returns:
@@ -835,7 +832,7 @@ async def get_or_generate_insight(
             return existing.content_json
 
     # Generate fresh content
-    pet_context = _build_pet_context(pet, conditions, health_score)
+    pet_context = _build_pet_context(pet, conditions)
     try:
         normalized_insight_type = insight_type
         if insight_type.startswith("vet_questions"):

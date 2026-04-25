@@ -821,9 +821,6 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
                 "is_core": bool(master.is_core) if master.is_core is not None else False,
             })
 
-    # Health score removed — not computed.
-    health_score = None
-
     # _insight_cache already built inside _fetch_insights_sync (Phase 1 result).
 
     # --- Build conditions_data from parallel-fetched condition_rows ---
@@ -1122,7 +1119,6 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         "diagnostic_results": diagnostic_results,
         "conditions": conditions_data,
         "contacts": contacts_data,
-        "health_score": health_score,
         "nutrition": diet_items_data,
         "conflict_flags": conflict_rows,
         "vet_summary": vet_summary_payload,

@@ -437,7 +437,6 @@ def main():
             test("Breed in dashboard", data.get("pet", {}).get("breed") == "Labrador")
             test("Owner in dashboard", data.get("owner", {}).get("full_name") == "Rahul Sharma")
             test("Preventive records present", len(data.get("preventive_records", [])) > 0)
-            test("Health score present", "health_score" in data)
             test("Documents section present", "documents" in data)
             test("Reminders section present", "reminders" in data)
 

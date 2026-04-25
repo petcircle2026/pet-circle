@@ -2062,7 +2062,6 @@ async def dashboard_health_summary(
             insight_type="conditions_summary",
             pet=data["pet"],
             conditions=data["conditions"],
-            health_score=data.get("health_score"),
             force=False,
         )
     except ValueError:
@@ -2095,7 +2094,6 @@ async def dashboard_vet_questions(
             insight_type="vet_questions",
             pet=data["pet"],
             conditions=data["conditions"],
-            health_score=data.get("health_score"),
             force=False,
         )
         return result if isinstance(result, list) else []
@@ -2126,7 +2124,6 @@ async def dashboard_regenerate_vet_questions(
             insight_type="vet_questions",
             pet=data["pet"],
             conditions=data["conditions"],
-            health_score=data.get("health_score"),
             force=True,
         )
         return result if isinstance(result, list) else []

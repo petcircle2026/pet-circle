@@ -792,7 +792,6 @@ async def _get_condition_questions(db: Session, pet: Pet, condition: Condition) 
         insight_type=insight_type,
         pet={"name": pet.name, "species": pet.species, "breed": pet.breed},
         conditions=[condition_payload],
-        health_score={"score": None},
         force=False,
     )
 

@@ -277,7 +277,6 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                     insight_type=f"vet_questions:{cond.id}",
                     pet=pet_dict,
                     conditions=[condition_payload],
-                    health_score={"score": None},
                     force=False,
                 )
 

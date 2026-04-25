@@ -16,12 +16,6 @@ from sqlalchemy.orm import Session
 from app.repositories.pet_repository import PetRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.health_repository import HealthRepository
-from app.domain.health.health_score import (
-    HealthScoreInput,
-    calculate_health_categories,
-    calculate_composite_score,
-    get_health_status,
-)
 from app.domain.health.preventive_logic import (
     get_preventive_status,
     days_until_due,
@@ -49,104 +43,6 @@ class HealthService:
         self.pet_repo = PetRepository(db)
         self.preventive_repo = PreventiveRepository(db)
         self.health_repo = HealthRepository(db)
-
-    def get_health_score(self, pet_id: UUID) -> float:
-        """
-        Calculate current health score for a pet.
-
-        Flow:
-        1. Query repos for health data
-        2. Build HealthScoreInput
-        3. Apply domain logic
-        4. Return score
-        """
-        today = date.today()
-
-        # Query preventive data
-        preventive_records = self.preventive_repo.get_by_pet_with_master(pet_id)
-
-        # Query health data
-        active_conditions = self.health_repo.get_active_conditions(pet_id)
-        diet_record = self._get_latest_diet_record(pet_id)
-
-        # Calculate preventive status
-        vaccinations_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "vaccine", today
-        )
-        deworming_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "deworming", today
-        )
-        flea_tick_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "flea_tick", today
-        )
-
-        # Calculate checkup status
-        last_checkup_days_ago = self._get_last_checkup_days_ago(pet_id, today)
-
-        # Calculate condition status
-        conditions_monitored = self._are_conditions_monitored(active_conditions)
-
-        # Build input for domain logic
-        input_data = HealthScoreInput(
-            vaccinations_up_to_date=vaccinations_up_to_date,
-            deworming_up_to_date=deworming_up_to_date,
-            flea_tick_up_to_date=flea_tick_up_to_date,
-            last_checkup_days_ago=last_checkup_days_ago,
-            has_active_conditions=len(active_conditions) > 0,
-            conditions_properly_monitored=conditions_monitored,
-            has_diet_record=diet_record is not None,
-        )
-
-        # Apply domain logic
-        categories = calculate_health_categories(input_data)
-        score = calculate_composite_score(categories)
-
-        return score
-
-    def get_health_score_with_categories(
-        self, pet_id: UUID
-    ) -> tuple[float, dict]:
-        """
-        Get health score + breakdown by category.
-
-        Returns:
-            (score, {category_name: score})
-        """
-        today = date.today()
-
-        preventive_records = self.preventive_repo.get_by_pet_with_master(pet_id)
-        active_conditions = self.health_repo.get_active_conditions(pet_id)
-
-        vaccinations_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "vaccine", today
-        )
-        deworming_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "deworming", today
-        )
-        flea_tick_up_to_date = self._is_preventive_type_up_to_date(
-            preventive_records, "flea_tick", today
-        )
-        last_checkup_days_ago = self._get_last_checkup_days_ago(pet_id, today)
-        conditions_monitored = self._are_conditions_monitored(active_conditions)
-        diet_record = self._get_latest_diet_record(pet_id)
-
-        input_data = HealthScoreInput(
-            vaccinations_up_to_date=vaccinations_up_to_date,
-            deworming_up_to_date=deworming_up_to_date,
-            flea_tick_up_to_date=flea_tick_up_to_date,
-            last_checkup_days_ago=last_checkup_days_ago,
-            has_active_conditions=len(active_conditions) > 0,
-            conditions_properly_monitored=conditions_monitored,
-            has_diet_record=diet_record is not None,
-        )
-
-        categories = calculate_health_categories(input_data)
-        score = calculate_composite_score(categories)
-
-        # Build category breakdown
-        breakdown = {cat.name: cat.score for cat in categories}
-
-        return score, breakdown
 
     def get_overdue_preventives(self, pet_id: UUID) -> list[dict]:
         """Get all overdue preventive items for a pet."""
