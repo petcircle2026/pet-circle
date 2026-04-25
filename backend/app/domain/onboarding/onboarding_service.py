@@ -59,7 +59,7 @@ class OnboardingService:
             message_data: Optional webhook message metadata
         """
         # Import here to avoid circular deps
-        from app.services.onboarding import handle_onboarding_step
+        from app.services.whatsapp.onboarding import handle_onboarding_step
 
         try:
             await handle_onboarding_step(

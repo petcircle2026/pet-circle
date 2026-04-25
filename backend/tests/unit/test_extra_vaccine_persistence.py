@@ -4,7 +4,7 @@ from uuid import uuid4
 from app.models.custom_preventive_item import CustomPreventiveItem
 from app.models.pet import Pet
 from app.models.preventive_record import PreventiveRecord
-from app.services.gpt_extraction import _persist_extra_vaccines_for_pet
+from app.services.shared.gpt_extraction import _persist_extra_vaccines_for_pet
 
 
 class _FakeQuery:

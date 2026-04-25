@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.nutrition_service import (
+from app.services.dashboard.nutrition_service import (
     _diet_summary_threshold,
     get_diet_summary,
 )

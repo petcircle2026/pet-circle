@@ -44,7 +44,7 @@ class ReminderHandler(BaseHandler):
             return
 
         # Import here to avoid circular deps
-        from app.services.reminder_engine import handle_reminder_response
+        from app.services.admin.reminder_engine import handle_reminder_response
 
         try:
             await handle_reminder_response(

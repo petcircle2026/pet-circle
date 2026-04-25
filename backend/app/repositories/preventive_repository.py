@@ -12,7 +12,6 @@ from sqlalchemy import and_, desc, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.preventive_record import PreventiveRecord
-from app.models.preventive_master import PreventiveMaster
 from app.models.custom_preventive_item import CustomPreventiveItem
 
 

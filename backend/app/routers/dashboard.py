@@ -43,22 +43,26 @@ from app.core.constants import CARE_PLAN_DUE_SOON_DAYS
 from app.core.encryption import encrypt_field
 from app.core.rate_limiter import check_dashboard_rate_limit
 from app.database import get_db
-from app.models.cart_item import CartItem
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.contact import Contact
-from app.models.diet_item import DietItem
-from app.models.nudge import Nudge
-from app.models.pet import Pet
-from app.models.product_food import ProductFood
-from app.models.product_supplement import ProductSupplement
-from app.models.user import User
-from app.services.ai_insights_service import (
+from app.models import (
+    CartItem,
+    Condition,
+    ConditionMedication,
+    ConditionMonitoring,
+    Contact,
+    DietItem,
+    Nudge,
+    Pet,
+    PreventiveMaster,
+    ProductFood,
+    ProductMedicines,
+    ProductSupplement,
+    User,
+)
+from app.services.dashboard.ai_insights_service import (
     get_or_generate_insight,
     get_or_generate_nutrition_importance,
 )
-from app.services.cart_service import (
+from app.services.dashboard.cart_service import (
     _format_last_bought_label,
     add_to_cart,
     get_cart,
@@ -69,7 +73,7 @@ from app.services.cart_service import (
     toggle_cart_item,
     update_quantity,
 )
-from app.services.condition_service import (
+from app.services.dashboard.condition_service import (
     add_condition_medication,
     add_condition_monitoring,
     delete_condition_medication,
@@ -81,7 +85,7 @@ from app.services.condition_service import (
     update_condition_medication,
     update_condition_monitoring,
 )
-from app.services.dashboard_service import (
+from app.services.dashboard.dashboard_service import (
     get_dashboard_data,
     get_document_file_for_token,
     get_health_trends,
@@ -91,31 +95,31 @@ from app.services.dashboard_service import (
     update_preventive_date,
     validate_dashboard_token,
 )
-from app.services.diet_service import (
+from app.services.shared.diet_service import (
     add_diet_item,
     delete_diet_item,
     get_diet_items,
     update_diet_item,
 )
-from app.services.precompute_service import refresh_recognition_bullets, refresh_nutrition_analysis
-from app.services.health_trends_service import get_health_trends as get_health_trends_v2
-from app.services.hygiene_service import (
+from app.services.shared.precompute_service import refresh_recognition_bullets, refresh_nutrition_analysis
+from app.services.dashboard.health_trends_service import get_health_trends as get_health_trends_v2
+from app.services.dashboard.hygiene_service import (
     add_hygiene_item,
     delete_hygiene_item,
     get_hygiene_preferences,
     update_hygiene_date,
     upsert_hygiene_preference,
 )
-from app.services.nudge_engine import generate_nudges
-from app.services.nutrition_service import analyze_nutrition
-from app.services.razorpay_service import create_razorpay_payment, verify_razorpay_payment
-from app.services.records_service import get_records as get_records_v2
-from app.services.signal_resolver import (
+from app.services.admin.nudge_engine import generate_nudges
+from app.services.dashboard.nutrition_service import analyze_nutrition
+from app.services.dashboard.razorpay_service import create_razorpay_payment, verify_razorpay_payment
+from app.services.dashboard.records_service import get_records as get_records_v2
+from app.services.dashboard.signal_resolver import (
     SUPPLEMENT_TYPE_KEYWORDS,
     resolve_food_signal,
     resolve_supplement_signal,
 )
-from app.services.weight_service import add_weight_entry, get_weight_history
+from app.services.dashboard.weight_service import add_weight_entry, get_weight_history
 from app.utils.date_utils import parse_date
 
 logger = logging.getLogger(__name__)
@@ -123,7 +127,7 @@ logger = logging.getLogger(__name__)
 # Extraction semaphore — shared with the WhatsApp upload path.
 # Imported from document_upload (single source of truth) so tuning
 # MAX_CONCURRENT_EXTRACTIONS in constants.py applies to both paths at once.
-from app.services.document_upload import get_extraction_semaphore as _get_extraction_semaphore  # noqa: E402
+from app.services.shared.document_upload import get_extraction_semaphore as _get_extraction_semaphore  # noqa: E402
 
 router = APIRouter(
     prefix="/dashboard",
@@ -572,8 +576,8 @@ async def dashboard_retry_all_failed(
     import asyncio as _asyncio
 
     from app.models.document import Document as DocumentModel
-    from app.services.document_upload import download_from_supabase
-    from app.services.gpt_extraction import extract_and_process_document
+    from app.services.shared.document_upload import download_from_supabase
+    from app.services.shared.gpt_extraction import extract_and_process_document
 
     failed_docs = (
         db.query(DocumentModel)
@@ -643,7 +647,7 @@ async def dashboard_delete_document(
         HTTPException 404: If token invalid or document not found for this pet.
     """
     from app.models.document import Document
-    from app.services.storage_service import delete_file
+    from app.services.shared.storage_service import delete_file
 
     try:
         dt = validate_dashboard_token(db, token)
@@ -678,7 +682,7 @@ async def dashboard_upload_document(
     db: Session = Depends(get_db),
 ):
     """Upload a document from the dashboard and trigger GPT extraction."""
-    from app.services.document_upload import process_document_upload
+    from app.services.shared.document_upload import process_document_upload
 
     try:
         dt = validate_dashboard_token(db, token)
@@ -736,8 +740,8 @@ async def dashboard_upload_document(
         # Fallback: run extraction directly if queue is unavailable.
         async def _run_extraction():
             from app.database import SessionLocal
-            from app.services.gpt_extraction import extract_and_process_document
-            from app.services.precompute_service import precompute_dashboard_enrichments
+            from app.services.shared.gpt_extraction import extract_and_process_document
+            from app.services.shared.precompute_service import precompute_dashboard_enrichments
             async with _get_extraction_semaphore():
                 extraction_db = SessionLocal()
                 try:
@@ -1291,8 +1295,6 @@ def dashboard_update_frequency(
     """Update custom recurrence for a preventive item (e.g., vaccine frequency)."""
     try:
         dt = validate_dashboard_token(db, token)
-        from app.models.preventive_master import PreventiveMaster
-        from app.models.preventive_record import PreventiveRecord
 
         result = (
             db.query(PreventiveRecord, PreventiveMaster)
@@ -1421,7 +1423,6 @@ def dashboard_resolve_medicines(
     Response shape matches products/resolve-by-micronutrient so ProductSelectorCard
     can be reused without changes.
     """
-    from app.models.product_medicines import ProductMedicines
     from datetime import date as _date
     from sqlalchemy import or_
 
@@ -1523,8 +1524,6 @@ def dashboard_get_preventive_medicine_options(
     Medicines are dynamically sourced from the product_medicines table,
     filtered by type (deworming, tick/flea) and active status.
     """
-    from app.models.product_medicines import ProductMedicines
-
     try:
         _get_pet_for_dashboard_token(db, token)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
@@ -1593,9 +1592,6 @@ def dashboard_update_medicine_name(
     """
     try:
         dt = validate_dashboard_token(db, token)
-        from app.models.pet import Pet
-        from app.models.preventive_master import PreventiveMaster
-        from app.models.preventive_record import PreventiveRecord
 
         result = (
             db.query(PreventiveRecord, PreventiveMaster)
@@ -1647,7 +1643,7 @@ def dashboard_update_medicine_name(
                 target_record.status = "up_to_date"
 
         # Look up recurrence from product catalog; fall back to GPT for unknown medicines.
-        from app.services.medicine_recurrence_service import get_medicine_recurrence
+        from app.services.dashboard.medicine_recurrence_service import get_medicine_recurrence
         ai_days = get_medicine_recurrence(
             species=species,
             item_type=master.item_name,
@@ -1664,7 +1660,7 @@ def dashboard_update_medicine_name(
         # Dual-use medicines (deworming + flea/tick) must share one recurrence
         # when both records use the same medicine; different medicines keep
         # independent frequencies.
-        from app.services.gpt_extraction import _get_preventive_categories_for_medicine
+        from app.services.shared.gpt_extraction import _get_preventive_categories_for_medicine
 
         medicine_categories = _get_preventive_categories_for_medicine(body.medicine_name)
         is_dual_medicine = {"deworming", "flea_tick"}.issubset(medicine_categories)
@@ -2872,7 +2868,6 @@ async def search_products_endpoint(
     )
 
     # Search medicine products — filter by species and exclude antibiotics
-    from app.models.product_medicines import ProductMedicines
     medicine_rows = (
         db.query(ProductMedicines)
         .filter(
@@ -2970,7 +2965,6 @@ async def cart_add_endpoint(
         sub = f"{product.brand_name} · {product.pack_size}" if product.pack_size else product.brand_name
         icon = "💊"
     elif sku_id.startswith("SKU-"):
-        from app.models.product_medicines import ProductMedicines
         product = db.query(ProductMedicines).filter(ProductMedicines.sku_id == sku_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found.")

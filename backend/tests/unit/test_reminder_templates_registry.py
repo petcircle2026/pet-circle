@@ -7,14 +7,14 @@ from typing import Any, cast
 
 from app.core.constants import STAGE_D3, STAGE_DUE, STAGE_OVERDUE, STAGE_T7
 from app.services import reminder_engine
-from app.services.reminder_engine import (
+from app.services.admin.reminder_engine import (
     ReminderCandidate,
     _apply_send_rules,
     _build_template_params,
     _candidates_from_chronic_medicine,
     _is_course_medicine,
 )
-from app.services.reminder_templates import (
+from app.services.admin.reminder_templates import (
     REMINDER_TEMPLATES,
     get_reminder_template,
     substitute_variables,

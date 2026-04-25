@@ -297,7 +297,7 @@ def _validate_result(filename: str, result: dict) -> list[str]:
 
 async def test_extraction():
     """Run GPT extraction on all fixture files and report results."""
-    from app.services.gpt_extraction import (
+    from app.services.shared.gpt_extraction import (
         _call_openai_extraction,
         _call_openai_extraction_vision,
         _derive_blood_test_fallback_items,

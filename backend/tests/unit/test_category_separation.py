@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from app.services.diet_service import split_diet_items_by_type
-from app.services.recommendation_service import _filter_recommendations_against_existing
+from app.services.shared.diet_service import split_diet_items_by_type
+from app.services.shared.recommendation_service import _filter_recommendations_against_existing
 
 
 def test_split_diet_items_by_type_keeps_foods_and_supplements_separate():

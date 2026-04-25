@@ -27,7 +27,7 @@ from app.models.document import Document
 from app.models.conflict_flag import ConflictFlag
 from app.models.diet_item import DietItem
 from app.models.hygiene_preference import HygienePreference
-from app.services.onboarding import create_pending_user, handle_onboarding_step
+from app.services.whatsapp.onboarding import create_pending_user, handle_onboarding_step
 from app.core.encryption import hash_field
 
 FULL_MOBILE = "15551657226"   # TEST_PHONE_NUMBER from .env.production

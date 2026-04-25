@@ -1,4 +1,7 @@
 """
+from app.models import (
+    PreventiveMaster,
+)
 PetCircle — Comprehensive Reminder System Test
 
 Tests the complete reminder pipeline:
@@ -32,12 +35,11 @@ from app.core.constants import (
 from app.core.encryption import encrypt_field, hash_field
 from app.database import SessionLocal
 from app.models.pet import Pet
-from app.models.preventive_master import PreventiveMaster
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
 from app.models.user import User
-from app.services.reminder_engine import run_reminder_engine
-from app.services.reminder_response import (
+from app.services.admin.reminder_engine import run_reminder_engine
+from app.services.whatsapp.reminder_response import (
     apply_reschedule_date,
     handle_reminder_response,
 )
@@ -563,7 +565,7 @@ def main():
         # ==================================================================
 
         # Verify the internal endpoint logic (conflict expiry + reminder + send)
-        from app.services.conflict_expiry import expire_pending_conflicts
+        from app.services.admin.conflict_expiry import expire_pending_conflicts
 
         expired = expire_pending_conflicts(db)
         test("Conflict expiry ran", True, f"expired={expired}")

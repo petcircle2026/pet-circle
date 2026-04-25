@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.care_plan_engine import (
+from app.services.shared.care_plan_engine import (
     BreedSize,
     Classification,
     LifeStage,
@@ -582,7 +582,7 @@ class TestComputeCarePlan:
         order_query_raises: bool = False,
     ):
         """Run compute_care_plan with fully mocked DB session."""
-        from app.services.care_plan_engine import compute_care_plan
+        from app.services.shared.care_plan_engine import compute_care_plan
 
         db = MagicMock()
 
@@ -940,7 +940,7 @@ class TestComputeCarePlan:
 
     def test_db_error_returns_empty_plan(self):
         """Any uncaught DB error must return empty CarePlanV2, not raise."""
-        from app.services.care_plan_engine import compute_care_plan
+        from app.services.shared.care_plan_engine import compute_care_plan
 
         pet = self._make_pet()
         db = MagicMock()

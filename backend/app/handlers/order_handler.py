@@ -62,7 +62,7 @@ class OrderHandler(BaseHandler):
         payload = message_data.get("button_payload", "").strip()
 
         # Import here to avoid circular deps
-        from app.services.agentic_order import handle_order_intent
+        from app.services.whatsapp.agentic_order import handle_order_intent
 
         try:
             await handle_order_intent(

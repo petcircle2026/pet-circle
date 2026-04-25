@@ -31,7 +31,7 @@ for env_file in [
 # Add backend to path so we can import nutrition_service
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.services.nutrition_service import COMBINED_MEAL_SYSTEM_PROMPT  # noqa: E402
+from app.services.dashboard.nutrition_service import COMBINED_MEAL_SYSTEM_PROMPT  # noqa: E402
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 if not ANTHROPIC_API_KEY:

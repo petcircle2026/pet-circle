@@ -1,4 +1,10 @@
 """
+from app.models import (
+    BreedConsequenceLibrary,
+    NudgeDeliveryLog,
+    NudgeMessageLibrary,
+    PreventiveMaster,
+)
 PetCircle -- Comprehensive Nudge & Reminder Test Suite (Excel v5)
 
 Covers every scenario defined in PetCircle_Nudges_v5.xlsx and the reminder spec:
@@ -160,23 +166,21 @@ from app.models.diet_item import DietItem
 from app.models.hygiene_preference import HygienePreference
 from app.models.message_log import MessageLog
 from app.models.nudge import Nudge
-from app.models.nudge_delivery_log import NudgeDeliveryLog
 from app.models.pet import Pet
-from app.models.preventive_master import PreventiveMaster
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
 from app.models.user import User
-from app.services.nudge_engine import (
+from app.services.admin.nudge_engine import (
     _classify_item as nudge_classify_item,
 )
-from app.services.nudge_engine import (
+from app.services.admin.nudge_engine import (
     _freq_to_days,
     _make_nudge,
     _regenerate_nudges_for_pet,
     _sort_nudges,
     generate_nudges,
 )
-from app.services.nudge_scheduler import (
+from app.services.admin.nudge_scheduler import (
     _L1_MESSAGE_TYPES,
     _check_inactivity_trigger,
     _completed_slots,
@@ -189,7 +193,7 @@ from app.services.nudge_scheduler import (
     calculate_nudge_level,
     run_nudge_scheduler,
 )
-from app.services.reminder_engine import (
+from app.services.admin.reminder_engine import (
     ReminderCandidate,
     _apply_send_rules,
     _build_template_params,
@@ -910,8 +914,7 @@ def run_section_b(db):
     # B20: breed-specific library row preferred over 'All'
     # B21: 'All' fallback used when breed not in library
     # These verify the _build_l1_message lookup logic
-    from app.models.nudge_message_library import NudgeMessageLibrary
-
+    
     golden_row = db.query(NudgeMessageLibrary).filter(
         NudgeMessageLibrary.level == 1,
         NudgeMessageLibrary.breed == "Golden Retriever",
@@ -935,7 +938,7 @@ def run_section_b(db):
       f"got {cycle_type}")
 
     # B23: Level 2 slots 0-2 -> breed_data (priority list)
-    from app.services.nudge_scheduler import _build_breed_data_message
+    from app.services.admin.nudge_scheduler import _build_breed_data_message
     pet_l2 = _make_pet(db, user_b, "L2Dog", breed="Labrador")
     if masters:
         _make_preventive_record(db, pet_l2, masters[0], 60, "upcoming")
@@ -946,7 +949,7 @@ def run_section_b(db):
 
     # B24: Level 2 slots 3-4 -> personalized
     # We skip actual GPT call; just verify structure
-    from app.services.nudge_scheduler import _build_personalized_message
+    from app.services.admin.nudge_scheduler import _build_personalized_message
     with patch("app.services.nudge_scheduler._get_or_generate_nudge_insight",
                return_value="Your Labrador benefits from regular joint supplements."):
       with patch.object(
@@ -992,7 +995,7 @@ def run_section_b(db):
     )
     db.add(prev_log)
     db.flush()
-    from app.services.nudge_scheduler import _handle_level_transition
+    from app.services.admin.nudge_scheduler import _handle_level_transition
     # Should log level-up without raising
     try:
         _handle_level_transition(db, user_b, current_level=NUDGE_LEVEL_2)
@@ -1010,7 +1013,7 @@ def run_section_b(db):
     t("B27c completed_slots at L2 = 0", count_l2 == 0, f"got {count_l2}")
 
     # B28: Delivery log written with correct nudge_level
-    from app.services.nudge_scheduler import _log_nudge_delivery
+    from app.services.admin.nudge_scheduler import _log_nudge_delivery
     with patch("app.services.whatsapp_sender.get_template_body", return_value=None):
         try:
             _log_nudge_delivery(db, user_b, pet_l2, "nudge_test_template", NUDGE_LEVEL_2,
@@ -1627,8 +1630,7 @@ def run_section_c(db):
       f"days_overdue={params[3] if len(params) > 3 else 'MISSING'}")
 
     # C38: Breed consequence -- breed-specific row used first
-    from app.models.breed_consequence_library import BreedConsequenceLibrary
-    breed_row = db.query(BreedConsequenceLibrary).filter(
+        breed_row = db.query(BreedConsequenceLibrary).filter(
         BreedConsequenceLibrary.breed == "German Shepherd",
     ).first()
     if breed_row:

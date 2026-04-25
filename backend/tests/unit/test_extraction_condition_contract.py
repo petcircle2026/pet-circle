@@ -11,7 +11,7 @@ Covers:
 import json
 
 from app.services import gpt_extraction
-from app.services.gpt_extraction import (
+from app.services.shared.gpt_extraction import (
     _condition_matches_extracted_medication_name,
     _is_likely_medication_name,
 )

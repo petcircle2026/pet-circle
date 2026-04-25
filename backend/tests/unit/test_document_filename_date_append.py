@@ -1,4 +1,4 @@
-from app.services.gpt_extraction import _append_single_extracted_date_to_filename
+from app.services.shared.gpt_extraction import _append_single_extracted_date_to_filename
 
 
 def test_appends_single_unique_date_before_extension() -> None:

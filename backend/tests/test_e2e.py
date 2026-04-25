@@ -1,4 +1,7 @@
 """
+from app.models import (
+    PreventiveMaster,
+)
 PetCircle Phase 1 — End-to-End Test Suite
 
 Tests the complete application flow:
@@ -31,36 +34,35 @@ from app.models.dashboard_token import DashboardToken
 from app.models.document import Document
 from app.models.message_log import MessageLog
 from app.models.pet import Pet
-from app.models.preventive_master import PreventiveMaster
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
 from app.models.user import User
-from app.services.conflict_engine import check_and_create_conflict, resolve_conflict
-from app.services.conflict_expiry import expire_pending_conflicts
-from app.services.dashboard_service import (
+from app.services.whatsapp.conflict_engine import check_and_create_conflict, resolve_conflict
+from app.services.admin.conflict_expiry import expire_pending_conflicts
+from app.services.dashboard.dashboard_service import (
     get_dashboard_data,
     update_pet_weight,
     update_preventive_date,
 )
-from app.services.document_upload import (
+from app.services.shared.document_upload import (
     build_storage_path,
     create_document_record,
     validate_file_upload,
 )
-from app.services.gpt_extraction import (
+from app.services.shared.gpt_extraction import (
     _match_preventive_master_from_list,
     _validate_extraction_json,
 )
-from app.services.onboarding import (
+from app.services.whatsapp.onboarding import (
     create_pending_user,
     handle_onboarding_step,
 )
-from app.services.preventive_calculator import (
+from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
     create_preventive_record,
 )
-from app.services.reminder_engine import run_reminder_engine
+from app.services.admin.reminder_engine import run_reminder_engine
 from app.utils.date_utils import format_date_for_db, get_today_ist, parse_date
 
 PASS = 0
@@ -606,7 +608,7 @@ def main():
 
 async def _upload_to_supabase(file_content, storage_path, mime_type):
     """Helper to test Supabase upload."""
-    from app.services.document_upload import upload_to_supabase
+    from app.services.shared.document_upload import upload_to_supabase
     return await upload_to_supabase(file_content, storage_path, mime_type)
 
 

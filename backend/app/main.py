@@ -14,11 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.core.constants import APP_API_TITLE
 from app.routers import admin, dashboard, internal, webhook
-from app.services.message_router import (
+from app.services.whatsapp.message_router import (
     start_document_window_sweeper,
     stop_document_window_sweeper,
 )
-from app.services import queue_service, document_consumer
+from app.services.admin import queue_service, document_consumer
 
 # Application initialization.
 # Settings are validated at import time (app/config.py).

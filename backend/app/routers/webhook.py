@@ -89,7 +89,7 @@ async def _safe_process_message(message_data: dict) -> None:
         # Best-effort reply — if this also fails we log and move on.
         try:
             from app.database import get_fresh_session
-            from app.services.whatsapp_sender import send_text_message
+            from app.services.whatsapp.whatsapp_sender import send_text_message
             _db = get_fresh_session()
             try:
                 await send_text_message(
@@ -270,7 +270,7 @@ async def _process_message_background(message_data: dict) -> None:
     from_number = message_data.get("from_number", "unknown")
     bg_db = get_fresh_session()
     try:
-        from app.services.message_router import route_message
+        from app.services.whatsapp.message_router import route_message
         # 120s timeout — generous since we're no longer blocking the webhook.
         await asyncio.wait_for(route_message(bg_db, message_data), timeout=120)
     except OperationalError as e:
@@ -289,7 +289,7 @@ async def _process_message_background(message_data: dict) -> None:
             pass
         bg_db = get_fresh_session()
         try:
-            from app.services.message_router import route_message
+            from app.services.whatsapp.message_router import route_message
             await asyncio.wait_for(route_message(bg_db, message_data), timeout=120)
         except TimeoutError:
             logger.error(
@@ -297,7 +297,7 @@ async def _process_message_background(message_data: dict) -> None:
                 mask_phone(from_number),
             )
             try:
-                from app.services.whatsapp_sender import send_text_message
+                from app.services.whatsapp.whatsapp_sender import send_text_message
                 await send_text_message(
                     bg_db, from_number,
                     "Your request is taking longer than expected. "
@@ -315,7 +315,7 @@ async def _process_message_background(message_data: dict) -> None:
             except Exception:
                 pass
             try:
-                from app.services.whatsapp_sender import send_text_message
+                from app.services.whatsapp.whatsapp_sender import send_text_message
                 await send_text_message(
                     bg_db, from_number,
                     "We're experiencing a temporary issue. "
@@ -329,7 +329,7 @@ async def _process_message_background(message_data: dict) -> None:
             mask_phone(from_number),
         )
         try:
-            from app.services.whatsapp_sender import send_text_message
+            from app.services.whatsapp.whatsapp_sender import send_text_message
             await send_text_message(
                 bg_db, from_number,
                 "Your request is taking longer than expected. "
@@ -347,7 +347,7 @@ async def _process_message_background(message_data: dict) -> None:
         except Exception:
             pass
         try:
-            from app.services.whatsapp_sender import send_text_message
+            from app.services.whatsapp.whatsapp_sender import send_text_message
             await send_text_message(
                 bg_db, from_number,
                 "We're experiencing a temporary issue. "

@@ -52,7 +52,7 @@ class ConflictHandler(BaseHandler):
             return
 
         # Import here to avoid circular deps
-        from app.services.conflict_engine import handle_conflict_response
+        from app.services.whatsapp.conflict_engine import handle_conflict_response
 
         try:
             await handle_conflict_response(

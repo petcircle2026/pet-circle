@@ -29,7 +29,7 @@ os.environ.setdefault("APP_ENV", "production")
 
 async def main():
     from app.services import queue_service
-    from app.services.queue_service import (
+    from app.services.admin.queue_service import (
         QUEUE_DASHBOARD_PRECOMPUTE,
         QUEUE_DOCUMENT_EXTRACT,
         _broker_url,

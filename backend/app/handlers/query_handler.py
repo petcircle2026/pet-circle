@@ -44,7 +44,7 @@ class QueryHandler(BaseHandler):
             return
 
         # Import here to avoid circular deps
-        from app.services.query_engine import handle_query
+        from app.services.whatsapp.query_engine import handle_query
 
         try:
             await handle_query(

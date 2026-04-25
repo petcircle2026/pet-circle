@@ -1,4 +1,7 @@
 """
+from app.models import (
+    PreventiveMaster,
+)
 Backfill preventive records for existing pets.
 
 After adding new items to preventive_master (e.g., Chronic Care, Bath & Grooming,
@@ -21,7 +24,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
 from app.models.pet import Pet
-from app.models.preventive_master import PreventiveMaster
 from app.models.preventive_record import PreventiveRecord
 
 

@@ -7,7 +7,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services.records_service import get_records
+from app.services.dashboard.records_service import get_records
 
 
 def _doc(
