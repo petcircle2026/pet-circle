@@ -132,20 +132,15 @@ async def get_or_generate_recommendations(
         if pet is None:
             return []
 
+        from app.repositories.order_repository import OrderRepository
         pet_species = str(getattr(pet, "species", ""))
         pet_breed_value = getattr(pet, "breed", None)
         pet_breed = str(pet_breed_value) if pet_breed_value else None
         age_range = _calculate_age_range(pet.dob)
         profile_context = _build_profile_context(db, getattr(pet, "id", None), category)
 
-        existing = db.query(OrderRecommendation).filter(
-            and_(
-                OrderRecommendation.species == pet_species,
-                OrderRecommendation.breed == pet_breed,
-                OrderRecommendation.age_range == age_range,
-                OrderRecommendation.category == category,
-            )
-        ).first()
+        order_repo = OrderRepository(db)
+        existing = order_repo.find_recommendation_by_profile(pet_species, pet_breed, age_range, category)
 
         if existing:
             # Increment usage count when this recommendation is actually surfaced.

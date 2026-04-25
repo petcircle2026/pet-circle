@@ -269,3 +269,33 @@ class OrderRepository:
             .first()
         )
 
+    def find_recommendation_by_profile(
+        self, species: str, breed: str | None, age_range: str, category: str
+    ) -> OrderRecommendation | None:
+        """
+        Find an OrderRecommendation matching species, breed, age_range, and category.
+        Used by recommendation_service to check for existing recommendations.
+
+        Args:
+            species: Pet species
+            breed: Pet breed (nullable)
+            age_range: Age range bracket
+            category: Recommendation category
+
+        Returns:
+            Matching OrderRecommendation or None.
+        """
+        from sqlalchemy import and_
+        return (
+            self.db.query(OrderRecommendation)
+            .filter(
+                and_(
+                    OrderRecommendation.species == species,
+                    OrderRecommendation.breed == breed,
+                    OrderRecommendation.age_range == age_range,
+                    OrderRecommendation.category == category,
+                )
+            )
+            .first()
+        )
+
