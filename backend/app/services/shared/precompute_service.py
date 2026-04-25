@@ -63,10 +63,11 @@ def _upsert_insight(db: Session, pet_id: UUID, insight_type: str, content: dict 
 async def refresh_recognition_bullets(pet_id: UUID) -> None:
     """Recompute and cache recognition_bullets for a pet. Pure-DB, no GPT."""
     from app.database import SessionLocal
-    from app.models.core.pet import Pet
+    from app.repositories.pet_repository import PetRepository
     db: Session = SessionLocal()
     try:
-        pet = db.query(Pet).filter(Pet.id == pet_id).first()
+        pet_repo = PetRepository(db)
+        pet = pet_repo.get_by_id(pet_id)
         if not pet:
             return
         from app.services.dashboard.ai_insights_service import generate_recognition_bullets
@@ -118,7 +119,9 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
     db_check: Session = SessionLocal()
     try:
         pet_id = UUID(pet_id_str)
-        if not db_check.query(Pet).filter(Pet.id == pet_id).first():
+        from app.repositories.pet_repository import PetRepository
+        pet_repo_check = PetRepository(db_check)
+        if not pet_repo_check.get_by_id(pet_id):
             logger.warning("precompute_dashboard_enrichments: pet %s not found", pet_id_str)
             return
     except Exception as exc:
@@ -140,9 +143,11 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
         Accepts the already-computed analysis dict from refresh_nutrition_analysis so
         analyze_nutrition() is not called a second time.
         """
+        from app.repositories.pet_repository import PetRepository
         db: Session = SessionLocal()
         try:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(pet_id)
             if not pet:
                 return {"macros": [], "missing_micros": []}
             from app.services.dashboard.nutrition_service import get_diet_summary
@@ -157,9 +162,11 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             db.close()
 
     async def _run_life_stage() -> None:
+        from app.repositories.pet_repository import PetRepository
         db: Session = SessionLocal()
         try:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(pet_id)
             if not pet:
                 return
             from app.services.dashboard.life_stage_service import get_life_stage_data
@@ -171,25 +178,16 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             db.close()
 
     async def _run_health_conditions_v2() -> None:
+        from app.repositories.care_repository import CareRepository
         db: Session = SessionLocal()
         try:
-            from app.models.health.condition import Condition
             from app.services.dashboard.ai_insights_service import (
                 _aggregate_conditions_for_health_prompt,
                 _generate_health_conditions_v2_gpt,
             )
-            from sqlalchemy.orm import selectinload
 
-            condition_rows = (
-                db.query(Condition)
-                .options(
-                    selectinload(Condition.medications),
-                    selectinload(Condition.monitoring),
-                )
-                .filter(Condition.pet_id == pet_id, Condition.is_active == True)
-                .order_by(Condition.diagnosed_at.asc().nullslast())
-                .all()
-            )
+            care_repo = CareRepository(db)
+            condition_rows = care_repo.find_active_conditions_for_pet(pet_id)
 
             conditions_for_prompt = []
             for cond in condition_rows:
@@ -226,28 +224,20 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
         condition filter (chronic/episodic) as _get_condition_questions in
         health_trends_service so the health-trends endpoint always hits cache.
         """
+        from app.repositories.pet_repository import PetRepository
+        from app.repositories.care_repository import CareRepository
         db: Session = SessionLocal()
         try:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(pet_id)
             if not pet:
                 return
-            from app.models.health.condition import Condition
             from app.services.dashboard.ai_insights_service import get_or_generate_insight
-            from sqlalchemy.orm import selectinload
 
-            condition_rows = (
-                db.query(Condition)
-                .options(
-                    selectinload(Condition.medications),
-                    selectinload(Condition.monitoring),
-                )
-                .filter(
-                    Condition.pet_id == pet_id,
-                    Condition.is_active == True,
-                    Condition.condition_type.in_({"chronic", "episodic"}),
-                )
-                .all()
-            )
+            care_repo = CareRepository(db)
+            condition_rows = care_repo.find_active_conditions_for_pet(pet_id)
+            # Filter to chronic/episodic only (additional filter beyond active)
+            condition_rows = [c for c in condition_rows if c.condition_type in {"chronic", "episodic"}]
 
             if not condition_rows:
                 return
@@ -292,9 +282,11 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             db.close()
 
     async def _run_care_plan_reasons(diet_summary: dict) -> None:
+        from app.repositories.pet_repository import PetRepository
         db: Session = SessionLocal()
         try:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(pet_id)
             if not pet:
                 return
             from app.services.shared.care_plan_engine import compute_care_plan
