@@ -65,11 +65,11 @@ from app.core.constants import (
     REMINDER_SNOOZE_7,
     REMINDER_STILL_PENDING,
 )
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.diet_item import DietItem
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.nutrition.diet_item import DietItem
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
 from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
@@ -308,7 +308,7 @@ def _handle_snooze(db: Session, reminder: Reminder) -> dict:
         if record and record.next_due_date:
             record.next_due_date = record.next_due_date + timedelta(days=snooze_days)
     elif reminder.source_type == "diet_item" and reminder.source_id:
-        from app.models.diet_item import DietItem
+        from app.models.nutrition.diet_item import DietItem
         item = db.query(DietItem).filter(DietItem.id == reminder.source_id).first()
         if item and item.last_purchase_date:
             item.last_purchase_date = item.last_purchase_date + timedelta(days=snooze_days)

@@ -1,5 +1,5 @@
-"""
-Diet Repository — Pet nutrition and diet management.
+﻿"""
+Diet Repository â€” Pet nutrition and diet management.
 
 Manages:
 - Diet items (current foods)
@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.models.diet_item import DietItem
+from app.models.nutrition.diet_item import DietItem
 from app.models.cache.food_nutrition_cache import FoodNutritionCache
 from app.models.cache.nutrition_target_cache import NutritionTargetCache
 
@@ -139,6 +139,17 @@ class DietRepository:
         self.db.flush()
         return cache
 
+    def find_by_pet_excluding_source(self, pet_id: UUID, exclude_source: str) -> List[DietItem]:
+        """Fetch diet items for a pet, excluding a specific source."""
+        return (
+            self.db.query(DietItem)
+            .filter(
+                DietItem.pet_id == pet_id,
+                DietItem.source != exclude_source,
+            )
+            .all()
+        )
+
     def find_by_pet_ordered(self, pet_id: UUID) -> List[DietItem]:
         """Fetch all diet items for a pet ordered by created_at."""
         from sqlalchemy import asc
@@ -242,8 +253,8 @@ class DietRepository:
         Fetch (DietItem, Pet, User) tuples for packaged food and supplement items.
         Used by reminder_engine to collect food/supplement order candidates.
         """
-        from app.models.pet import Pet
-        from app.models.user import User
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
         return (
             self.db.query(DietItem, Pet, User)
             .join(Pet, DietItem.pet_id == Pet.id)
@@ -283,3 +294,29 @@ class DietRepository:
         )
         self.db.flush()
         return count
+
+    def find_by_pet_with_type_and_source(
+        self, pet_id: UUID, item_type: str, source: str
+    ) -> List[DietItem]:
+        """
+        Find diet items for a pet with specific type and source.
+        Used by care_plan_engine for supplement categorization.
+
+        Args:
+            pet_id: Pet ID
+            item_type: Type filter (e.g. "supplement", "food")
+            source: Source filter (e.g. "manual", "document_extracted")
+
+        Returns:
+            List of matching DietItem.
+        """
+        return (
+            self.db.query(DietItem)
+            .filter(
+                DietItem.pet_id == pet_id,
+                DietItem.type == item_type,
+                DietItem.source == source,
+            )
+            .all()
+        )
+

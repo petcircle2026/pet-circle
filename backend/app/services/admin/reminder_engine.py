@@ -58,10 +58,10 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
-from app.models.condition_medication import ConditionMedication
-from app.models.diet_item import DietItem
-from app.models.pet import Pet
-from app.models.reminder import Reminder
+from app.models.health.condition_medication import ConditionMedication
+from app.models.nutrition.diet_item import DietItem
+from app.models.core.pet import Pet
+from app.models.preventive.reminder import Reminder
 from app.repositories.care_repository import CareRepository
 from app.repositories.contact_repository import ContactRepository
 from app.repositories.diet_repository import DietRepository

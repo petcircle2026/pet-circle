@@ -1,5 +1,5 @@
-"""
-Reminder Repository — Reminder management.
+﻿"""
+Reminder Repository â€” Reminder management.
 
 Manages:
 - Reminder CRUD
@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc
 
-from app.models.reminder import Reminder
+from app.models.preventive.reminder import Reminder
 
 
 class ReminderRepository:
@@ -255,7 +255,7 @@ class ReminderRepository:
 
     def has_sent_today_for_user(self, user_id: UUID, today: date) -> bool:
         """Return True if any reminder was sent today for any pet belonging to user."""
-        from app.models.pet import Pet
+        from app.models.core.pet import Pet
         start = datetime.combine(today, datetime.min.time())
         end = start + timedelta(days=1)
         result = (
@@ -274,7 +274,7 @@ class ReminderRepository:
 
     def has_pending_today_for_user(self, user_id: UUID, today: date) -> bool:
         """Return True if any reminder is pending (due today) for any of the user's pets."""
-        from app.models.pet import Pet
+        from app.models.core.pet import Pet
         result = (
             self.db.query(Reminder.id)
             .join(Pet, Reminder.pet_id == Pet.id)
@@ -316,8 +316,8 @@ class ReminderRepository:
         Fetch (Reminder, Pet, User) tuples for sent reminders with no reply.
         Used by ignore detection in reminder_engine.
         """
-        from app.models.pet import Pet
-        from app.models.user import User
+        from app.models.core.pet import Pet
+        from app.models.core.user import User
         return (
             self.db.query(Reminder, Pet, User)
             .join(Pet, Reminder.pet_id == Pet.id)
@@ -384,3 +384,4 @@ class ReminderRepository:
             )
             .first()
         )
+

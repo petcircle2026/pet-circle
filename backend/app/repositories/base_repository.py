@@ -1,5 +1,5 @@
-"""
-Base Repository — Generic CRUD interface for all repositories.
+﻿"""
+Base Repository â€” Generic CRUD interface for all repositories.
 
 Provides common patterns for database operations:
 - Generic find/create/update/delete
@@ -101,3 +101,4 @@ class BaseRepository(Generic[T]):
         """Refresh entity state from database."""
         self.db.refresh(entity)
         return entity
+

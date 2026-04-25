@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta
@@ -192,3 +192,4 @@ def test_all_stages_present_for_each_template_set() -> None:
 
     for stage_set in grouped.values():
         assert stage_set == {STAGE_T7, STAGE_DUE, STAGE_D3, STAGE_OVERDUE}
+

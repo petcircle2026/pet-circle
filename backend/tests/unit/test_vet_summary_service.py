@@ -1,9 +1,9 @@
-"""
+﻿"""
 Unit tests for vet_summary_service.py.
 
 Covers:
-  - No eligible vet contacts → None returned
-  - Single eligible contact → returned as primary vet
+  - No eligible vet contacts â†’ None returned
+  - Single eligible contact â†’ returned as primary vet
   - Latest document by event_date wins (not most-mentioned)
   - Contacts from Diagnostic / Other docs are ignored
   - Vaccination and Prescription docs are both eligible
@@ -32,7 +32,7 @@ from app.services.dashboard.vet_summary_service import VetSummary, get_vet_summa
 
 
 def _make_db(first_row) -> MagicMock:
-    """Return a mock db session whose .query(…).…chain().first() returns *first_row*."""
+    """Return a mock db session whose .query(â€¦).â€¦chain().first() returns *first_row*."""
     db = MagicMock()
     chain = db.query.return_value
     # Each chained method returns the same chain so that
@@ -56,7 +56,7 @@ def _row(name: str, last_visit: date | None) -> SimpleNamespace:
 
 class TestGetVetSummary:
     def test_no_eligible_contacts_returns_none(self):
-        """No eligible vet contacts for the pet → service returns None."""
+        """No eligible vet contacts for the pet â†’ service returns None."""
         db = _make_db(None)
 
         result = get_vet_summary(db, uuid4())
@@ -64,7 +64,7 @@ class TestGetVetSummary:
         assert result is None
 
     def test_single_eligible_vet_returned(self):
-        """Single eligible contact → returned as VetSummary with correct fields."""
+        """Single eligible contact â†’ returned as VetSummary with correct fields."""
         pet_id = uuid4()
         db = _make_db(_row("Dr. Sharma", date(2024, 6, 15)))
 
@@ -74,7 +74,7 @@ class TestGetVetSummary:
 
     def test_latest_document_vet_is_selected(self):
         """Most recent Prescription/Vaccination document vet is selected (DB ordering applied)."""
-        # The query orders by event_date DESC — DB returns the latest-doc row first.
+        # The query orders by event_date DESC â€” DB returns the latest-doc row first.
         # We simulate that by having first() return the latest row directly.
         db = _make_db(_row("Dr. Patel", date(2024, 10, 1)))
 
@@ -85,7 +85,7 @@ class TestGetVetSummary:
         assert result.last_visit == date(2024, 10, 1)
 
     def test_last_visit_none_when_no_event_date(self):
-        """Vet contact exists but linked document has no event_date → last_visit=None."""
+        """Vet contact exists but linked document has no event_date â†’ last_visit=None."""
         db = _make_db(_row("Dr. Nair", None))
 
         result = get_vet_summary(db, uuid4())
@@ -95,7 +95,7 @@ class TestGetVetSummary:
         assert result.last_visit is None
 
     def test_vaccination_document_is_eligible(self):
-        """Vaccination category documents are eligible — vet from them is returned."""
+        """Vaccination category documents are eligible â€” vet from them is returned."""
         db = _make_db(_row("Dr. Vaccine", date(2024, 3, 20)))
 
         result = get_vet_summary(db, uuid4())
@@ -104,7 +104,7 @@ class TestGetVetSummary:
         assert result.name == "Dr. Vaccine"
 
     def test_prescription_document_is_eligible(self):
-        """Prescription category documents are eligible — vet from them is returned."""
+        """Prescription category documents are eligible â€” vet from them is returned."""
         db = _make_db(_row("Dr. Prescription", date(2024, 5, 10)))
 
         result = get_vet_summary(db, uuid4())
@@ -113,7 +113,7 @@ class TestGetVetSummary:
         assert result.name == "Dr. Prescription"
 
     def test_no_eligible_docs_returns_none_even_if_vet_contacts_exist(self):
-        """Contacts linked only to Diagnostic/Other docs → service returns None."""
+        """Contacts linked only to Diagnostic/Other docs â†’ service returns None."""
         # The DB-level filter on document_category means no rows reach first()
         db = _make_db(None)
 
@@ -130,3 +130,4 @@ class TestGetVetSummary:
 
         filter_call_args = db.query.return_value.join.return_value.filter.call_args
         assert filter_call_args is not None
+

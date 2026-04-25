@@ -20,9 +20,9 @@ from app.core.constants import (
     NUDGE_SOURCE_ORDER,
     NUDGE_TRIGGER_CRON,
 )
-from app.models.nudge import Nudge
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
+from app.models.messaging.nudge import Nudge
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
 from app.repositories.care_repository import CareRepository
 from app.repositories.diet_repository import DietRepository
 from app.repositories.health_repository import HealthRepository

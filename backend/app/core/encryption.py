@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Field-Level PII Encryption
+﻿"""
+PetCircle Phase 1 â€” Field-Level PII Encryption
 
 Provides symmetric encryption for sensitive user data (mobile numbers,
 emails, pincodes) using Fernet (AES-128-CBC with HMAC-SHA256).
@@ -68,7 +68,7 @@ def decrypt_field(token: str) -> str:
     try:
         return _fernet.decrypt(token.encode("utf-8")).decode("utf-8")
     except InvalidToken:
-        logger.error("Failed to decrypt field — invalid token.")
+        logger.error("Failed to decrypt field â€” invalid token.")
         raise
 
 
@@ -88,3 +88,4 @@ def hash_field(value: str) -> str:
     if not value:
         return value
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+

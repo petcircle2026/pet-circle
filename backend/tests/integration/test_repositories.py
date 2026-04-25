@@ -1,4 +1,4 @@
-"""
+﻿"""
 Integration tests for repositories.
 
 Tests verify that repositories correctly encapsulate database access
@@ -472,3 +472,4 @@ class TestHealthRepository:
         assert found is not None
         assert found.test_name == "Hemoglobin"
         assert found.value_numeric == Decimal("13.5")
+

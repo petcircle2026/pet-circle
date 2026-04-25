@@ -1,4 +1,4 @@
-"""
+﻿"""
 Onboarding message handler.
 
 Routes onboarding messages to the OnboardingService.
@@ -51,3 +51,4 @@ class OnboardingHandler(BaseHandler):
 
         service = OnboardingService(db)
         await service.handle_message(user, text, send_fn, message_data=message_data)
+

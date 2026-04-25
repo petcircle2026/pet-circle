@@ -246,8 +246,8 @@ def get_recent_upload_count(pet_id) -> int:
 _EXTRACTION_DELAY_SECONDS: int = 15
 _document_window_sweeper_task: asyncio.Task | None = None
 _DOCUMENT_WINDOW_SWEEP_INTERVAL_SECONDS: int = 60
-from app.models.conflict_flag import ConflictFlag
-from app.models.deferred_care_plan_pending import DeferredCarePlanPending
+from app.models.health.conflict_flag import ConflictFlag
+from app.models.preventive.deferred_care_plan_pending import DeferredCarePlanPending
 from app.domain.onboarding import OnboardingService
 from app.handlers import (
     ConflictHandler,
@@ -256,10 +256,10 @@ from app.handlers import (
     QueryHandler,
     ReminderHandler,
 )
-from app.models.document import Document
-from app.models.pet import Pet
-from app.models.reminder import Reminder
-from app.models.user import User
+from app.models.auth.document import Document
+from app.models.core.pet import Pet
+from app.models.preventive.reminder import Reminder
+from app.models.core.user import User
 from app.services.whatsapp.onboarding import (
     _count_tracked_preventive_items,
     _count_tracked_preventive_items_split,
@@ -954,7 +954,7 @@ async def route_message(db: Session, message_data: dict) -> None:
                 # If already sent, silently ignore non-text messages.
                 from sqlalchemy import String, cast
 
-                from app.models.message_log import MessageLog
+                from app.models.messaging.message_log import MessageLog
                 already_sent = (
                     db.query(MessageLog.id)
                     .filter(
@@ -1491,7 +1491,7 @@ async def _handle_reminder_button(db: Session, user, payload: str) -> None:
 
 async def _handle_conflict_button(db: Session, user, payload: str) -> None:
     """Handle a conflict resolution button response."""
-    from app.models.preventive_record import PreventiveRecord
+    from app.models.preventive.preventive_record import PreventiveRecord
     from app.services.whatsapp.conflict_engine import resolve_conflict
 
     from_number = _get_mobile(user)
@@ -1541,7 +1541,7 @@ async def _handle_conflict_button(db: Session, user, payload: str) -> None:
 
 async def _handle_nudge_button(db: Session, user, payload: str) -> None:
     """Handle a nudge button response (action, dismiss, view dashboard)."""
-    from app.models.dashboard_token import DashboardToken
+    from app.models.auth.dashboard_token import DashboardToken
     from app.services.admin.nudge_sender import record_nudge_engagement
     from app.services.whatsapp.whatsapp_sender import send_text_message
 
@@ -1566,7 +1566,7 @@ async def _handle_nudge_button(db: Session, user, payload: str) -> None:
         )
     elif payload == NUDGE_DISMISS:
         # Dismiss the most recent undismissed nudge
-        from app.models.nudge import Nudge
+        from app.models.messaging.nudge import Nudge
         nudge = (
             db.query(Nudge)
             .filter(
@@ -1943,7 +1943,7 @@ async def run_extraction_batch(
         pet_name:      Pet's display name for error messages.
     """
     from app.database import get_fresh_session
-    from app.models.user import User
+    from app.models.core.user import User
     from app.services.shared.gpt_extraction import extract_and_process_document
 
     pet_key = str(pet_id)
@@ -2292,7 +2292,7 @@ async def _delayed_batch_extraction(
             str(pet_id), total,
         )
 
-        from app.models.user import User
+        from app.models.core.user import User
 
         user = bg_db.query(User).filter(User.id == user_id).first()
         pet = bg_db.query(Pet).filter(Pet.id == pet_id).first()
@@ -2487,9 +2487,9 @@ async def _send_dashboard_links(db, user) -> None:
     from datetime import datetime
 
     from app.config import settings
-    from app.models.dashboard_token import DashboardToken
-    from app.models.preventive_record import PreventiveRecord
-    from app.models.reminder import Reminder
+    from app.models.auth.dashboard_token import DashboardToken
+    from app.models.preventive.preventive_record import PreventiveRecord
+    from app.models.preventive.reminder import Reminder
     from app.services.whatsapp.onboarding import refresh_dashboard_token
 
     from_number = _get_mobile(user)
@@ -2584,7 +2584,7 @@ def _get_dashboard_link(db: Session, pet) -> str | None:
     try:
         from datetime import datetime
 
-        from app.models.dashboard_token import DashboardToken
+        from app.models.auth.dashboard_token import DashboardToken
         from app.services.whatsapp.onboarding import refresh_dashboard_token
 
         token_record = (
@@ -2858,8 +2858,8 @@ async def _send_deferred_care_plan(
                     f"or should I skip it?",
                 )
 
-        from app.models.condition import Condition
-        from app.models.diet_item import DietItem
+        from app.models.health.condition import Condition
+        from app.models.nutrition.diet_item import DietItem
 
         diet_count = db.query(DietItem).filter(DietItem.pet_id == pet.id).count()
         supplement_count = db.query(DietItem).filter(

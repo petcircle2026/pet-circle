@@ -1,4 +1,4 @@
-import os
+﻿import os
 
 os.environ.setdefault("APP_ENV", "test")
 
@@ -127,3 +127,4 @@ def test_get_medicine_recurrence_uses_item_type_in_gpt_only_for_non_dual() -> No
         service._gpt_recurrence = original_gpt
 
     assert calls == [False, True]
+

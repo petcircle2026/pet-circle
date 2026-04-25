@@ -1,5 +1,5 @@
-"""
-Health Repository — Centralized health-related data access.
+﻿"""
+Health Repository â€” Centralized health-related data access.
 
 Manages queries for WeightHistory, Condition, DiagnosticTestResult, and related
 health metrics. This is the single source of truth for all health-related queries.
@@ -12,11 +12,11 @@ from decimal import Decimal
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.weight_history import WeightHistory
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.diagnostic_test_result import DiagnosticTestResult
+from app.models.health.weight_history import WeightHistory
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
 
 
 class HealthRepository:
@@ -340,7 +340,7 @@ class HealthRepository:
         )
 
     def find_active_conditions(self, pet_id: UUID) -> list[Condition]:
-        """Alias for get_active_conditions_with_relations — used by nudge engine."""
+        """Alias for get_active_conditions_with_relations â€” used by nudge engine."""
         return self.get_active_conditions_with_relations(pet_id)
 
     def has_active_condition(self, pet_id: UUID) -> bool:
@@ -359,3 +359,4 @@ class HealthRepository:
             .filter(Condition.pet_id == pet_id)
             .first() is not None
         )
+

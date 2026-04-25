@@ -1,5 +1,5 @@
-"""
-PetCircle — Database Migration Script for Order Recommendations
+﻿"""
+PetCircle â€” Database Migration Script for Order Recommendations
 
 Applies the database schema changes for order recommendations and pet preferences.
 
@@ -81,14 +81,15 @@ def migrate():
                     logger.info(f"Executing: {statement[:50]}...")
                     connection.execute(text(statement))
         
-        logger.info("✓ Migration completed successfully")
+        logger.info("âœ“ Migration completed successfully")
         return True
     
     except Exception as e:
-        logger.error(f"✗ Migration failed: {e}", exc_info=True)
+        logger.error(f"âœ— Migration failed: {e}", exc_info=True)
         return False
 
 
 if __name__ == "__main__":
     success = migrate()
     exit(0 if success else 1)
+

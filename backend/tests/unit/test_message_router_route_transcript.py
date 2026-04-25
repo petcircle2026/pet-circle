@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 from types import SimpleNamespace
 
 from app.services import message_router
@@ -216,3 +216,4 @@ def test_route_message_onboarding_uses_uppercase_button_payload_as_text(monkeypa
     asyncio.run(message_router.route_message(db, msg))  # type: ignore[arg-type]
 
     assert captured["text"] == "NO"
+

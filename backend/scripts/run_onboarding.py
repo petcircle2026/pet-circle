@@ -1,5 +1,5 @@
-"""
-run_onboarding.py — Simulates full WhatsApp onboarding for E2E testing.
+﻿"""
+run_onboarding.py â€” Simulates full WhatsApp onboarding for E2E testing.
 
 Creates two test users via the onboarding service (same pattern as test_e2e.py):
   1. FULL_TOKEN: Zayn, Labrador, all values filled in
@@ -18,15 +18,15 @@ import asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal
-from app.models.user import User
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
-from app.models.dashboard_token import DashboardToken
-from app.models.document import Document
-from app.models.conflict_flag import ConflictFlag
-from app.models.diet_item import DietItem
-from app.models.hygiene_preference import HygienePreference
+from app.models.core.user import User
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
+from app.models.auth.dashboard_token import DashboardToken
+from app.models.auth.document import Document
+from app.models.health.conflict_flag import ConflictFlag
+from app.models.nutrition.diet_item import DietItem
+from app.models.nutrition.hygiene_preference import HygienePreference
 from app.services.whatsapp.onboarding import create_pending_user, handle_onboarding_step
 from app.core.encryption import hash_field
 
@@ -62,7 +62,7 @@ def cleanup_user(db, mobile: str):
 
 
 async def mock_send(db, to, text):
-    """No-op send function — suppresses WhatsApp API calls during test."""
+    """No-op send function â€” suppresses WhatsApp API calls during test."""
     pass
 
 
@@ -98,12 +98,12 @@ def run_onboarding(db, mobile: str, steps: list[tuple[str, str]]) -> str:
 def main():
     db = SessionLocal()
     try:
-        # ── Clean up previous test data ──────────────────────────────────────
+        # â”€â”€ Clean up previous test data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         print("Cleaning up previous test data...", file=sys.stderr)
         cleanup_user(db, FULL_MOBILE)
         cleanup_user(db, EMPTY_MOBILE)
 
-        # ── RUN A: Full Zayn — every field filled in ─────────────────────────
+        # â”€â”€ RUN A: Full Zayn â€” every field filled in â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         print("Running FULL onboarding (Zayn)...", file=sys.stderr)
         full_steps = [
             ("consent",       "yes"),
@@ -126,7 +126,7 @@ def main():
         full_token = run_onboarding(db, FULL_MOBILE, full_steps)
         print(f"FULL onboarding complete. Token: {full_token[:8]}...", file=sys.stderr)
 
-        # ── RUN B: Empty / skipped — minimal data ────────────────────────────
+        # â”€â”€ RUN B: Empty / skipped â€” minimal data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         print("Running EMPTY onboarding (Skippy)...", file=sys.stderr)
         empty_steps = [
             ("consent",       "yes"),
@@ -149,7 +149,7 @@ def main():
         empty_token = run_onboarding(db, EMPTY_MOBILE, empty_steps)
         print(f"EMPTY onboarding complete. Token: {empty_token[:8]}...", file=sys.stderr)
 
-        # ── Output tokens to stdout for global-setup.ts ──────────────────────
+        # â”€â”€ Output tokens to stdout for global-setup.ts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         print(f"FULL_TOKEN={full_token}")
         print(f"EMPTY_TOKEN={empty_token}")
 
@@ -159,3 +159,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

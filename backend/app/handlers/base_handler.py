@@ -1,9 +1,9 @@
-"""
+﻿"""
 Abstract base handler for WhatsApp message routing.
 
 All message handlers inherit from BaseHandler and implement:
-- can_handle(message_data) -> bool — return True if this handler should process the message
-- handle(db, user, message_data, send_fn) -> None — process the message
+- can_handle(message_data) -> bool â€” return True if this handler should process the message
+- handle(db, user, message_data, send_fn) -> None â€” process the message
 
 Pattern: Handlers are tried in priority order. First handler where can_handle() returns True wins.
 """
@@ -50,3 +50,4 @@ class BaseHandler(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}>"
+

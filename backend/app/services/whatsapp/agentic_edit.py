@@ -388,8 +388,8 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
     Build a human-readable summary of the pet's current profile, diet, and
     preventive records to inject into the Claude system prompt.
     """
-    from app.models.diet_item import DietItem
-    from app.models.preventive_record import PreventiveRecord
+    from app.models.nutrition.diet_item import DietItem
+    from app.models.preventive.preventive_record import PreventiveRecord
     
     pet = primary_pet
     lines = []
@@ -453,7 +453,7 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
         lines.append("\nNo preventive records.")
 
     # --- Contacts ---
-    from app.models.contact import Contact
+    from app.models.core.contact import Contact
 
     contacts = (
         db.query(Contact)
@@ -652,7 +652,7 @@ def _tool_update_diet_item(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_add_diet_item(db: Session, pet, tool_input: dict) -> str:
     """Add a new diet item."""
-    from app.models.diet_item import DietItem
+    from app.models.nutrition.diet_item import DietItem
 
     label = tool_input.get("label", "").strip()
     detail = tool_input.get("detail", "").strip() or None
@@ -694,7 +694,7 @@ def _tool_remove_diet_item(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
     """Update a preventive record's last_done_date and/or medicine_name."""
-    from app.models.reminder import Reminder
+    from app.models.preventive.reminder import Reminder
     from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
 
     item_name = tool_input.get("item_name", "").strip()
@@ -728,7 +728,7 @@ def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
         # For custom items (master is None), look up the CustomPreventiveItem
         # to get the correct recurrence_days rather than falling back to 365.
         if master is None and record.custom_preventive_item_id:
-            from app.models.custom_preventive_item import CustomPreventiveItem
+            from app.models.preventive.custom_preventive_item import CustomPreventiveItem
             custom_item = (
                 db.query(CustomPreventiveItem)
                 .filter(CustomPreventiveItem.id == record.custom_preventive_item_id)
@@ -768,8 +768,8 @@ def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_add_preventive_record(db: Session, user, pet, tool_input: dict) -> str:
     """Add a new custom preventive record (supplement, medication, or vaccine)."""
-    from app.models.custom_preventive_item import CustomPreventiveItem
-    from app.models.preventive_record import PreventiveRecord
+    from app.models.preventive.custom_preventive_item import CustomPreventiveItem
+    from app.models.preventive.preventive_record import PreventiveRecord
     from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
 
     item_name = tool_input.get("item_name", "").strip()
@@ -853,7 +853,7 @@ def _tool_remove_preventive_record(db: Session, pet, tool_input: dict) -> str:
 
 def _tool_update_contact(db: Session, pet, tool_input: dict) -> str:
     """Update (or create) a contact for the pet."""
-    from app.models.contact import Contact
+    from app.models.core.contact import Contact
 
     current_name = tool_input.get("current_name", "").strip()
     new_name = tool_input.get("new_name", "").strip() or None
@@ -1015,7 +1015,7 @@ def _serialize_block(block) -> dict:
 
 def _find_diet_item(db: Session, pet_id, label: str):
     """Find a diet item by case-insensitive partial label match."""
-    from app.models.diet_item import DietItem
+    from app.models.nutrition.diet_item import DietItem
 
     label_lower = label.lower()
     items = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
@@ -1035,8 +1035,8 @@ def _find_preventive_record(db: Session, pet_id, item_name: str):
     Find the most recent preventive record for a pet by item name (partial match).
     Returns (PreventiveRecord, PreventiveMaster | None).
     """
-    from app.models.preventive_record import PreventiveRecord
-    from app.models.custom_preventive_item import CustomPreventiveItem
+    from app.models.preventive.preventive_record import PreventiveRecord
+    from app.models.preventive.custom_preventive_item import CustomPreventiveItem
 
     name_lower = item_name.lower()
 
@@ -1214,7 +1214,7 @@ async def handle_agentic_edit_intent(db: Session, user, message_data: dict, send
 
     Initialises the edit session and hands off to handle_agentic_edit_step.
     """
-    from app.models.pet import Pet
+    from app.models.core.pet import Pet
 
     mobile = _get_mobile(user)
 
@@ -1261,7 +1261,7 @@ async def handle_agentic_edit_step(db: Session, user, message_data: dict, send_t
 
     Called for every incoming message while user.edit_state == "agentic_edit".
     """
-    from app.models.pet import Pet
+    from app.models.core.pet import Pet
 
     mobile = _get_mobile(user)
     text = (message_data.get("text") or "").strip()

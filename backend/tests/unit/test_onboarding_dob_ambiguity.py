@@ -1,4 +1,4 @@
-from datetime import date
+﻿from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -80,3 +80,4 @@ async def test_step_dob_confirm_yes_advances_to_weight(monkeypatch):
     assert db.commits == 1
     assert sent_messages
     assert "weight" in sent_messages[0].lower()
+

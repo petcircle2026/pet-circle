@@ -575,7 +575,7 @@ async def dashboard_retry_all_failed(
 
     import asyncio as _asyncio
 
-    from app.models.document import Document as DocumentModel
+    from app.models.auth.document import Document as DocumentModel
     from app.services.shared.document_upload import download_from_supabase
     from app.services.shared.gpt_extraction import extract_and_process_document
 
@@ -646,7 +646,7 @@ async def dashboard_delete_document(
     Raises:
         HTTPException 404: If token invalid or document not found for this pet.
     """
-    from app.models.document import Document
+    from app.models.auth.document import Document
     from app.services.shared.storage_service import delete_file
 
     try:
@@ -689,7 +689,7 @@ async def dashboard_upload_document(
     except ValueError:
         raise HTTPException(status_code=404, detail="Dashboard not found or link has expired.")
 
-    from app.models.pet import Pet
+    from app.models.core.pet import Pet
 
     pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
     if not pet:
@@ -1250,7 +1250,7 @@ async def dashboard_weight_history(
     """Get weight history entries and ideal range for a pet."""
     try:
         dt = validate_dashboard_token(db, token)
-        from app.models.pet import Pet
+        from app.models.core.pet import Pet
         pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
         return await get_weight_history(db, dt.pet_id, pet)
     except ValueError:
@@ -1844,7 +1844,7 @@ async def dashboard_hygiene_preferences(
     try:
         dt = validate_dashboard_token(db, token)
         # Fetch pet info for breed-specific tip generation
-        from app.models.pet import Pet
+        from app.models.core.pet import Pet
         pet = db.query(Pet).filter(Pet.id == dt.pet_id).first()
         species = pet.species if pet else None
         breed = pet.breed if pet else None

@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 import pytest
 
@@ -182,3 +182,4 @@ async def test_step_breed_when_species_pending_asks_species(monkeypatch):
     assert sent_messages
     assert "dog" in sent_messages[0].lower()
     assert "cat" in sent_messages[0].lower()
+

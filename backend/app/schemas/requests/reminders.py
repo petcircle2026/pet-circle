@@ -1,4 +1,4 @@
-"""Reminders request DTOs."""
+﻿"""Reminders request DTOs."""
 
 from pydantic import BaseModel, Field
 
@@ -31,3 +31,4 @@ class MarkReminderDoneRequest(BaseModel):
                 "completion_date": "2026-04-25",
             }
         }
+

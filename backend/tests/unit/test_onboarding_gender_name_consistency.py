@@ -1,4 +1,4 @@
-import os
+﻿import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -120,7 +120,7 @@ async def test_step_gender_weight_flags_pronoun_inconsistency(monkeypatch) -> No
 
     assert user.onboarding_state == "awaiting_gender_weight"
     sent_text = send_fn.await_args_list[-1].args[2]
-    assert sent_text == "Just to confirm — Bruno is female and spayed, right?"
+    assert sent_text == "Just to confirm â€” Bruno is female and spayed, right?"
 
 
 @pytest.mark.asyncio
@@ -254,3 +254,4 @@ async def test_step_gender_weight_gender_choice_reply_advances(monkeypatch) -> N
     assert pet.weight == 28.0
     assert pet.neutered is True
     assert "What does Bruno usually eat" in send_fn.await_args_list[-1].args[2]
+

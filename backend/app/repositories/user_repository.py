@@ -1,5 +1,5 @@
-"""
-User Repository — User and dashboard token access.
+﻿"""
+User Repository â€” User and dashboard token access.
 
 Manages:
 - User entity CRUD
@@ -14,8 +14,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 
-from app.models.user import User
-from app.models.dashboard_token import DashboardToken
+from app.models.core.user import User
+from app.models.auth.dashboard_token import DashboardToken
 
 
 class UserRepository:
@@ -242,3 +242,4 @@ class UserRepository:
     def token_exists(self, token_value: str) -> bool:
         """Check if an active token exists."""
         return self.find_token_by_value(token_value) is not None
+

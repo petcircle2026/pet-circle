@@ -42,8 +42,8 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
-from app.models.order import Order
-from app.models.pet import Pet
+from app.models.commerce.order import Order
+from app.models.core.pet import Pet
 from app.services.shared.recommendation_service import (
     get_or_generate_recommendations,
     get_pet_top_preferences,

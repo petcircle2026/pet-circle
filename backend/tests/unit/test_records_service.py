@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
@@ -89,7 +89,7 @@ async def test_get_records_does_not_mark_scanned_text_as_imaging(monkeypatch):
     result = await get_records(SimpleNamespace(), pet)
 
     assert result["records"][0]["type"] == "lab_reports"
-    assert result["records"][0]["icon"] == "📄"
+    assert result["records"][0]["icon"] == "ðŸ“„"
 
 
 @pytest.mark.asyncio
@@ -164,3 +164,4 @@ async def test_get_records_returns_empty_lists_for_empty_data(monkeypatch):
     result = await get_records(SimpleNamespace(), pet)
 
     assert result == {"vet_visits": [], "records": []}
+

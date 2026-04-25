@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -34,7 +34,7 @@ async def test_get_health_trends_assembles_all_sections(monkeypatch):
     condition = SimpleNamespace(
         id=uuid4(),
         name="Dermatitis",
-        icon="🧴",
+        icon="ðŸ§´",
         condition_type="chronic",
         diagnosed_at=date(2025, 2, 2),
         medications=[SimpleNamespace(name="Med-A", dose="1 tab", frequency="daily", status="active", started_at=date(2025, 2, 5))],
@@ -156,3 +156,4 @@ def test_flea_tick_gap_uses_previous_completed_dose_only():
     assert doses[2]["gap"] == "14w"
     assert doses[2]["status"] == "red"
     assert doses[2]["gap_alert"] is True
+

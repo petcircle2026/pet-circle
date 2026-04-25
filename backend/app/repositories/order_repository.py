@@ -1,5 +1,5 @@
-"""
-Order Repository — Order and order recommendation access.
+﻿"""
+Order Repository â€” Order and order recommendation access.
 
 Manages:
 - Order CRUD
@@ -14,8 +14,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func
 
-from app.models.order import Order
-from app.models.order_recommendation import OrderRecommendation
+from app.models.commerce.order import Order
+from app.models.commerce.order_recommendation import OrderRecommendation
 
 
 class OrderRepository:
@@ -239,3 +239,33 @@ class OrderRepository:
             )
             .all()
         )
+
+    def find_latest_qualifying_order(
+        self, pet_id: UUID, product_label: str, qualifying_statuses: tuple[str, ...] = ("confirmed", "completed", "placed", "delivered")
+    ) -> Order | None:
+        """
+        Find the latest order matching pet_id, product label, and status.
+        Used by care_plan_engine._check_reorder_status for reorder CTA logic.
+
+        Args:
+            pet_id: Pet ID
+            product_label: Product name / label to match (case-insensitive)
+            qualifying_statuses: Tuple of allowed statuses
+
+        Returns:
+            Latest matching Order or None.
+        """
+        return (
+            self.db.query(Order)
+            .filter(
+                Order.pet_id == pet_id,
+                Order.status.in_(qualifying_statuses),
+            )
+            .filter(
+                (Order.product_name.ilike(f"%{product_label}%")) |
+                (Order.items_description.ilike(f"%{product_label}%"))
+            )
+            .order_by(Order.created_at.desc())
+            .first()
+        )
+

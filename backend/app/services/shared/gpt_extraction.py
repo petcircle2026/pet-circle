@@ -51,16 +51,16 @@ from app.core.constants import (
     OPENAI_EXTRACTION_MODEL,
     OPENAI_EXTRACTION_TEMPERATURE,
 )
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.contact import Contact
-from app.models.custom_preventive_item import CustomPreventiveItem
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.document import Document
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.weight_history import WeightHistory
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.core.contact import Contact
+from app.models.preventive.custom_preventive_item import CustomPreventiveItem
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
+from app.models.auth.document import Document
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.health.weight_history import WeightHistory
 from app.utils.date_utils import format_date_for_db, parse_date
 from app.utils.retry import retry_openai_call
 

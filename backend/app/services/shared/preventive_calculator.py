@@ -24,7 +24,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.preventive_record import PreventiveRecord
+from app.models.preventive.preventive_record import PreventiveRecord
 from app.repositories.preventive_master_repository import PreventiveMasterRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.utils.date_utils import get_today_ist

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Seed the preventive master table.
 
 Usage:
@@ -28,3 +28,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

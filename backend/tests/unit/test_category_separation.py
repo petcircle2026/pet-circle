@@ -1,4 +1,4 @@
-"""Unit tests for category separation and duplicate-safe fallback messaging."""
+﻿"""Unit tests for category separation and duplicate-safe fallback messaging."""
 
 from types import SimpleNamespace
 
@@ -32,3 +32,4 @@ def test_filter_recommendations_excludes_existing_names():
     filtered = _filter_recommendations_against_existing(items, existing_names)
 
     assert [item["name"] for item in filtered] == ["Calcium Plus"]
+

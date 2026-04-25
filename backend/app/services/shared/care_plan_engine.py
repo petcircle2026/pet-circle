@@ -26,13 +26,13 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.custom_preventive_item import CustomPreventiveItem
-from app.models.diet_item import DietItem
-from app.models.order import Order
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.preventive.custom_preventive_item import CustomPreventiveItem
+from app.models.nutrition.diet_item import DietItem
+from app.models.commerce.order import Order
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
 from app.services.dashboard.signal_resolver import (
     SignalLevel,
     SignalResult,
@@ -789,19 +789,13 @@ def _check_reorder_status(
     the pack supply is running low.
     """
     try:
+        from app.repositories.order_repository import OrderRepository
         label = (diet_label or "").strip()
         if not label:
             return None, _STATUS_ACTIVE
 
-        order_query = db.query(Order).filter(Order.pet_id == pet_id)
-
-        if hasattr(Order, "product_name"):
-            order_query = order_query.filter(Order.product_name.ilike(f"%{label}%"))
-        else:
-            order_query = order_query.filter(Order.items_description.ilike(f"%{label}%"))
-
-        order_query = order_query.filter(Order.status.in_(_QUALIFYING_ORDER_STATUSES))
-        latest_order = order_query.order_by(Order.created_at.desc()).first()
+        order_repo = OrderRepository(db)
+        latest_order = order_repo.find_latest_qualifying_order(pet_id, label, _QUALIFYING_ORDER_STATUSES)
         if latest_order is None:
             return None, _STATUS_ACTIVE
 
@@ -981,22 +975,11 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # Track medicine_name per item_key for dual-use frequency unification.
         medicine_by_key: dict[str, str] = {}
 
-        record_rows = (
-            db.query(PreventiveRecord, PreventiveMaster, CustomPreventiveItem)
-            .outerjoin(
-                PreventiveMaster,
-                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-            )
-            .outerjoin(
-                CustomPreventiveItem,
-                PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
-            )
-            .filter(
-                PreventiveRecord.pet_id == pet.id,
-                PreventiveRecord.status != "cancelled",
-            )
-            .all()
-        )
+        from app.repositories.preventive_repository import PreventiveRepository
+        preventive_repo = PreventiveRepository(db)
+        record_rows = preventive_repo.get_by_pet_with_master(pet.id)
+        # Transform to (record, master, custom_item) tuples for compatibility
+        record_rows = [(r, r.preventive_master, r.custom_preventive_item) for r in record_rows]
 
         # Skip one-time puppy-series items (recurrence_days >= 36500) for
         # non-puppy pets.  Adults should only see the annual DHPPi + Rabies.
@@ -1069,17 +1052,9 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # Join via Condition to ensure we only pick up medications for this pet.
         prescriptions_by_key: dict[str, _Prescription] = {}
 
-        active_meds = (
-            db.query(ConditionMedication)
-            .join(Condition, ConditionMedication.condition_id == Condition.id)
-            .options(joinedload(ConditionMedication.condition))
-            .filter(
-                Condition.pet_id == pet.id,
-                ConditionMedication.status == "active",
-                ConditionMedication.refill_due_date.isnot(None),
-            )
-            .all()
-        )
+        from app.repositories.care_repository import CareRepository
+        care_repo = CareRepository(db)
+        active_meds = care_repo.find_active_condition_medications_with_refill(pet.id)
 
         for med in active_meds:
             test_type = _normalize_item_name(med.name)
@@ -1133,15 +1108,9 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # are NOT injected here: they only appear when an actual record exists
         # (i.e., the user said their pet receives those vaccines).
         try:
-            _mandatory_masters_raw = (
-                db.query(PreventiveMaster)
-                .filter(
-                    PreventiveMaster.is_mandatory == True,
-                    PreventiveMaster.species.in_([pet.species, "both"]),
-                )
-                .all()
-            )
-            mandatory_masters = _mandatory_masters_raw if isinstance(_mandatory_masters_raw, list) else []
+            from app.repositories.preventive_master_repository import PreventiveMasterRepository
+            master_repo = PreventiveMasterRepository(db)
+            mandatory_masters = master_repo.find_mandatory_by_species(pet.species)
         except Exception:
             logger.warning("Failed to load mandatory preventive masters; skipping phantom entries")
             mandatory_masters = []
@@ -1200,13 +1169,11 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         product_freq_by_medicine: dict[str, str] = {}
         if medicine_by_key:
             try:
+                from app.repositories.preventive_master_repository import PreventiveMasterRepository
+                master_repo = PreventiveMasterRepository(db)
                 _names_lc = {m for m in medicine_by_key.values() if m}
                 if _names_lc:
-                    rows = (
-                        db.query(ProductMedicines.product_name, ProductMedicines.repeat_frequency)
-                        .filter(ProductMedicines.repeat_frequency.isnot(None))
-                        .all()
-                    )
+                    rows = master_repo.find_product_medicines_with_repeat_frequency()
                     for product_name, repeat_freq in rows:
                         if not product_name or not repeat_freq:
                             continue
@@ -1341,17 +1308,8 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # Attend To section. They don't require a refill_due_date to appear here —
         # just status="active" and item_type="medicine" is enough.
         try:
-            all_condition_meds = (
-                db.query(ConditionMedication)
-                .join(Condition, ConditionMedication.condition_id == Condition.id)
-                .options(joinedload(ConditionMedication.condition))
-                .filter(
-                    Condition.pet_id == pet.id,
-                    ConditionMedication.status == "active",
-                    ConditionMedication.item_type == "medicine",
-                )
-                .all()
-            )
+            care_repo = CareRepository(db)
+            all_condition_meds = care_repo.find_active_condition_medications_all(pet.id)
             for clin_med in all_condition_meds:
                 # Filter out expired medicines: if end_date is set, it must be today or later
                 if clin_med.end_date and clin_med.end_date < today:
@@ -1398,20 +1356,15 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # ── Add orderable food / supplements to Continue bucket ──────────────
         # Requirement 9.12: place ongoing food and supplements in Continue.
         try:
-            diet_rows = (
-                db.query(DietItem)
-                .filter(DietItem.pet_id == pet.id)
-                .all()
-            )
+            from app.repositories.diet_repository import DietRepository
+            diet_repo = DietRepository(db)
+            diet_rows = diet_repo.find_all_by_pet_id(pet.id)
 
             # Fetch active conditions once for signal resolution.
             pet_conditions: list[Condition] = []
             if diet_rows:
-                pet_conditions = (
-                    db.query(Condition)
-                    .filter(Condition.pet_id == pet.id, Condition.is_active.is_(True))
-                    .all()
-                )
+                care_repo = CareRepository(db)
+                pet_conditions = care_repo.find_active_conditions_for_pet(pet.id)
 
             for diet_item in diet_rows:
                 if not diet_item.label:
@@ -1472,31 +1425,16 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # Supplements from uploaded documents that don't match WhatsApp-mentioned
         # supplements and haven't expired should appear in Attend To.
         try:
+            diet_repo = DietRepository(db)
             # Get all manual supplements (from WhatsApp) to check for duplicates
             manual_supplement_names: set[str] = set()
-            manual_supplements = (
-                db.query(DietItem)
-                .filter(
-                    DietItem.pet_id == pet.id,
-                    DietItem.type == "supplement",
-                    DietItem.source == "manual",
-                )
-                .all()
-            )
+            manual_supplements = diet_repo.find_by_pet_with_type_and_source(pet.id, "supplement", "manual")
             for ms in manual_supplements:
                 if ms.label:
                     manual_supplement_names.add(ms.label.lower().strip())
 
             # Get document-extracted supplements
-            doc_supplements = (
-                db.query(DietItem)
-                .filter(
-                    DietItem.pet_id == pet.id,
-                    DietItem.type == "supplement",
-                    DietItem.source == "document_extracted",
-                )
-                .all()
-            )
+            doc_supplements = diet_repo.find_by_pet_with_type_and_source(pet.id, "supplement", "document_extracted")
 
             for doc_supp in doc_supplements:
                 if not doc_supp.label:

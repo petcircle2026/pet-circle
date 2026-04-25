@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 from functools import lru_cache
@@ -280,3 +280,4 @@ def test_each_excel_scenario_is_well_formed(test_id: str) -> None:
     assert len(str(case["Expected System Behaviour"]).strip()) >= 20, (
         f"{test_id} expected behaviour text is too short"
     )
+

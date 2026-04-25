@@ -1,5 +1,5 @@
-"""
-Nudge Repository — Nudge campaign management.
+﻿"""
+Nudge Repository â€” Nudge campaign management.
 
 Manages:
 - Nudge CRUD
@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
-from app.models.nudge import Nudge
+from app.models.messaging.nudge import Nudge
 from app.models.cache.nudge_delivery_log import NudgeDeliveryLog
 from app.models.cache.nudge_engagement import NudgeEngagement
 
@@ -392,3 +392,4 @@ class NudgeRepository:
         )
         self.db.flush()
         return count
+

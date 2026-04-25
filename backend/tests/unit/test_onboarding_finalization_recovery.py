@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 from app.services import onboarding
 
@@ -154,3 +154,4 @@ def test_persist_deferred_marker_with_fallback_no_legacy_attr(monkeypatch):
 
     assert db.rollbacks == 1
     assert db.commits == 0
+

@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -120,3 +120,4 @@ def test_dashboard_v2_endpoints_return_404_for_invalid_token(monkeypatch, api_cl
 
     assert trends.status_code == 404
     assert records.status_code == 404
+

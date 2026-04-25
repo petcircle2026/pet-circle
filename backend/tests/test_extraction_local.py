@@ -1,10 +1,10 @@
-"""
-Local GPT Extraction Test — runs against Sample_Reports.
+﻿"""
+Local GPT Extraction Test â€” runs against Sample_Reports.
 
 Tests:
-    - Image files (JPEG/PNG) → GPT vision API
-    - PDF files → PyPDF2 text extraction → GPT text API
-    - Scanned PDFs → PyMuPDF render → GPT vision fallback
+    - Image files (JPEG/PNG) â†’ GPT vision API
+    - PDF files â†’ PyPDF2 text extraction â†’ GPT text API
+    - Scanned PDFs â†’ PyMuPDF render â†’ GPT vision fallback
     - Diagnostic values extraction (CBC, urine parameters)
     - Vaccination detail extraction (doses, batch numbers, next due dates)
     - Prescription extraction
@@ -191,7 +191,7 @@ def _print_diagnostic_values(diagnostic_values: list[dict], indent: str = "    "
         by_type.setdefault(tt, []).append(val)
 
     for test_type, values in sorted(by_type.items()):
-        _safe_print(f"{indent}[{test_type.upper()}] — {len(values)} parameters:")
+        _safe_print(f"{indent}[{test_type.upper()}] â€” {len(values)} parameters:")
         for val in values:
             name = val.get("parameter_name", "?")
             numeric = val.get("value_numeric")
@@ -327,7 +327,7 @@ async def test_extraction():
 
     files = sorted(os.listdir(fixtures_dir))
     print(f"\n{'='*80}")
-    print(f"GPT Extraction Test — {len(files)} files in {os.path.relpath(fixtures_dir, repo_root)}")
+    print(f"GPT Extraction Test â€” {len(files)} files in {os.path.relpath(fixtures_dir, repo_root)}")
     print(f"{'='*80}\n")
 
     results = []
@@ -352,14 +352,14 @@ async def test_extraction():
 
         try:
             if ext in ("jpg", "jpeg", "png"):
-                # Image → vision API
+                # Image â†’ vision API
                 mime = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
                 data_uri = encode_image_base64(file_bytes, mime)
                 print(f"  Type: Image ({mime}), using vision API")
                 parsed_dict = await _call_openai_extraction_vision(data_uri)
 
             elif ext == "pdf":
-                # PDF → text extraction first
+                # PDF â†’ text extraction first
                 pdf_text = extract_pdf_text(file_bytes)
                 text_len = len(pdf_text.strip())
                 print(f"  Type: PDF, extracted text: {text_len} chars")
@@ -369,8 +369,8 @@ async def test_extraction():
                         f"Veterinary document text:\n\n{pdf_text}"
                     )
                 else:
-                    # Scanned PDF — try vision fallback.
-                    print("  Scanned PDF — trying vision fallback...")
+                    # Scanned PDF â€” try vision fallback.
+                    print("  Scanned PDF â€” trying vision fallback...")
                     page_images = render_pdf_pages_as_images(file_bytes, max_pages=3)
                     if page_images:
                         print(f"  Rendered {len(page_images)} page(s) as images")
@@ -554,7 +554,7 @@ async def test_extraction():
             ) or "(no preventive items)"
             diag_str = f", {r['diagnostic_values_count']} diag params" if r.get("diagnostic_values_count") else ""
             vacc_str = f", {r['vaccination_details_count']} vacc rows" if r.get("vaccination_details_count") else ""
-            print(f"  {r['file']}: {r['items_count']} items — {items_str}{diag_str}{vacc_str}")
+            print(f"  {r['file']}: {r['items_count']} items â€” {items_str}{diag_str}{vacc_str}")
 
     if failed:
         print("\n--- Failed Extractions ---")
@@ -588,3 +588,4 @@ async def test_extraction():
 
 if __name__ == "__main__":
     asyncio.run(test_extraction())
+

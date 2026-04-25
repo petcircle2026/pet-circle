@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for reminder_logic (pure functions, no DB).
 
 Tests: stage determination, snooze calculation, category classification.
@@ -214,3 +214,4 @@ class TestReminderBatching:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

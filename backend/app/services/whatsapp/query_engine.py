@@ -46,20 +46,20 @@ from app.core.constants import (
     OPENAI_QUERY_MODEL,
     OPENAI_QUERY_TEMPERATURE,
 )
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.contact import Contact
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.diet_item import DietItem
-from app.models.document import Document
-from app.models.pet import Pet
-from app.models.pet_ai_insight import PetAiInsight
-from app.models.pet_life_stage_trait import PetLifeStageTrait
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
-from app.models.user import User
-from app.models.weight_history import WeightHistory
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.core.contact import Contact
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
+from app.models.nutrition.diet_item import DietItem
+from app.models.auth.document import Document
+from app.models.core.pet import Pet
+from app.models.pet_profile.pet_ai_insight import PetAiInsight
+from app.models.pet_profile.pet_life_stage_trait import PetLifeStageTrait
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
+from app.models.core.user import User
+from app.models.health.weight_history import WeightHistory
 from app.services.shared.diet_service import split_diet_items_by_type
 from app.utils.retry import retry_openai_call
 

@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — File Reader Utility
+﻿"""
+PetCircle Phase 1 â€” File Reader Utility
 
 Reads uploaded file content for GPT extraction:
     - Images (JPEG/PNG): Base64-encodes for GPT vision API.
@@ -7,7 +7,7 @@ Reads uploaded file content for GPT extraction:
 
 Rules:
     - No file content is stored in memory beyond the extraction call.
-    - PDF text extraction is best-effort — scanned PDFs yield empty text.
+    - PDF text extraction is best-effort â€” scanned PDFs yield empty text.
     - Scanned PDFs are rendered to JPEG images for GPT vision fallback.
     - All errors are logged but never crash the caller.
 """
@@ -28,8 +28,8 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
     Base64-encode image bytes for the Anthropic vision API.
 
     Enforces two Anthropic API limits:
-      1. Max 8000px per dimension  → resizes down proportionally.
-      2. Max 5MB base64 payload    → reduces JPEG quality in steps until within limit.
+      1. Max 8000px per dimension  â†’ resizes down proportionally.
+      2. Max 5MB base64 payload    â†’ reduces JPEG quality in steps until within limit.
 
     Args:
         file_bytes: Raw image bytes.
@@ -53,7 +53,7 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
                 orig_w, orig_h, img.width, img.height,
             )
 
-        # Step 2: base64 size cap — reduce JPEG quality until under limit.
+        # Step 2: base64 size cap â€” reduce JPEG quality until under limit.
         fmt = "JPEG" if mime_type == "image/jpeg" else "PNG"
         quality = 92
         while True:
@@ -67,7 +67,7 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
             if quality > 60:
                 quality -= 10
             else:
-                # Quality reduction alone isn't enough — halve dimensions.
+                # Quality reduction alone isn't enough â€” halve dimensions.
                 img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
                 quality = 85
                 logger.debug(
@@ -138,7 +138,7 @@ def render_pdf_pages_as_images(file_bytes: bytes, max_pages: int = 3) -> list[st
         import fitz  # PyMuPDF
     except ImportError:
         logger.error(
-            "PyMuPDF (fitz) is not installed — cannot render scanned PDF pages. "
+            "PyMuPDF (fitz) is not installed â€” cannot render scanned PDF pages. "
             "Install with: pip install PyMuPDF"
         )
         return []
@@ -171,3 +171,4 @@ def render_pdf_pages_as_images(file_bytes: bytes, max_pages: int = 3) -> list[st
         logger.error("PDF page rendering failed: %s", str(e))
 
     return data_uris
+

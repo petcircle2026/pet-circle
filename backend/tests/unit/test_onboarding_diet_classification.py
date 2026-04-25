@@ -1,5 +1,5 @@
-"""
-Bug 3 — Strict brand-only diet classification.
+﻿"""
+Bug 3 â€” Strict brand-only diet classification.
 
 _parse_diet_input must classify each extracted item with a 'kind' of
 brand / ingredient / generic_treat. _store_meal_items must persist ONLY
@@ -68,7 +68,7 @@ async def test_parse_diet_input_defaults_missing_kind_to_ingredient(
     async def fake_retry(_call, **kwargs):
         return _mock_gpt_response(
             [
-                {"label": "Royal Canin", "detail": ""},  # no kind → default ingredient
+                {"label": "Royal Canin", "detail": ""},  # no kind â†’ default ingredient
             ]
         )
 
@@ -76,7 +76,7 @@ async def test_parse_diet_input_defaults_missing_kind_to_ingredient(
 
     items = await onboarding._parse_diet_input("royal canin")
 
-    # Missing kind falls back to "ingredient" → strict-mode callers will drop it.
+    # Missing kind falls back to "ingredient" â†’ strict-mode callers will drop it.
     assert items == [("Royal Canin", "", "ingredient")]
 
 
@@ -161,3 +161,4 @@ async def test_store_meal_items_supports_legacy_two_tuples(monkeypatch) -> None:
 
     assert len(stored) == 1
     assert stored[0][2] == "Pedigree"
+

@@ -63,7 +63,7 @@ def _upsert_insight(db: Session, pet_id: UUID, insight_type: str, content: dict 
 async def refresh_recognition_bullets(pet_id: UUID) -> None:
     """Recompute and cache recognition_bullets for a pet. Pure-DB, no GPT."""
     from app.database import SessionLocal
-    from app.models.pet import Pet
+    from app.models.core.pet import Pet
     db: Session = SessionLocal()
     try:
         pet = db.query(Pet).filter(Pet.id == pet_id).first()
@@ -112,7 +112,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
         None. All failures are logged; the function never raises.
     """
     from app.database import SessionLocal
-    from app.models.pet import Pet
+    from app.models.core.pet import Pet
 
     # Quick existence check — abort early if pet is gone.
     db_check: Session = SessionLocal()
@@ -173,7 +173,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
     async def _run_health_conditions_v2() -> None:
         db: Session = SessionLocal()
         try:
-            from app.models.condition import Condition
+            from app.models.health.condition import Condition
             from app.services.dashboard.ai_insights_service import (
                 _aggregate_conditions_for_health_prompt,
                 _generate_health_conditions_v2_gpt,
@@ -231,7 +231,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             pet = db.query(Pet).filter(Pet.id == pet_id).first()
             if not pet:
                 return
-            from app.models.condition import Condition
+            from app.models.health.condition import Condition
             from app.services.dashboard.ai_insights_service import get_or_generate_insight
             from sqlalchemy.orm import selectinload
 

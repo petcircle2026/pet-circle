@@ -34,10 +34,10 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.constants import AI_QUERY_MODEL
 from app.core.encryption import decrypt_field
-from app.models.agent_order_session import AgentOrderSession
-from app.models.order import Order
-from app.models.pet import Pet
-from app.models.user import User
+from app.models.commerce.agent_order_session import AgentOrderSession
+from app.models.commerce.order import Order
+from app.models.core.pet import Pet
+from app.models.core.user import User
 from app.utils.retry import retry_openai_call
 
 logger = logging.getLogger(__name__)

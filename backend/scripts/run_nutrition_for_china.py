@@ -1,4 +1,4 @@
-"""
+﻿"""
 Standalone script to run the nutrition estimation prompt for pet "China"
 and print the raw JSON output from the LLM.
 
@@ -17,7 +17,7 @@ import os
 import sys
 from pathlib import Path
 
-# ─── Load .env.test if no DATABASE_URL is set ───────────────────────────────
+# â”€â”€â”€ Load .env.test if no DATABASE_URL is set â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ENV_FILE = Path(__file__).parent.parent / "envs" / ".env.test"
 if not os.environ.get("DATABASE_URL") and ENV_FILE.exists():
     for line in ENV_FILE.read_text().splitlines():
@@ -42,12 +42,12 @@ if not ANTHROPIC_API_KEY:
 import psycopg2
 import psycopg2.extras
 
-# ─── Connect to DB ───────────────────────────────────────────────────────────
+# â”€â”€â”€ Connect to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 print(f"Connecting to database...")
 conn = psycopg2.connect(DATABASE_URL)
 cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-# ─── Find pet "China" ────────────────────────────────────────────────────────
+# â”€â”€â”€ Find pet "China" â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 cur.execute("""
     SELECT id, name, species, breed, dob, weight, gender
     FROM pets
@@ -85,7 +85,7 @@ print(f"  DOB:      {pet['dob']}")
 print(f"  Weight:   {pet['weight']} kg")
 print(f"  Gender:   {pet['gender']}")
 
-# ─── Get active conditions ───────────────────────────────────────────────────
+# â”€â”€â”€ Get active conditions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 cur.execute("""
     SELECT name FROM conditions
     WHERE pet_id = %s AND is_active = true
@@ -93,7 +93,7 @@ cur.execute("""
 conditions = [r["name"] for r in cur.fetchall()]
 print(f"  Conditions: {conditions or 'None'}")
 
-# ─── Get diet items ──────────────────────────────────────────────────────────
+# â”€â”€â”€ Get diet items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 cur.execute("""
     SELECT id, label, type, detail, daily_portion_g
     FROM diet_items
@@ -117,14 +117,14 @@ if not diet_items:
     print("\nNo diet items found. Nothing to analyse.")
     sys.exit(0)
 
-# ─── Build the prompt (same logic as nutrition_service.py) ───────────────────
+# â”€â”€â”€ Build the prompt (same logic as nutrition_service.py) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 SYSTEM_PROMPT = (
     "You are a board-certified veterinary nutritionist.\n\n"
     "Your task:\n"
     "Given food items, pet details, and optionally user-provided quantities, estimate DAILY nutritional intake and identify the most important micronutrient gaps.\n\n"
     "You must follow this strict decision framework:\n\n"
     "-----------------------------------\n"
-    "STEP 1 — RESOLVE FOOD IDENTITY\n"
+    "STEP 1 â€” RESOLVE FOOD IDENTITY\n"
     "-----------------------------------\n"
     "- Identify the most likely specific product based on:\n"
     "- food name\n"
@@ -135,7 +135,7 @@ SYSTEM_PROMPT = (
     "- If multiple variants are possible, choose the most common one and reduce confidence\n"
     "- If product identity is highly ambiguous, reduce confidence\n\n"
     "-----------------------------------\n"
-    "STEP 2 — DETERMINE SERVING SIZE\n"
+    "STEP 2 â€” DETERMINE SERVING SIZE\n"
     "-----------------------------------\n\n"
     "CASE A: USER PROVIDED QUANTITY (any food)\n"
     "- Use EXACTLY the user-provided quantity (e.g., \"2 cups/day\", \"1 bowl/day\")\n"
@@ -152,7 +152,7 @@ SYSTEM_PROMPT = (
     "- Set confidence < 0.6\n"
     "- RETURN NO ANALYSIS (see fail-safe)\n\n"
     "-----------------------------------\n"
-    "STEP 3 — MIXED DIET HANDLING\n"
+    "STEP 3 â€” MIXED DIET HANDLING\n"
     "-----------------------------------\n\n"
     "If BOTH commercial food AND homemade food are present:\n\n"
     "- Treat commercial food as the PRIMARY diet anchor:\n"
@@ -167,7 +167,7 @@ SYSTEM_PROMPT = (
     "- If homemade food HAS quantity:\n"
     "- Include it fully in all calculations\n\n"
     "-----------------------------------\n"
-    "STEP 4 — NUTRITION ESTIMATION\n"
+    "STEP 4 â€” NUTRITION ESTIMATION\n"
     "-----------------------------------\n"
     "- Estimate TOTAL DAILY intake based on determined serving size\n"
     "- Ensure values are realistic and internally consistent\n"
@@ -175,7 +175,7 @@ SYSTEM_PROMPT = (
     "- Macro percentages must remain within realistic biological limits\n"
     "- Total calories must fall within realistic daily intake ranges\n\n"
     "-----------------------------------\n"
-    "STEP 5 — MICRONUTRIENT GAP ANALYSIS\n"
+    "STEP 5 â€” MICRONUTRIENT GAP ANALYSIS\n"
     "-----------------------------------\n\n"
     "- Identify micronutrient gaps dynamically based on:\n"
     "- pet nutritional requirements\n"
@@ -196,7 +196,7 @@ SYSTEM_PROMPT = (
     "- relevance to pet conditions\n"
     "- confidence in assessment\n\n"
     "-----------------------------------\n"
-    "STEP 6 — SELECT TOP MICRONUTRIENTS\n"
+    "STEP 6 â€” SELECT TOP MICRONUTRIENTS\n"
     "-----------------------------------\n\n"
     "- Rank micronutrients by severity_score\n"
     "- Return ONLY the TOP 4 most important micronutrient gaps\n"
@@ -360,3 +360,4 @@ async def main():
 
 
 asyncio.run(main())
+

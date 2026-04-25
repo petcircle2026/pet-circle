@@ -17,9 +17,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.core.constants import NUDGE_TRIGGER_INACTIVITY
-from app.models.nudge import Nudge
-from app.models.pet import Pet
-from app.models.user import User
+from app.models.messaging.nudge import Nudge
+from app.models.core.pet import Pet
+from app.models.core.user import User
 from app.services.admin.nudge_config_service import get_nudge_config_int
 
 logger = logging.getLogger(__name__)

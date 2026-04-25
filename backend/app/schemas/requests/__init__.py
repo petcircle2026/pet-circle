@@ -1,4 +1,4 @@
-"""Request DTOs — structured input validation for all API endpoints."""
+﻿"""Request DTOs â€” structured input validation for all API endpoints."""
 
 from app.schemas.requests.onboarding import (
     CreatePetRequest,
@@ -26,3 +26,4 @@ __all__ = [
     "SnoozeReminderRequest",
     "MarkReminderDoneRequest",
 ]
+

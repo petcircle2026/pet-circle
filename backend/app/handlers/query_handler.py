@@ -1,4 +1,4 @@
-"""
+﻿"""
 Query/QA handler.
 
 Routes natural language questions to the query engine.
@@ -56,3 +56,4 @@ class QueryHandler(BaseHandler):
         except Exception as e:
             logger.exception("Query handler failed: %s", str(e))
             raise
+

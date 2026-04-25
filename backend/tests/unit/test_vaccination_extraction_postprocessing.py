@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from app.services.shared.gpt_extraction import (
     _pet_name_matches_document_name,
@@ -135,3 +135,4 @@ def test_select_best_doctor_name_prefers_vaccination_administered_by() -> None:
     )
 
     assert selected == "Dr. D. P. Chaudhari"
+

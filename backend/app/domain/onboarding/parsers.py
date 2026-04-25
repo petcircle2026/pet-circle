@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI-driven parsing functions for onboarding (pure functions, no DB, no state).
 
 These parse GPT responses and user input into structured data.
@@ -57,7 +57,7 @@ async def parse_breed_age(text: str) -> dict:
     Returns dict with keys:
         breed (str|None), species ("dog"|"cat"|None),
         age_years (float|None), age_text (str|None),
-        dob (str|None — ISO date if explicitly given), confident (bool)
+        dob (str|None â€” ISO date if explicitly given), confident (bool)
     """
     from app.core.constants import OPENAI_QUERY_MODEL
     from app.utils.retry import retry_openai_call
@@ -80,7 +80,7 @@ async def parse_breed_age(text: str) -> dict:
         "convert it to ISO format (YYYY-MM-DD) in the 'dob' field AND compute age_years "
         "from today's date. Use the 2-digit year rule: 00-30 = 2000s, 31-99 = 1900s. "
         "If the user gives only an age in years or months (e.g. '2 years', '6 months') "
-        "without an explicit birth date, set dob to null — do NOT compute a dob from the age. "
+        "without an explicit birth date, set dob to null â€” do NOT compute a dob from the age. "
         "If no age is given, set age_years, age_text, and dob to null.\n\n"
         f"User message: {text}"
     )
@@ -254,7 +254,7 @@ async def ai_decide_neuter_question(
         return {"should_ask": should_ask, "question": question}
     except Exception as e:
         logger.warning("Neuter question decision failed: %s", str(e))
-        # Safe fallback — always ask
+        # Safe fallback â€” always ask
         if gender == "male":
             question = f"Is {pet_name} neutered?"
         elif gender == "female":
@@ -262,3 +262,4 @@ async def ai_decide_neuter_question(
         else:
             question = f"Is {pet_name} neutered or spayed?"
         return {"should_ask": True, "question": question}
+

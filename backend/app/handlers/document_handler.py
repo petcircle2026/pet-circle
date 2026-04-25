@@ -1,4 +1,4 @@
-"""
+﻿"""
 Document upload handler.
 
 Routes image and document uploads to the document extraction pipeline.
@@ -52,3 +52,4 @@ class DocumentHandler(BaseHandler):
         except Exception as e:
             logger.exception("Document handler failed: %s", str(e))
             raise
+

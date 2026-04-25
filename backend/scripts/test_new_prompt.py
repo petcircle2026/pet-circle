@@ -1,6 +1,6 @@
-"""
+﻿"""
 Quick test of the updated COMBINED_MEAL_SYSTEM_PROMPT with food: royal canin, egg, carrots.
-No DB needed — uses a hardcoded pet profile and food list.
+No DB needed â€” uses a hardcoded pet profile and food list.
 
 Usage:
   cd backend
@@ -38,7 +38,7 @@ if not ANTHROPIC_API_KEY:
     print("ERROR: ANTHROPIC_API_KEY not set.")
     sys.exit(1)
 
-# ── Pet profile (generic adult dog, no specific pet needed) ─────────────────
+# â”€â”€ Pet profile (generic adult dog, no specific pet needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 PET = {
     "species": "dog",
     "breed": "Labrador Retriever",
@@ -48,7 +48,7 @@ PET = {
     "conditions": [],
 }
 
-# ── Food items to test ───────────────────────────────────────────────────────
+# â”€â”€ Food items to test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 FOODS = [
     {"label": "Royal Canin", "type": "food", "detail": None},
     {"label": "Egg",         "type": "food", "detail": None},
@@ -122,7 +122,7 @@ async def main():
     print("=" * 60)
     print(json.dumps(parsed, indent=2))
 
-    # ── Summary ──────────────────────────────────────────────────────────────
+    # â”€â”€ Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
@@ -153,7 +153,8 @@ async def main():
         improvements = parsed.get("top_improvements", [])
         print(f"\n  top_improvements ({len(improvements)}):")
         for imp in improvements:
-            print(f"    [{imp.get('severity','?').upper()}] {imp.get('title')} — {imp.get('detail')}")
+            print(f"    [{imp.get('severity','?').upper()}] {imp.get('title')} â€” {imp.get('detail')}")
 
 
 asyncio.run(main())
+

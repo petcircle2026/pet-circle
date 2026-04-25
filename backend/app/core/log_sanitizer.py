@@ -1,5 +1,5 @@
-"""
-PetCircle Phase 1 — Log Sanitizer
+﻿"""
+PetCircle Phase 1 â€” Log Sanitizer
 
 Masks PII (phone numbers, tokens) and sanitizes message payloads
 before logging or returning in admin API responses.
@@ -20,7 +20,7 @@ def mask_phone(number: str) -> str:
     Mask a phone number for safe logging.
 
     Shows first 2 digits (country code) and last 4 digits.
-    Example: "919876543210" → "91****3210"
+    Example: "919876543210" â†’ "91****3210"
 
     Args:
         number: The full phone number string.
@@ -41,7 +41,7 @@ def mask_token(token: str) -> str:
     Mask a token/secret for safe logging.
 
     Shows only the first 4 characters.
-    Example: "abc123def456" → "abc1****"
+    Example: "abc123def456" â†’ "abc1****"
 
     Args:
         token: The token or secret string.
@@ -80,7 +80,7 @@ def sanitize_payload(payload: dict) -> dict:
 
     sanitized = copy.deepcopy(payload)
 
-    # Sanitize entries → changes → value → messages
+    # Sanitize entries â†’ changes â†’ value â†’ messages
     for entry in sanitized.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
@@ -90,7 +90,7 @@ def sanitize_payload(payload: dict) -> dict:
                 if "wa_id" in contact:
                     contact["wa_id"] = mask_phone(contact["wa_id"])
                 contact.get("profile", {})
-                # Keep profile name — not PII-sensitive at this level
+                # Keep profile name â€” not PII-sensitive at this level
 
             # Sanitize messages
             for message in value.get("messages", []):
@@ -115,3 +115,4 @@ def sanitize_payload(payload: dict) -> dict:
             sanitized["text"]["body"] = body[:20] + "..."
 
     return sanitized
+

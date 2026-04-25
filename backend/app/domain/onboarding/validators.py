@@ -1,4 +1,4 @@
-"""
+﻿"""
 Pure input validation functions for onboarding (no DB, no I/O).
 
 Returns (bool, str) tuples: (is_valid, error_message)
@@ -112,7 +112,7 @@ def is_generic_vaccine_mention(parsed: dict) -> bool:
     generic = parsed.get("vaccines")
     vaccine_specifics = parsed.get("vaccine_specifics") or []
 
-    # Case 1: top-level vaccines field is set — check for real specifics
+    # Case 1: top-level vaccines field is set â€” check for real specifics
     if generic and generic != "none":
         real_specifics = [
             s for s in vaccine_specifics
@@ -122,7 +122,7 @@ def is_generic_vaccine_mention(parsed: dict) -> bool:
         ]
         return len(real_specifics) == 0
 
-    # Case 2: vaccines field is null — check if vaccine_specifics has only generic labels
+    # Case 2: vaccines field is null â€” check if vaccine_specifics has only generic labels
     generic_entries = [
         s for s in vaccine_specifics
         if isinstance(s, dict)
@@ -342,3 +342,4 @@ def is_doc_skip_intent(text_lower: str) -> bool:
             return True
 
     return False
+

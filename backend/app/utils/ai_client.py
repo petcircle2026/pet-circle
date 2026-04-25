@@ -1,13 +1,13 @@
-"""
-PetCircle — Unified AI Client Adapter
+﻿"""
+PetCircle â€” Unified AI Client Adapter
 
 Provides get_ai_client() and get_sync_ai_client() that return Anthropic-API-compatible
 objects when AI_PROVIDER='openai'. This lets all services call client.messages.create(...)
 and access response.content[0].text without any changes to response-parsing code.
 
 Routing:
-    AI_PROVIDER='claude'  → returns native AsyncAnthropic / Anthropic clients
-    AI_PROVIDER='openai'  → returns _OpenAIAdapter / _SyncOpenAIAdapter which translate
+    AI_PROVIDER='claude'  â†’ returns native AsyncAnthropic / Anthropic clients
+    AI_PROVIDER='openai'  â†’ returns _OpenAIAdapter / _SyncOpenAIAdapter which translate
                              Anthropic-style calls into OpenAI ChatCompletion calls and
                              wrap results in Anthropic-shaped response objects.
 """
@@ -99,7 +99,7 @@ def _translate_messages_to_openai(
                     if part.get("type") == "tool_result":
                         tool_content = part.get("content", "")
                         if isinstance(tool_content, list):
-                            # Nested content blocks — flatten to text
+                            # Nested content blocks â€” flatten to text
                             tool_content = " ".join(
                                 p.get("text", "") for p in tool_content
                                 if isinstance(p, dict) and p.get("type") == "text"
@@ -189,7 +189,7 @@ def _anthropic_tool_choice_to_openai(tool_choice: dict | None) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Async adapter — routes client.messages.create() to OpenAI async
+# Async adapter â€” routes client.messages.create() to OpenAI async
 # ---------------------------------------------------------------------------
 
 class _AsyncMessagesProxy:
@@ -234,7 +234,7 @@ class _AsyncMessagesProxy:
                     input_dict = json.loads(tc.function.arguments or "{}")
                     blocks.append(_ToolUseContent(input_dict, tool_id=tc.id, tool_name=tc.function.name))
                 return _FakeResponse(blocks, stop_reason=stop_reason)
-            # Model returned text instead of a tool call — use the text directly
+            # Model returned text instead of a tool call â€” use the text directly
             text = response.choices[0].message.content or ""
             return _FakeResponse([_TextContent(text)], stop_reason=stop_reason)
 
@@ -260,7 +260,7 @@ class _OpenAIAdapter:
 
 
 # ---------------------------------------------------------------------------
-# Sync adapter — routes client.messages.create() to OpenAI sync
+# Sync adapter â€” routes client.messages.create() to OpenAI sync
 # ---------------------------------------------------------------------------
 
 class _SyncMessagesProxy:
@@ -302,7 +302,7 @@ class _SyncMessagesProxy:
                     input_dict = json.loads(tc.function.arguments or "{}")
                     blocks.append(_ToolUseContent(input_dict, tool_id=tc.id, tool_name=tc.function.name))
                 return _FakeResponse(blocks, stop_reason=stop_reason)
-            # Model returned text instead of a tool call — use the text directly
+            # Model returned text instead of a tool call â€” use the text directly
             text = response.choices[0].message.content or ""
             return _FakeResponse([_TextContent(text)], stop_reason=stop_reason)
 
@@ -372,8 +372,8 @@ def get_ai_client():
     """
     Return the appropriate async AI client based on the AI_PROVIDER setting.
 
-    - AI_PROVIDER='claude' → AsyncAnthropic (native)
-    - AI_PROVIDER='openai' → _OpenAIAdapter (Anthropic-compatible interface over OpenAI)
+    - AI_PROVIDER='claude' â†’ AsyncAnthropic (native)
+    - AI_PROVIDER='openai' â†’ _OpenAIAdapter (Anthropic-compatible interface over OpenAI)
 
     Both expose `client.messages.create(...)` and return responses with `.content[0].text`
     so no changes are needed in service response-parsing code.
@@ -396,8 +396,8 @@ def get_sync_ai_client():
     Used by services that call the AI API synchronously (nudge_scheduler,
     medicine_recurrence_service, etc.).
 
-    - AI_PROVIDER='claude' → anthropic.Anthropic (native sync)
-    - AI_PROVIDER='openai' → _SyncOpenAIAdapter (Anthropic-compatible interface over OpenAI)
+    - AI_PROVIDER='claude' â†’ anthropic.Anthropic (native sync)
+    - AI_PROVIDER='openai' â†’ _SyncOpenAIAdapter (Anthropic-compatible interface over OpenAI)
     """
     from app.core.constants import AI_PROVIDER  # noqa: PLC0415
 
@@ -408,3 +408,4 @@ def get_sync_ai_client():
         return _sync_openai_adapter
 
     return _get_sync_anthropic_client()
+

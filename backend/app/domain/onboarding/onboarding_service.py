@@ -1,5 +1,5 @@
-"""
-OnboardingService — Orchestrator for the onboarding workflow.
+﻿"""
+OnboardingService â€” Orchestrator for the onboarding workflow.
 
 Responsible for:
 1. Coordinating state machine transitions
@@ -80,3 +80,4 @@ class OnboardingService:
     def is_onboarding_complete(self, user) -> bool:
         """Check if user's onboarding is complete."""
         return user.onboarding_state == OnboardingState.COMPLETE.value
+

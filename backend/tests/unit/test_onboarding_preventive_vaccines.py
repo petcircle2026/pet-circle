@@ -1,4 +1,4 @@
-import os
+﻿import os
 from types import SimpleNamespace
 
 os.environ.setdefault("APP_ENV", "test")
@@ -253,9 +253,9 @@ def test_all_of_the_above_not_blood_test_does_not_fill_blood_test() -> None:
     assert "blood_test" in normalized["missing"]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Bug 1: Pending vaccine intent ("mandatory vaccines should be given")
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def test_is_pending_vaccine_intent_detects_common_phrases() -> None:
@@ -358,3 +358,4 @@ def test_upsert_pending_preventive_record_preserves_existing_real_record() -> No
     assert db.added == []
     assert existing.last_done_date == _date(2025, 1, 1)  # untouched
     assert existing.next_due_date == _date(2026, 1, 1)
+

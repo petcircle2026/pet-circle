@@ -17,13 +17,11 @@ Retry policy:
 - 3 attempts with exponential backoff (1s, 2s)
 - On failure, return an empty list (user can still type custom items)
 """
-from app.models import PreventiveMaster, ProductMedicines
-
 import json
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.core.constants import (
@@ -32,12 +30,14 @@ from app.core.constants import (
     ORDER_CAT_MEDICINES,
     ORDER_CAT_SUPPLEMENTS,
 )
-from app.models.condition import Condition
-from app.models.diet_item import DietItem
-from app.models.order_recommendation import OrderRecommendation
-from app.models.pet import Pet
-from app.models.pet_preference import PetPreference
-from app.models.preventive_record import PreventiveRecord
+from app.models.commerce.order_recommendation import OrderRecommendation
+from app.models.core.pet import Pet
+from app.repositories.diet_repository import DietRepository
+from app.repositories.health_repository import HealthRepository
+from app.repositories.pet_preference_repository import PetPreferenceRepository
+from app.repositories.pet_repository import PetRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.preventive_repository import PreventiveRepository
 from app.services.shared.diet_service import normalize_diet_label, split_diet_items_by_type
 from app.utils.retry import retry_openai_call
 
@@ -128,7 +128,7 @@ async def get_or_generate_recommendations(
     """
     try:
         if pet is None and pet_id is not None:
-            pet = db.query(Pet).filter(Pet.id == pet_id).first()
+            pet = PetRepository(db).get_by_id(pet_id)
         if pet is None:
             return []
 
@@ -138,7 +138,6 @@ async def get_or_generate_recommendations(
         age_range = _calculate_age_range(pet.dob)
         profile_context = _build_profile_context(db, getattr(pet, "id", None), category)
 
-        # Check database for existing recommendation
         existing = db.query(OrderRecommendation).filter(
             and_(
                 OrderRecommendation.species == pet_species,
@@ -302,17 +301,11 @@ def _fetch_catalog_medicines(db: Session | None, species: str, category: str) ->
     if db is None:
         return []
     try:
-        
-        query = db.query(ProductMedicines.product_name).filter(
-            ProductMedicines.active == True,
-            ProductMedicines.life_stage_tags.ilike(f"%{species}%"),
-        )
+        products = PreventiveMasterRepository(db).find_medicines_by_life_stage(species)
         if category == ORDER_CAT_MEDICINES or "medicine" in category.lower():
-            # Return a representative mix: flea/tick + deworming
-            results = query.order_by(ProductMedicines.popularity_rank.asc()).limit(10).all()
+            return [p.product_name for p in products[:10]]
         else:
-            results = []
-        return [r[0] for r in results]
+            return []
     except Exception:
         return []
 
@@ -412,40 +405,17 @@ def _build_profile_context(db: Session, pet_id, category: str) -> dict:
         }
 
     # Include only manual and analysis_recommended diet items
-    # Exclude document_extracted supplements from recommendations
-    diet_items = (
-        db.query(DietItem)
-        .filter(
-            DietItem.pet_id == pet_id,
-            DietItem.source.in_(["manual", "analysis_recommended", None])
-        )
-        .all()
-    )
+    diet_items = DietRepository(db).find_by_pet_excluding_source(pet_id, "document_extracted")
     split_items = split_diet_items_by_type(diet_items)
 
-    active_conditions = (
-        db.query(Condition)
-        .filter(Condition.pet_id == pet_id, Condition.is_active == True)  # noqa: E712
-        .all()
-    )
+    active_conditions = HealthRepository(db).get_active_conditions(pet_id)
     condition_names = [c.name for c in active_conditions if getattr(c, "name", None)]
 
-    preventive_rows = (
-        db.query(PreventiveMaster.item_name)
-        .join(PreventiveRecord, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .filter(PreventiveRecord.pet_id == pet_id)
-        .all()
-    )
-    preventive_names = [row[0] for row in preventive_rows if row and row[0]]
+    preventive_master_names = PreventiveRepository(db).find_master_item_names_by_pet(pet_id)
+    preventive_names = [name for name in preventive_master_names if name]
 
-    history_rows = (
-        db.query(PetPreference.item_name)
-        .filter(PetPreference.pet_id == pet_id, PetPreference.category == category)
-        .order_by(PetPreference.updated_at.desc())
-        .limit(10)
-        .all()
-    )
-    history_names = [row[0] for row in history_rows if row and row[0]]
+    prefs = PetPreferenceRepository(db).find_by_pet_and_category_ordered(pet_id, category)
+    history_names = [p.item_name for p in prefs[:10] if p.item_name]
 
     existing_names = {
         normalize_diet_label(name)
@@ -527,15 +497,8 @@ def record_preference(
         if not normalized_name:
             return
 
-        # Case-insensitive match to avoid duplicates like "Nexgard" vs "nexgard".
-        existing = (
-            db.query(PetPreference)
-            .filter(
-                PetPreference.pet_id == pet_id,
-                PetPreference.category == category,
-                func.lower(PetPreference.item_name) == normalized_name.lower(),
-            )
-            .first()
+        existing = PetPreferenceRepository(db).find_by_pet_category_item(
+            pet_id, category, normalized_name
         )
 
         if existing:
@@ -569,16 +532,8 @@ def get_pet_top_preferences(db: Session, pet_id, category, limit: int = 5) -> li
         ...
     ]
     """
-    rows = (
-        db.query(PetPreference)
-        .filter(
-            PetPreference.pet_id == pet_id,
-            PetPreference.category == category,
-        )
-        .order_by(PetPreference.used_count.desc(), PetPreference.updated_at.desc())
-        .limit(limit)
-        .all()
-    )
+    rows = PetPreferenceRepository(db).find_by_pet_and_category(pet_id, category)
+    rows = rows[:limit]
 
     results = []
     for row in rows:

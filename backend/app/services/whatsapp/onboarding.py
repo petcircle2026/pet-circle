@@ -53,15 +53,15 @@ from app.core.constants import (
 from app.core.encryption import decrypt_field, encrypt_field, hash_field
 from app.core.log_sanitizer import mask_phone
 from app.database import get_fresh_session
-from app.models.condition import Condition
-from app.models.custom_preventive_item import CustomPreventiveItem
-from app.models.dashboard_token import DashboardToken
-from app.models.deferred_care_plan_pending import DeferredCarePlanPending
-from app.models.document import Document
-from app.models.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
-from app.models.user import User
+from app.models.health.condition import Condition
+from app.models.preventive.custom_preventive_item import CustomPreventiveItem
+from app.models.auth.dashboard_token import DashboardToken
+from app.models.preventive.deferred_care_plan_pending import DeferredCarePlanPending
+from app.models.auth.document import Document
+from app.models.core.pet import Pet
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
+from app.models.core.user import User
 from app.services.shared.diet_service import HOMEMADE_KW, add_diet_item
 from app.services.admin.preventive_seeder import seed_preventive_master
 from app.utils.breed_normalizer import normalize_breed, normalize_breed_with_ai
@@ -909,7 +909,7 @@ def _get_last_saved_detail(user, pet, db) -> str:
     Return a human-readable string for the most recently collected onboarding field.
     Checks in reverse collection order so the highest-priority collected field wins.
     """
-    from app.models.diet_item import DietItem
+    from app.models.nutrition.diet_item import DietItem
 
     pet_name = pet.name if pet else "your pet"
 
@@ -1669,7 +1669,7 @@ async def _step_diet_portions(db, user, text, send_fn):
         updated_items = await _parse_diet_input(combined)
         food_type = od.get("food_type", "mix")
         # Remove existing DietItems for this pet (from the first pass) before re-saving with portions.
-        from app.models.diet_item import DietItem
+        from app.models.nutrition.diet_item import DietItem
         db.query(DietItem).filter(DietItem.pet_id == pet.id).delete()
         db.commit()
         await _store_meal_items(db, pet, updated_items, food_type)
@@ -3330,7 +3330,7 @@ def _build_preventive_summary_text(db, pet) -> str:
         • Flea & tick (NexGard): last done 2 months ago
         • Blood test: not on record
     """
-    from app.models.preventive_record import PreventiveRecord
+    from app.models.preventive.preventive_record import PreventiveRecord
     
     records = (
         db.query(PreventiveRecord, PreventiveMaster)
@@ -5420,7 +5420,7 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     )
 
     # --- Gather data completeness flags ---
-    from app.models.diet_item import DietItem
+    from app.models.nutrition.diet_item import DietItem
 
     docs_uploaded = db.query(Document).filter(Document.pet_id == pet.id).count()
     # Always resolve token through active-token helper so expired historical

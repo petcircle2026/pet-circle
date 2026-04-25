@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for the condition-vs-medication category contract in gpt_extraction.
 
 Covers:
@@ -94,7 +94,7 @@ class TestIsLikelyMedicationName:
         assert _is_likely_medication_name("Arthritis") is False
 
     def test_accepts_flea_infestation(self) -> None:
-        # "Flea Infestation" is a condition name — does not contain dosage or form words
+        # "Flea Infestation" is a condition name â€” does not contain dosage or form words
         assert _is_likely_medication_name("Flea Infestation") is False
 
     def test_accepts_gastroenteritis(self) -> None:
@@ -116,7 +116,7 @@ class TestIsLikelyMedicationName:
         assert _is_likely_medication_name("Oral Squamous Cell Carcinoma") is False
 
     def test_accepts_injection_site_sarcoma(self) -> None:
-        # FISS — common feline oncology diagnosis
+        # FISS â€” common feline oncology diagnosis
         assert _is_likely_medication_name("Injection Site Sarcoma") is False
 
     def test_accepts_injection_site_reaction(self) -> None:
@@ -124,7 +124,7 @@ class TestIsLikelyMedicationName:
 
 
 # ---------------------------------------------------------------------------
-# _validate_extraction_json — conditions pass-through
+# _validate_extraction_json â€” conditions pass-through
 # ---------------------------------------------------------------------------
 
 
@@ -158,7 +158,7 @@ class TestValidateExtractionJsonConditionsPassthrough:
         )
         _items, _doc_name, _pet_name, metadata = gpt_extraction._validate_extraction_json(raw_json)
 
-        # Passed through unchanged — filtering is the caller's responsibility.
+        # Passed through unchanged â€” filtering is the caller's responsibility.
         assert len(metadata["conditions"]) == 1
         assert metadata["conditions"][0]["condition_name"] == "Simparica 50mg"
 
@@ -208,7 +208,7 @@ class TestValidateExtractionJsonConditionsPassthrough:
         assert metadata["conditions"] == []
 
     def test_non_list_conditions_defaults_to_empty(self) -> None:
-        """Malformed GPT output — conditions is a string, not a list."""
+        """Malformed GPT output â€” conditions is a string, not a list."""
         raw_json = json.dumps(
             {
                 "document_name": "Doc",
@@ -222,7 +222,7 @@ class TestValidateExtractionJsonConditionsPassthrough:
         )
         _items, _doc_name, _pet_name, metadata = gpt_extraction._validate_extraction_json(raw_json)
 
-        # Non-list is not stored — defaults to []
+        # Non-list is not stored â€” defaults to []
         assert metadata["conditions"] == []
 
 
@@ -251,3 +251,4 @@ def test_condition_matches_extracted_medication_name_from_preventive_meds() -> N
         raw_condition,
         preventive_meds,
     ) is True
+

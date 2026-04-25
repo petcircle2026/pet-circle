@@ -1,5 +1,5 @@
-"""
-PetCircle — Database Migration: GCP Storage Backend Column
+﻿"""
+PetCircle â€” Database Migration: GCP Storage Backend Column
 
 Adds `storage_backend` column to the `documents` table to track whether
 each document file is stored in GCP Cloud Storage (primary) or Supabase (fallback).
@@ -27,7 +27,7 @@ def migrate():
     ALTER TABLE documents
         ADD COLUMN IF NOT EXISTS storage_backend VARCHAR(20) NOT NULL DEFAULT 'supabase';
 
-    -- Enforce valid values — only 'gcp' or 'supabase' are allowed.
+    -- Enforce valid values â€” only 'gcp' or 'supabase' are allowed.
     DO $$
     BEGIN
         IF NOT EXISTS (
@@ -53,7 +53,7 @@ def migrate():
                     logger.info(f"Executing: {statement[:60]}...")
                     connection.execute(text(statement))
 
-        logger.info("Migration completed successfully — storage_backend column added to documents")
+        logger.info("Migration completed successfully â€” storage_backend column added to documents")
         return True
 
     except Exception as e:
@@ -64,3 +64,4 @@ def migrate():
 if __name__ == "__main__":
     success = migrate()
     exit(0 if success else 1)
+

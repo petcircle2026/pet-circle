@@ -1,5 +1,5 @@
-"""
-Config Repository — System configuration and settings access.
+﻿"""
+Config Repository â€” System configuration and settings access.
 
 Provides centralized access to:
 - Nudge engine configuration
@@ -145,3 +145,4 @@ class ConfigRepository:
             .filter(NudgeConfig.key.like(f"{prefix}%"))
             .all()
         )
+

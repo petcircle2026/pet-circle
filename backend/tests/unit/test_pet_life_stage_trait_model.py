@@ -1,4 +1,4 @@
-from app.models.pet import Pet
+﻿from app.models.core.pet import Pet
 from app.models.pet_life_stage_trait import PetLifeStageTrait
 
 
@@ -22,3 +22,4 @@ def test_pet_relationship_wiring_for_life_stage_traits() -> None:
     assert trait_rel.mapper.class_ is Pet
     assert pet_rel.back_populates == "pet"
     assert trait_rel.back_populates == "life_stage_traits"
+

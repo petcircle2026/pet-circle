@@ -1,4 +1,4 @@
-"""
+﻿"""
 Order/cart message handler.
 
 Routes order-related text and button payloads to the order service.
@@ -75,3 +75,4 @@ class OrderHandler(BaseHandler):
         except Exception as e:
             logger.exception("Order handler failed: %s", str(e))
             raise
+

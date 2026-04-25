@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+﻿from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -173,7 +173,7 @@ async def test_step_breed_age_negated_dog_phrase_does_not_continue_dog_flow(monk
 
 @pytest.mark.anyio
 async def test_step_breed_age_recognises_cat_breed_as_non_dog(monkeypatch):
-    """'domestic short hair' is a cat breed — should trigger out-of-scope, not proceed."""
+    """'domestic short hair' is a cat breed â€” should trigger out-of-scope, not proceed."""
     db = _FakeDB()
     pet = SimpleNamespace(name="Mimi", species="_pending", breed=None, age_text=None, dob=None)
     user = SimpleNamespace(
@@ -202,7 +202,7 @@ async def test_step_breed_age_recognises_cat_breed_as_non_dog(monkeypatch):
 
 @pytest.mark.anyio
 async def test_step_breed_age_recognises_british_shorthair_as_non_dog(monkeypatch):
-    """'british shorthair' is a cat breed — should trigger out-of-scope."""
+    """'british shorthair' is a cat breed â€” should trigger out-of-scope."""
     db = _FakeDB()
     pet = SimpleNamespace(name="Luna", species="_pending", breed=None, age_text=None, dob=None)
     user = SimpleNamespace(
@@ -227,3 +227,4 @@ async def test_step_breed_age_recognises_british_shorthair_as_non_dog(monkeypatc
     assert db.commits == 1
     assert sent_messages
     assert "dogs only" in sent_messages[-1].lower()
+

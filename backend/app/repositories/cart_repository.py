@@ -1,5 +1,5 @@
-"""
-Cart Repository — Shopping cart item access.
+﻿"""
+Cart Repository â€” Shopping cart item access.
 
 Manages:
 - Cart CRUD operations
@@ -14,7 +14,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.models.cart_item import CartItem
+from app.models.commerce.cart_item import CartItem
 
 
 class CartRepository:
@@ -239,3 +239,4 @@ class CartRepository:
             .limit(limit)
             .all()
         )
+

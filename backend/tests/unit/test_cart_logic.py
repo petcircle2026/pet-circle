@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for cart_logic (pure functions, no DB).
 
 Tests: calculation, validation, minimum order checks.
@@ -177,3 +177,4 @@ class TestMinimumOrder:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+

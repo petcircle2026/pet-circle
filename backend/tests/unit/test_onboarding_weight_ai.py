@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import date
 
 import pytest
@@ -60,3 +60,4 @@ async def test_ai_check_weight_falls_back_to_chat_completions(monkeypatch):
     assert result is not None
     assert result["reasonable"] is True
     assert result["expected_range"] == "8-14 kg"
+

@@ -1,4 +1,4 @@
-import os
+﻿import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -287,3 +287,4 @@ async def test_step_supplements_no_reply_skips_supplement_parse(monkeypatch) -> 
 
     parse_diet_mock.assert_not_awaited()
     assert user.onboarding_state == "awaiting_preventive"
+

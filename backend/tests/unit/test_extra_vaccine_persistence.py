@@ -1,8 +1,8 @@
-from datetime import date
+﻿from datetime import date
 from uuid import uuid4
 
 from app.models.custom_preventive_item import CustomPreventiveItem
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.services.shared.gpt_extraction import _persist_extra_vaccines_for_pet
 
@@ -118,3 +118,4 @@ def test_persist_extra_vaccines_does_not_create_record_for_other_pet() -> None:
     assert len(db.records) == 1
     assert db.records[0].pet_id == pet_a.id
     assert db.records[0].pet_id != pet_b.id
+

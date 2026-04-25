@@ -1,16 +1,16 @@
-"""
+﻿"""
 from app.models import (
     PreventiveMaster,
 )
-PetCircle — Seed Reminder Trigger Test Data
+PetCircle â€” Seed Reminder Trigger Test Data
 
 Creates a complete user + pet + preventive records for +919095705762
 so that the reminder engine triggers ALL types of reminders:
 
-    1. OVERDUE reminders   — items past their due date (sends overdue template)
-    2. UPCOMING reminders  — items due within the reminder window (sends reminder template)
-    3. UP_TO_DATE control  — items not due yet (should NOT trigger)
-    4. Deduplication       — re-running should create 0 new reminders
+    1. OVERDUE reminders   â€” items past their due date (sends overdue template)
+    2. UPCOMING reminders  â€” items due within the reminder window (sends reminder template)
+    3. UP_TO_DATE control  â€” items not due yet (should NOT trigger)
+    4. Deduplication       â€” re-running should create 0 new reminders
 """
 
 import os
@@ -23,8 +23,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from datetime import date, timedelta
 from app.database import SessionLocal
-from app.models.user import User
-from app.models.pet import Pet
+from app.models.core.user import User
+from app.models.core.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
 from app.core.encryption import encrypt_field, hash_field
@@ -145,11 +145,11 @@ def main():
         # =================================================================
 
         # Layout:
-        #   Record 0: OVERDUE (due 10 days ago)      → triggers overdue template
-        #   Record 1: OVERDUE (due 30 days ago)      → triggers overdue template
-        #   Record 2: UPCOMING (due in 3 days)       → triggers reminder template
-        #   Record 3: UPCOMING (due tomorrow)         → triggers reminder template
-        #   Record 4: UP_TO_DATE (due in 300 days)   → control, NO trigger
+        #   Record 0: OVERDUE (due 10 days ago)      â†’ triggers overdue template
+        #   Record 1: OVERDUE (due 30 days ago)      â†’ triggers overdue template
+        #   Record 2: UPCOMING (due in 3 days)       â†’ triggers reminder template
+        #   Record 3: UPCOMING (due tomorrow)         â†’ triggers reminder template
+        #   Record 4: UP_TO_DATE (due in 300 days)   â†’ control, NO trigger
         #   Remaining: UPCOMING with varying windows
 
         scenarios = []
@@ -161,7 +161,7 @@ def main():
                 "status": "overdue",
                 "next_due_date": TODAY - timedelta(days=10),
                 "last_done_date": TODAY - timedelta(days=375),
-                "label": f"OVERDUE  — {masters[0].item_name} (10 days late)",
+                "label": f"OVERDUE  â€” {masters[0].item_name} (10 days late)",
             })
 
         if len(masters) > 1:
@@ -170,7 +170,7 @@ def main():
                 "status": "overdue",
                 "next_due_date": TODAY - timedelta(days=30),
                 "last_done_date": TODAY - timedelta(days=395),
-                "label": f"OVERDUE  — {masters[1].item_name} (30 days late)",
+                "label": f"OVERDUE  â€” {masters[1].item_name} (30 days late)",
             })
 
         # --- UPCOMING triggers ---
@@ -180,7 +180,7 @@ def main():
                 "status": "upcoming",
                 "next_due_date": TODAY + timedelta(days=3),
                 "last_done_date": TODAY - timedelta(days=362),
-                "label": f"UPCOMING — {masters[2].item_name} (due in 3 days)",
+                "label": f"UPCOMING â€” {masters[2].item_name} (due in 3 days)",
             })
 
         if len(masters) > 3:
@@ -189,7 +189,7 @@ def main():
                 "status": "upcoming",
                 "next_due_date": TODAY + timedelta(days=1),
                 "last_done_date": TODAY - timedelta(days=364),
-                "label": f"UPCOMING — {masters[3].item_name} (due TOMORROW)",
+                "label": f"UPCOMING â€” {masters[3].item_name} (due TOMORROW)",
             })
 
         # --- CONTROL (no trigger) ---
@@ -199,7 +199,7 @@ def main():
                 "status": "up_to_date",
                 "next_due_date": TODAY + timedelta(days=300),
                 "last_done_date": TODAY - timedelta(days=65),
-                "label": f"CONTROL  — {masters[4].item_name} (no trigger, due in 300d)",
+                "label": f"CONTROL  â€” {masters[4].item_name} (no trigger, due in 300d)",
             })
 
         # --- Additional UPCOMING for remaining masters ---
@@ -209,7 +209,7 @@ def main():
                 "status": "upcoming",
                 "next_due_date": TODAY + timedelta(days=2 + i),
                 "last_done_date": TODAY - timedelta(days=363),
-                "label": f"UPCOMING — {m.item_name} (due in {2 + i} days)",
+                "label": f"UPCOMING â€” {m.item_name} (due in {2 + i} days)",
             })
 
         created_records = []
@@ -244,9 +244,9 @@ def main():
   Pet:      {pet.name} ({pet.species}, {pet.breed})
 
   Records created:
-    {overdue_count} OVERDUE   → will send {overdue_count} overdue WhatsApp template(s)
-    {upcoming_count} UPCOMING  → will send {upcoming_count} reminder WhatsApp template(s)
-    {control_count} UP_TO_DATE → control, NO messages
+    {overdue_count} OVERDUE   â†’ will send {overdue_count} overdue WhatsApp template(s)
+    {upcoming_count} UPCOMING  â†’ will send {upcoming_count} reminder WhatsApp template(s)
+    {control_count} UP_TO_DATE â†’ control, NO messages
 
   Total WhatsApp messages expected: {overdue_count + upcoming_count}
 
@@ -270,3 +270,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

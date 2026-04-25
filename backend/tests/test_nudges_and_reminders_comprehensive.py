@@ -1,4 +1,4 @@
-"""
+﻿"""
 from app.models import (
     BreedConsequenceLibrary,
     NudgeDeliveryLog,
@@ -166,10 +166,10 @@ from app.models.diet_item import DietItem
 from app.models.hygiene_preference import HygienePreference
 from app.models.message_log import MessageLog
 from app.models.nudge import Nudge
-from app.models.pet import Pet
+from app.models.core.pet import Pet
 from app.models.preventive_record import PreventiveRecord
 from app.models.reminder import Reminder
-from app.models.user import User
+from app.models.core.user import User
 from app.services.admin.nudge_engine import (
     _classify_item as nudge_classify_item,
 )
@@ -1509,10 +1509,10 @@ def run_section_c(db):
         db.flush()
         cands_vax = [c for c in _collect_candidates(db, today)
                      if str(c.pet.id) == str(pet_vax.id) and c.category == "vaccine"]
-        t("C30 multiple vaccines same due_date batched into ≤ 1 candidate per (pet, stage, due)",
+        t("C30 multiple vaccines same due_date batched into â‰¤ 1 candidate per (pet, stage, due)",
           len(cands_vax) <= 1)
     else:
-        t("C30 vaccine batching [SKIP: need ≥ 2 vaccine masters]", True)
+        t("C30 vaccine batching [SKIP: need â‰¥ 2 vaccine masters]", True)
 
     # C31: Ignore detection -- sent > 24h with no reply -> increment
     from app.models.message_log import MessageLog
@@ -1811,3 +1811,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
