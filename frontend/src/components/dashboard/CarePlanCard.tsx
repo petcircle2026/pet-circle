@@ -1,6 +1,7 @@
 "use client";
 
 import type { CarePlanItem, CarePlanSection } from "@/lib/api";
+import { BUTTONS, FLEX } from "@/lib/css-classes";
 import { BUCKET_META, itemStatusClass, normalizeStatusTag } from "./dashboard-utils";
 
 interface CarePlanCardProps {
@@ -32,23 +33,13 @@ export default function CarePlanCard({
 
   return (
     <div className="card">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <div className={`${FLEX.between} flex-gap-md`}>
         <div className="sec-lbl" style={{ marginBottom: 0 }}>{petName}&apos;s Care Plan</div>
         {onEditReminders && (
           <button
             type="button"
             onClick={onEditReminders}
-            style={{
-              border: "1px solid #ffd9c2",
-              background: "#fff4ec",
-              color: "#c54c0b",
-              borderRadius: 999,
-              padding: "5px 12px",
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
+            className="edit-reminder-btn"
             aria-label="Edit care reminders"
           >
             Edit
@@ -57,7 +48,7 @@ export default function CarePlanCard({
       </div>
       <div className="sec-source">Based on lifestage, health & diet analysis</div>
       {counts && (counts.onTrack > 0 || counts.dueSoon > 0 || counts.overdue > 0) && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        <div className="flex-gap-sm" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
           {counts.onTrack > 0 && (
             <span style={{ borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#E8F9EE", color: "#1B7A3D" }}>
               {counts.onTrack} On Track
