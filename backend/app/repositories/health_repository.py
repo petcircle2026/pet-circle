@@ -413,3 +413,50 @@ class HealthRepository:
             .first()
         )
 
+    def get_condition_by_id_and_pet(self, condition_id: UUID, pet_id: UUID) -> Condition | None:
+        """Fetch an active condition by ID and pet ID."""
+        return (
+            self.db.query(Condition)
+            .filter(
+                Condition.id == condition_id,
+                Condition.pet_id == pet_id,
+                Condition.is_active == True,
+            )
+            .first()
+        )
+
+    def get_medication_by_id_for_pet(self, medication_id: UUID, pet_id: UUID) -> ConditionMedication | None:
+        """Fetch a medication by ID, verifying it belongs to the pet's condition."""
+        return (
+            self.db.query(ConditionMedication)
+            .join(Condition)
+            .filter(
+                ConditionMedication.id == medication_id,
+                Condition.pet_id == pet_id,
+                Condition.is_active == True,
+            )
+            .first()
+        )
+
+    def get_monitoring_by_id_for_pet(self, monitoring_id: UUID, pet_id: UUID) -> ConditionMonitoring | None:
+        """Fetch a monitoring item by ID, verifying it belongs to the pet's condition."""
+        return (
+            self.db.query(ConditionMonitoring)
+            .join(Condition)
+            .filter(
+                ConditionMonitoring.id == monitoring_id,
+                Condition.pet_id == pet_id,
+                Condition.is_active == True,
+            )
+            .first()
+        )
+
+    def find_active_conditions_ordered_by_date(self, pet_id: UUID) -> list[Condition]:
+        """Fetch active conditions ordered by diagnosis date."""
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id, Condition.is_active == True)
+            .order_by(Condition.diagnosed_at.asc().nullslast())
+            .all()
+        )
+

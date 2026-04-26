@@ -252,3 +252,25 @@ class ContactRepository:
             .first()
         )
 
+    def find_by_pet_and_name_and_role(
+        self, pet_id: UUID, name: str, role: str
+    ) -> Contact | None:
+        """Find a contact by pet, name, and role."""
+        return (
+            self.db.query(Contact)
+            .filter(Contact.pet_id == pet_id, Contact.name == name, Contact.role == role)
+            .first()
+        )
+
+    def find_by_pet_and_role(self, pet_id: UUID, role: str) -> Contact | None:
+        """Find the first contact for a pet with a specific role."""
+        return (
+            self.db.query(Contact)
+            .filter(Contact.pet_id == pet_id, Contact.role == role)
+            .first()
+        )
+
+    def find_by_pet(self, pet_id: UUID) -> List[Contact]:
+        """Find all contacts for a pet."""
+        return self.db.query(Contact).filter(Contact.pet_id == pet_id).all()
+
