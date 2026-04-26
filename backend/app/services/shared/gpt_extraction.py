@@ -131,10 +131,9 @@ def _initialize_medicine_mapping(db=None) -> None:
                 return
 
         try:
-            
-            medicines = db.query(ProductMedicines).filter(
-                ProductMedicines.active == True
-            ).all()
+            from app.repositories.preventive_master_repository import PreventiveMasterRepository
+            master_repo = PreventiveMasterRepository(db)
+            medicines = master_repo.find_all_active_medicines()
 
             mapping = {}
             for med in medicines:
