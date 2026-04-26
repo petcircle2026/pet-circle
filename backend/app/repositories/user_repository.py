@@ -258,3 +258,41 @@ class UserRepository:
             .all()
         )
 
+    def find_by_mobile_hash(self, mobile_h: str) -> User | None:
+        """Find user by mobile hash."""
+        return (
+            self.db.query(User)
+            .filter(User.mobile_hash == mobile_h, User.is_deleted == False)
+            .first()
+        )
+
+    def find_by_mobile_hash_any(self, mobile_h: str) -> User | None:
+        """Find user by mobile hash (including deleted)."""
+        return (
+            self.db.query(User)
+            .filter(User.mobile_hash == mobile_h)
+            .first()
+        )
+
+    def mark_onboarding_complete(self, user_id: UUID) -> int:
+        """Mark user onboarding as complete."""
+        from datetime import datetime as dt
+        count = (
+            self.db.query(User)
+            .filter(
+                User.id == user_id,
+                User.onboarding_state == "awaiting_documents",
+            )
+            .update(
+                {
+                    User.onboarding_state: "complete",
+                    User.doc_upload_deadline: None,
+                    User.onboarding_data: None,
+                    User.onboarding_completed_at: dt.utcnow(),
+                },
+                synchronize_session=False,
+            )
+        )
+        self.db.flush()
+        return count
+

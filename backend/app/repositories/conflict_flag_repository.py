@@ -40,6 +40,19 @@ class ConflictFlagRepository:
             .all()
         )
 
+    def find_pending_by_records(self, record_ids: List[str]) -> List[ConflictFlag]:
+        """Find all pending conflicts for a list of record IDs, ordered by created_at descending."""
+        from uuid import UUID as UUIDType
+        return (
+            self.db.query(ConflictFlag)
+            .filter(
+                ConflictFlag.preventive_record_id.in_(record_ids),
+                ConflictFlag.status == "pending",
+            )
+            .order_by(ConflictFlag.created_at.desc())
+            .all()
+        )
+
     def create(
         self,
         preventive_record_id: UUID,
@@ -69,3 +82,32 @@ class ConflictFlagRepository:
             self.db.flush()
             return conflict
         return None
+
+    def find_latest_pending_for_user(self, user_id: UUID) -> ConflictFlag | None:
+        """Find the most recently created pending conflict for any of the user's pets."""
+        from app.models.health.preventive_record import PreventiveRecord
+        from app.models.core.pet import Pet
+        return (
+            self.db.query(ConflictFlag)
+            .join(PreventiveRecord, ConflictFlag.preventive_record_id == PreventiveRecord.id)
+            .join(Pet, PreventiveRecord.pet_id == Pet.id)
+            .filter(
+                Pet.user_id == user_id,
+                Pet.is_deleted == False,
+                ConflictFlag.status == "pending",
+            )
+            .order_by(ConflictFlag.created_at.desc())
+            .first()
+        )
+
+    def find_pet_by_conflict_id(self, conflict_id: UUID):
+        """Find the pet associated with a conflict flag."""
+        from app.models.health.preventive_record import PreventiveRecord
+        from app.models.core.pet import Pet
+        return (
+            self.db.query(Pet)
+            .join(PreventiveRecord, Pet.id == PreventiveRecord.pet_id)
+            .join(ConflictFlag, ConflictFlag.preventive_record_id == PreventiveRecord.id)
+            .filter(ConflictFlag.id == conflict_id)
+            .first()
+        )

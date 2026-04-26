@@ -1,4 +1,5 @@
 """
+from app.repositories.pet_repository import PetRepository
 PetCircle — Order Service
 
 Handles the WhatsApp order conversation flow:

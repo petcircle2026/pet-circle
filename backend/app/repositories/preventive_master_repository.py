@@ -412,3 +412,64 @@ class PreventiveMasterRepository:
             .first()
         )
 
+    def find_health_circle_by_species(self, species: str) -> list:
+        """Find health circle preventive items for a species (including 'both')."""
+        return (
+            self.db.query(PreventiveMaster)
+            .filter(
+                PreventiveMaster.species.in_([species, "both"]),
+                PreventiveMaster.circle == "health",
+            )
+            .all()
+        )
+
+    def find_by_name_and_species(self, item_name: str, species: str, is_core: bool = False) -> PreventiveMaster | None:
+        """Find preventive master by name and species, optionally filtering to core items."""
+        from sqlalchemy import case
+        query = self.db.query(PreventiveMaster).filter(
+            PreventiveMaster.item_name == item_name,
+            PreventiveMaster.species.in_([species, "both"]),
+        )
+        if is_core:
+            query = query.filter(PreventiveMaster.is_core.is_(True))
+
+        if not is_core:
+            # Without is_core filter, just return first match
+            return query.first()
+
+        # With is_core filter, prioritize exact species match
+        return query.order_by(
+            case(
+                (PreventiveMaster.species == species, 0),
+                else_=1,
+            ),
+            PreventiveMaster.id.asc(),
+        ).first()
+
+    def find_by_name_pattern_and_species(self, pattern: str, species: str) -> PreventiveMaster | None:
+        """Find preventive master by name pattern (case-insensitive) and species."""
+        return (
+            self.db.query(PreventiveMaster)
+            .filter(
+                PreventiveMaster.item_name.ilike(pattern),
+                PreventiveMaster.species.in_([species, "both"]),
+            )
+            .first()
+        )
+
+    def has_for_species(self, species: str) -> bool:
+        """Check if any preventive master exists for a species."""
+        return (
+            self.db.query(PreventiveMaster.id)
+            .filter(PreventiveMaster.species.in_([species, "both"]))
+            .first()
+            is not None
+        )
+
+    def find_existing_item_species_pairs(self) -> list[tuple[str, str]]:
+        """Fetch all (item_name, species) pairs in PreventiveMaster."""
+        return (
+            self.db.query(PreventiveMaster.item_name, PreventiveMaster.species)
+            .all()
+        )
+

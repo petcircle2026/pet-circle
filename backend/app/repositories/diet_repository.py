@@ -111,6 +111,14 @@ class DietRepository:
             .scalar() or 0
         )
 
+    def count_by_pet_and_type(self, pet_id: UUID, item_type: str) -> int:
+        """Count diet items for a pet of a specific type."""
+        return (
+            self.db.query(func.count(DietItem.id))
+            .filter(DietItem.pet_id == pet_id, DietItem.type == item_type)
+            .scalar() or 0
+        )
+
     # ---- Nutrition Cache ----
 
     def find_food_nutrition_cache(

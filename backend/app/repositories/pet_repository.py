@@ -239,6 +239,15 @@ class PetRepository:
             .all()
         )
 
+    def find_most_recent_by_user(self, user_id: UUID) -> Pet | None:
+        """Find the most recently created (pending) pet for a user."""
+        return (
+            self.db.query(Pet)
+            .filter(Pet.user_id == user_id, Pet.is_deleted == False)
+            .order_by(Pet.created_at.desc())
+            .first()
+        )
+
     def has_pet_with_id(self, pet_id: UUID) -> bool:
         """Check if pet exists."""
         return (

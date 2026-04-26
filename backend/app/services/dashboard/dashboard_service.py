@@ -43,6 +43,16 @@ from app.core.encryption import decrypt_field
 from app.repositories.pet_repository import PetRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.health_repository import HealthRepository
+from app.repositories.dashboard_token_repository import DashboardTokenRepository
+from app.repositories.dashboard_visit_repository import DashboardVisitRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.care_repository import CareRepository
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.contact_repository import ContactRepository
+from app.repositories.conflict_flag_repository import ConflictFlagRepository
+from app.repositories.pet_ai_insight_repository import PetAiInsightRepository
 from app.models import (
     Condition,
     ConflictFlag,
@@ -312,13 +322,8 @@ def validate_dashboard_token(db: Session, token: str) -> DashboardToken:
     Raises:
         ValueError: If token is not found or has been revoked.
     """
-    dashboard_token = (
-        db.query(DashboardToken)
-        .filter(
-            DashboardToken.token == token,
-        )
-        .first()
-    )
+    dashboard_repo = DashboardTokenRepository(db)
+    dashboard_token = dashboard_repo.find_by_token(token)
 
     if not dashboard_token:
         raise ValueError("Invalid dashboard token.")
@@ -430,12 +435,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_diet_sync():
         own_db = SessionLocal()
         try:
-            rows = (
-                own_db.query(DietItem)
-                .filter(DietItem.pet_id == pet_id)
-                .order_by(DietItem.created_at.asc())
-                .all()
-            )
+            diet_repo = DietRepository(own_db)
+            rows = diet_repo.find_by_pet_ordered(pet_id)
             own_db.expunge_all()
             return rows
         except Exception as exc:
@@ -448,14 +449,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         _now_q = datetime.now(timezone.utc)
         own_db = SessionLocal()
         try:
-            rows = (
-                own_db.query(PetAiInsight)
-                .filter(
-                    PetAiInsight.pet_id == pet_id,
-                    PetAiInsight.insight_type.in_(list(_INSIGHT_TTL)),
-                )
-                .all()
-            )
+            insight_repo = PetAiInsightRepository(own_db)
+            rows = insight_repo.find_by_pet_and_types(pet_id, list(_INSIGHT_TTL))
             # Build cache dict in-thread (pure Python, no further I/O).
             return {
                 row.insight_type: row.content_json
@@ -471,15 +466,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_documents_sync():
         own_db = SessionLocal()
         try:
-            docs = (
-                own_db.query(Document)
-                .filter(
-                    Document.pet_id == pet_id,
-                    Document.extraction_status.in_(["pending", "success", "failed", "rejected", "partially_extracted"]),
-                )
-                .order_by(Document.created_at.desc())
-                .all()
-            )
+            doc_repo = DocumentRepository(own_db)
+            docs = doc_repo.find_by_pet_in_statuses(pet_id, ["pending", "success", "failed", "rejected", "partially_extracted"])
             result = []
             for doc in docs:
                 inferred_category = _infer_document_category(
@@ -541,12 +529,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_contacts_sync():
         own_db = SessionLocal()
         try:
-            rows = (
-                own_db.query(Contact)
-                .filter(Contact.pet_id == pet_id)
-                .order_by(Contact.created_at.desc())
-                .all()
-            )
+            contact_repo = ContactRepository(own_db)
+            rows = contact_repo.find_all_for_pet(pet_id)
             return [
                 {
                     "id": str(c.id),
@@ -572,14 +556,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_health_masters_sync():
         own_db = SessionLocal()
         try:
-            rows = (
-                own_db.query(PreventiveMaster)
-                .filter(
-                    PreventiveMaster.circle == "health",
-                    PreventiveMaster.species.in_([_pet_species, "both"]),
-                )
-                .all()
-            )
+            master_repo = PreventiveMasterRepository(own_db)
+            rows = master_repo.find_health_circle_by_species(_pet_species)
             own_db.expunge_all()
             return rows
         except Exception as exc:
@@ -610,12 +588,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     # Count previous visits BEFORE inserting new one to determine first visit.
     is_first_visit = True
     try:
-        previous_visit_count = (
-            db.query(func.count(DashboardVisit.id))
-            .filter(DashboardVisit.pet_id == pet_id)
-            .scalar()
-            or 0
-        )
+        visit_repo = DashboardVisitRepository(db)
+        previous_visit_count = visit_repo.count_by_pet(pet_id)
         is_first_visit = previous_visit_count == 0
         asyncio.create_task(
             _record_dashboard_visit_bg(pet.user_id, pet_id, token)
@@ -697,17 +671,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         })
 
     # --- Load active reminders ---
-    reminders = (
-        db.query(Reminder, PreventiveRecord, PreventiveMaster)
-        .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)
-        .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            Reminder.status.in_(["pending", "sent"]),
-        )
-        .order_by(Reminder.next_due_date.asc())
-        .all()
-    )
+    reminders = ReminderRepository(db).find_active_for_pet_with_details(pet_id)
 
     reminder_data = []
     for reminder, record, master in reminders:
@@ -727,15 +691,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     conflict_rows = []
     pet_rec_map = {str(r.id): (r, m) for r, m in preventive_data}
     if pet_rec_map:
-        cf_rows = (
-            db.query(ConflictFlag)
-            .filter(
-                ConflictFlag.preventive_record_id.in_(list(pet_rec_map.keys())),
-                ConflictFlag.status == "pending",
-            )
-            .order_by(ConflictFlag.created_at.desc())
-            .all()
-        )
+        cf_rows = ConflictFlagRepository(db).find_pending_by_records(list(pet_rec_map.keys()))
         for cf in cf_rows:
             r_m = pet_rec_map.get(str(cf.preventive_record_id))
             item_name = None
@@ -972,7 +928,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         def _sync() -> dict:
             own_db = SessionLocal()
             try:
-                own_pet = own_db.query(Pet).filter(Pet.id == pet_id).first()
+                pet_repo = PetRepository(own_db)
+                own_pet = pet_repo.find_by_id(pet_id)
                 return compute_care_plan(own_db, own_pet) if own_pet else empty_care_plan
             except Exception as exc:
                 logger.error("compute_care_plan failed for pet=%s: %s", pet_id, exc)
@@ -1140,14 +1097,7 @@ async def get_document_file_for_token(
     except ValueError as exc:
         raise ValueError("Document not found.") from exc
 
-    doc = (
-        db.query(Document)
-        .filter(
-            Document.id == doc_uuid,
-            Document.pet_id == dashboard_token.pet_id,
-        )
-        .first()
-    )
+    doc = DocumentRepository(db).find_by_id_and_pet(doc_uuid, dashboard_token.pet_id)
     if not doc:
         raise ValueError("Document not found.")
 
@@ -1296,25 +1246,7 @@ def update_preventive_date(
 
     # Find the same record variant the dashboard currently surfaces:
     # latest active row for this item_name, preferring most recent completion.
-    result = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .join(
-            PreventiveMaster,
-            PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveMaster.item_name == item_name,
-            PreventiveRecord.status != "cancelled",
-        )
-        .order_by(
-            PreventiveRecord.last_done_date.desc().nullslast(),
-            PreventiveRecord.next_due_date.desc().nullslast(),
-            PreventiveRecord.created_at.desc().nullslast(),
-            PreventiveRecord.id.desc(),
-        )
-        .first()
-    )
+    result = PreventiveRepository(db).find_latest_by_pet_and_item_name(pet_id, item_name)
 
     if not result:
         raise ValueError(
@@ -1325,18 +1257,7 @@ def update_preventive_date(
     apply_to_all_vaccines = bulk_vaccine_update and _is_core_vaccine(master)
 
     if apply_to_all_vaccines:
-        target_rows = (
-            db.query(PreventiveRecord, PreventiveMaster)
-            .join(
-                PreventiveMaster,
-                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-            )
-            .filter(
-                PreventiveRecord.pet_id == pet_id,
-                PreventiveRecord.status != "cancelled",
-            )
-            .all()
-        )
+        target_rows = PreventiveRepository(db).find_with_master_non_cancelled(pet_id)
         targets = [
             (r, m)
             for r, m in target_rows
@@ -1393,15 +1314,7 @@ def update_preventive_date(
         )
 
         # --- Invalidate pending reminders for old due date ---
-        stale_reminders = (
-            db.query(Reminder)
-            .filter(
-                Reminder.preventive_record_id == target_record.id,
-                Reminder.next_due_date == old_next_due,
-                Reminder.status.in_(["pending", "sent"]),
-            )
-            .all()
-        )
+        stale_reminders = ReminderRepository(db).find_stale_by_record_and_date(target_record.id, old_next_due)
 
         for reminder in stale_reminders:
             reminder.status = "completed"
@@ -1469,14 +1382,7 @@ async def retry_document_extraction(
     pet_id = dashboard_token.pet_id
 
     # Verify document exists, belongs to this pet, and is in failed state.
-    doc = (
-        db.query(Document)
-        .filter(
-            Document.id == document_id,
-            Document.pet_id == pet_id,
-        )
-        .first()
-    )
+    doc = DocumentRepository(db).find_by_id_and_pet(document_id, pet_id)
 
     if not doc:
         raise ValueError("Document not found.")
@@ -1612,20 +1518,7 @@ def get_health_trends(db: Session, token: str) -> dict:
 
     # --- Diagnostic document frequency by month ---
     # Counts documents categorized as "Diagnostic" per month — aggregated in SQL.
-    _diag_rows = (
-        db.query(
-            func.to_char(Document.created_at, "YYYY-MM").label("month"),
-            func.count().label("count"),
-        )
-        .filter(
-            Document.pet_id == pet_id,
-            Document.document_category == "Diagnostic",
-            Document.extraction_status == "success",
-        )
-        .group_by(func.to_char(Document.created_at, "YYYY-MM"))
-        .order_by(func.to_char(Document.created_at, "YYYY-MM"))
-        .all()
-    )
+    _diag_rows = DocumentRepository(db).count_diagnostic_by_month_for_pet(pet_id)
     diagnostic_trends = [{"month": row.month, "count": row.count} for row in _diag_rows]
 
     return {
