@@ -360,3 +360,40 @@ class HealthRepository:
             .first() is not None
         )
 
+    def find_all_diagnostics_for_pet(self, pet_id: UUID) -> list[DiagnosticTestResult]:
+        """
+        Fetch all diagnostic test results for a pet (including inactive).
+        Used by gpt_extraction for document processing.
+        """
+        return (
+            self.db.query(DiagnosticTestResult)
+            .filter(DiagnosticTestResult.pet_id == pet_id)
+            .all()
+        )
+
+    def find_all_weights_for_pet(self, pet_id: UUID) -> list[WeightHistory]:
+        """
+        Fetch all weight records for a pet.
+        Used by gpt_extraction for weight extraction.
+        """
+        return (
+            self.db.query(WeightHistory)
+            .filter(WeightHistory.pet_id == pet_id)
+            .all()
+        )
+
+    def delete_diagnostics_by_document(self, document_id: UUID) -> int:
+        """
+        Delete all diagnostics for a document.
+        Used by gpt_extraction when reprocessing documents.
+
+        Returns: Count of deleted diagnostics.
+        """
+        count = (
+            self.db.query(DiagnosticTestResult)
+            .filter(DiagnosticTestResult.document_id == document_id)
+            .delete()
+        )
+        self.db.flush()
+        return count
+

@@ -389,3 +389,63 @@ class DocumentRepository:
             return doc
         return None
 
+    def find_all_documents(self) -> List[Document]:
+        """
+        Fetch all documents (used by gpt_extraction for processing).
+
+        Returns:
+            List of all Document records.
+        """
+        return self.db.query(Document).all()
+
+    def find_pending_by_pet(self, pet_id: UUID) -> List[Document]:
+        """Find all pending (unprocessed) documents for a pet."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status == "pending",
+            )
+            .all()
+        )
+
+    def find_by_pet_in_statuses(self, pet_id: UUID, statuses: list[str]) -> List[Document]:
+        """Find documents for a pet with any of the given statuses."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status.in_(statuses),
+            )
+            .all()
+        )
+
+    def has_document_with_id(self, document_id: UUID) -> bool:
+        """Check if document exists."""
+        return (
+            self.db.query(Document.id)
+            .filter(Document.id == document_id)
+            .first() is not None
+        )
+
+    def has_message_log_with_id(self, log_id: UUID) -> bool:
+        """Check if message log exists."""
+        return (
+            self.db.query(MessageLog.id)
+            .filter(MessageLog.id == log_id)
+            .first() is not None
+        )
+
+    def find_pending_by_pet_and_ids(self, pet_id: UUID, document_ids: list[UUID]) -> List[Document]:
+        """Find pending documents for a pet within a list of IDs."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status == "pending",
+                Document.id.in_(document_ids),
+            )
+            .order_by(desc(Document.created_at))
+            .all()
+        )
+

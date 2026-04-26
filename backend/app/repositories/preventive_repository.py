@@ -411,3 +411,161 @@ class PreventiveRepository:
             .all()
         )
 
+    def find_all(self) -> list[PreventiveRecord]:
+        """Fetch all preventive records (used by gpt_extraction for deduplication)."""
+        return self.db.query(PreventiveRecord).all()
+
+    def find_by_pet_and_master(self, pet_id: UUID, preventive_master_id: UUID) -> list[PreventiveRecord]:
+        """
+        Find all preventive records for a pet matching a specific master item.
+        Used by gpt_extraction for duplicate detection.
+        """
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id == preventive_master_id,
+            )
+            .all()
+        )
+
+    # ---- Custom Preventive Item queries ----
+
+    def find_custom_by_user_and_name(
+        self, user_id: UUID, item_name: str, species: str
+    ) -> CustomPreventiveItem | None:
+        """
+        Find existing custom preventive item for a user.
+        Used by gpt_extraction to get or create unmapped vaccine types.
+        """
+        return (
+            self.db.query(CustomPreventiveItem)
+            .filter(
+                CustomPreventiveItem.user_id == user_id,
+                CustomPreventiveItem.item_name == item_name,
+                CustomPreventiveItem.species == species,
+            )
+            .first()
+        )
+
+    def create_custom(self, custom_item: CustomPreventiveItem) -> CustomPreventiveItem:
+        """Create a custom preventive item."""
+        self.db.add(custom_item)
+        self.db.flush()
+        return custom_item
+
+    def count_core_with_last_done(self, pet_id: UUID) -> int:
+        """
+        Count core/custom preventive items with a last_done_date.
+        Used by onboarding to track preventive progress.
+        """
+        from sqlalchemy import or_
+        return (
+            self.db.query(PreventiveRecord)
+            .outerjoin(
+                PreventiveMaster,
+                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
+            )
+            .outerjoin(
+                CustomPreventiveItem,
+                PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
+            )
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.last_done_date.isnot(None),
+                or_(
+                    PreventiveMaster.is_core.is_(True),
+                    CustomPreventiveItem.id.isnot(None),
+                ),
+            )
+            .count()
+        )
+
+    def count_core_split_by_vaccine(self, pet_id: UUID, vaccine_keywords: list[str]) -> tuple[int, int]:
+        """
+        Count core/custom items split into vaccine vs other.
+        Used by onboarding for care plan message composition.
+        Returns: (vaccine_count, other_count)
+        """
+        from sqlalchemy import or_
+        base_q = (
+            self.db.query(PreventiveRecord)
+            .outerjoin(
+                PreventiveMaster,
+                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
+            )
+            .outerjoin(
+                CustomPreventiveItem,
+                PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
+            )
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.last_done_date.isnot(None),
+                or_(
+                    PreventiveMaster.is_core.is_(True),
+                    CustomPreventiveItem.id.isnot(None),
+                ),
+            )
+        )
+        vaccine_filter = or_(
+            *[PreventiveMaster.item_name.ilike(f"%{kw}%") for kw in vaccine_keywords],
+            *[CustomPreventiveItem.item_name.ilike(f"%{kw}%") for kw in vaccine_keywords],
+        )
+        vaccine_count = base_q.filter(vaccine_filter).count()
+        total = base_q.count()
+        return vaccine_count, total - vaccine_count
+
+    def find_placeholder_by_custom_item(
+        self, pet_id: UUID, custom_preventive_item_id: UUID
+    ) -> PreventiveRecord | None:
+        """
+        Find placeholder record (with no last_done_date) for a custom item.
+        Used by gpt_extraction for duplicate detection.
+        """
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.custom_preventive_item_id == custom_preventive_item_id,
+                PreventiveRecord.last_done_date.is_(None),
+                PreventiveRecord.status != "cancelled",
+            )
+            .first()
+        )
+
+    def find_by_pet_custom_and_date(
+        self, pet_id: UUID, custom_preventive_item_id: UUID, last_done_date: date | None
+    ) -> PreventiveRecord | None:
+        """
+        Find preventive record by pet, custom item, and last_done_date.
+        Used by gpt_extraction for deduplication.
+        """
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.custom_preventive_item_id == custom_preventive_item_id,
+                PreventiveRecord.last_done_date == last_done_date,
+            )
+            .first()
+        )
+
+    def find_oldest_placeholder_by_custom_item(
+        self, pet_id: UUID, custom_preventive_item_id: UUID
+    ) -> PreventiveRecord | None:
+        """
+        Find oldest placeholder (no last_done_date) for a custom item.
+        Used by gpt_extraction for placeholder replacement.
+        """
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.custom_preventive_item_id == custom_preventive_item_id,
+                PreventiveRecord.last_done_date.is_(None),
+                PreventiveRecord.status != "cancelled",
+            )
+            .order_by(PreventiveRecord.created_at.asc())
+            .first()
+        )
+

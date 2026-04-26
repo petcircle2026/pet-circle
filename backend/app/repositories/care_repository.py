@@ -249,6 +249,22 @@ class CareRepository:
             .all()
         )
 
+    def find_weight_by_pet_and_date(
+        self, pet_id: UUID, recorded_at: datetime
+    ) -> WeightHistory | None:
+        """
+        Find weight record by pet and recorded date.
+        Used by gpt_extraction for deduplication.
+        """
+        return (
+            self.db.query(WeightHistory)
+            .filter(
+                WeightHistory.pet_id == pet_id,
+                WeightHistory.recorded_at == recorded_at,
+            )
+            .first()
+        )
+
     def add_weight_record(self, weight: WeightHistory) -> WeightHistory:
         """Add a weight record for a pet."""
         self.db.add(weight)
@@ -462,5 +478,77 @@ class CareRepository:
             self.db.query(Condition)
             .filter(Condition.pet_id == pet_id, Condition.is_active.is_(True))
             .all()
+        )
+
+    def find_all_conditions_for_pet(self, pet_id: UUID) -> list:
+        """
+        Fetch all conditions (active and inactive) for a pet.
+        Used by gpt_extraction for document processing.
+        """
+        from app.models.health.condition import Condition
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id)
+            .all()
+        )
+
+    def find_condition_by_pet_and_name(self, pet_id: UUID, condition_name: str):
+        """
+        Find condition by pet and name.
+        Used by gpt_extraction for duplicate detection.
+        """
+        from app.models.health.condition import Condition
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id, Condition.name == condition_name)
+            .first()
+        )
+
+    def find_condition_medications_for_condition(self, condition_id: UUID) -> list:
+        """
+        Fetch all medications for a specific condition.
+        Used by gpt_extraction for medication extraction.
+        """
+        from app.models.health.condition_medication import ConditionMedication
+        return (
+            self.db.query(ConditionMedication)
+            .filter(ConditionMedication.condition_id == condition_id)
+            .all()
+        )
+
+    def find_medication_by_condition_and_name(self, condition_id: UUID, med_name: str):
+        """
+        Find medication by condition and name.
+        Used by gpt_extraction for duplicate detection.
+        """
+        from app.models.health.condition_medication import ConditionMedication
+        return (
+            self.db.query(ConditionMedication)
+            .filter(ConditionMedication.condition_id == condition_id, ConditionMedication.name == med_name)
+            .first()
+        )
+
+    def find_condition_monitoring_for_condition(self, condition_id: UUID) -> list:
+        """
+        Fetch all monitoring records for a specific condition.
+        Used by gpt_extraction for monitoring extraction.
+        """
+        from app.models.health.condition_monitoring import ConditionMonitoring
+        return (
+            self.db.query(ConditionMonitoring)
+            .filter(ConditionMonitoring.condition_id == condition_id)
+            .all()
+        )
+
+    def find_monitoring_by_condition_and_name(self, condition_id: UUID, mon_name: str):
+        """
+        Find monitoring record by condition and name.
+        Used by gpt_extraction for duplicate detection.
+        """
+        from app.models.health.condition_monitoring import ConditionMonitoring
+        return (
+            self.db.query(ConditionMonitoring)
+            .filter(ConditionMonitoring.condition_id == condition_id, ConditionMonitoring.name == mon_name)
+            .first()
         )
 

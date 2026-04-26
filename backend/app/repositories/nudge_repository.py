@@ -393,3 +393,14 @@ class NudgeRepository:
         self.db.flush()
         return count
 
+    def find_unresponded_by_pet(self, pet_id: UUID) -> list:
+        """Find unresponded nudges for a pet."""
+        return (
+            self.db.query(Nudge)
+            .filter(
+                Nudge.pet_id == pet_id,
+                Nudge.responded == False,
+            )
+            .all()
+        )
+

@@ -2032,15 +2032,10 @@ def _upsert_custom_item_for_extra_vaccine(
     vaccine_name: str,
 ) -> CustomPreventiveItem:
     """Get or create a custom preventive item for an unmapped vaccine."""
-    existing = (
-        db.query(CustomPreventiveItem)
-        .filter(
-            CustomPreventiveItem.user_id == user_id,
-            CustomPreventiveItem.item_name == vaccine_name,
-            CustomPreventiveItem.species == species,
-        )
-        .first()
-    )
+    from app.repositories.preventive_repository import PreventiveRepository
+    repo = PreventiveRepository(db)
+
+    existing = repo.find_custom_by_user_and_name(user_id, vaccine_name, species)
     if existing:
         return existing
 
@@ -2055,7 +2050,7 @@ def _upsert_custom_item_for_extra_vaccine(
         reminder_before_days=30,
         overdue_after_days=14,
     )
-    db.add(custom_item)
+    return repo.create_custom(custom_item)
     db.flush()
     return custom_item
 
@@ -2069,61 +2064,42 @@ def _upsert_custom_preventive_record_for_pet(
 ) -> None:
     """Create or update a pet-level preventive record for a custom vaccine item."""
     from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+    from app.repositories.preventive_repository import PreventiveRepository
+
+    repo = PreventiveRepository(db)
 
     if last_done_date is None:
-        placeholder = (
-            db.query(PreventiveRecord)
-            .filter(
-                PreventiveRecord.pet_id == pet_id,
-                PreventiveRecord.custom_preventive_item_id == custom_item.id,
-                PreventiveRecord.last_done_date.is_(None),
-                PreventiveRecord.status != "cancelled",
-            )
-            .first()
-        )
+        placeholder = repo.find_placeholder_by_custom_item(pet_id, custom_item.id)
         if placeholder:
             return
-        db.add(
-            PreventiveRecord(
-                pet_id=pet_id,
-                custom_preventive_item_id=custom_item.id,
-                last_done_date=None,
-                next_due_date=None,
-                status="upcoming",
-            )
+        new_record = PreventiveRecord(
+            pet_id=pet_id,
+            custom_preventive_item_id=custom_item.id,
+            last_done_date=None,
+            next_due_date=None,
+            status="upcoming",
         )
-        db.flush()
+        repo.create(
+            pet_id=pet_id,
+            preventive_master_id=None,
+            custom_preventive_item_id=custom_item.id,
+            last_done_date=None,
+            next_due_date=None,
+            status="upcoming",
+        )
         return
 
     next_due = compute_next_due_date(last_done_date, custom_item.recurrence_days)
     status = compute_status(next_due, custom_item.reminder_before_days)
 
-    existing = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.custom_preventive_item_id == custom_item.id,
-            PreventiveRecord.last_done_date == last_done_date,
-        )
-        .first()
-    )
+    existing = repo.find_by_pet_custom_and_date(pet_id, custom_item.id, last_done_date)
     if existing:
         existing.next_due_date = next_due
         existing.status = status
         db.flush()
         return
 
-    placeholder = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.custom_preventive_item_id == custom_item.id,
-            PreventiveRecord.last_done_date.is_(None),
-            PreventiveRecord.status != "cancelled",
-        )
-        .order_by(PreventiveRecord.created_at.asc())
-        .first()
-    )
+    placeholder = repo.find_oldest_placeholder_by_custom_item(pet_id, custom_item.id)
     if placeholder:
         placeholder.last_done_date = last_done_date
         placeholder.next_due_date = next_due
@@ -2220,11 +2196,9 @@ def _load_species_masters(db: Session, species: str) -> list[PreventiveMaster]:
     Returns:
         List of PreventiveMaster records for this species.
     """
-    return (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.species.in_([species, "both"]))
-        .all()
-    )
+    from app.repositories.preventive_master_repository import PreventiveMasterRepository
+    repo = PreventiveMasterRepository(db)
+    return repo.find_by_species(species)
 
 
 def _should_include_puppy_series_for_pet(pet: Pet) -> bool:
@@ -2497,16 +2471,12 @@ def _save_clinical_exam_data(
     weight_kg = _coerce_float(clinical_exam.get("weight_kg"))
     if weight_kg is not None and 0 < weight_kg < 200:
         try:
-            existing = (
-                db.query(WeightHistory)
-                .filter(
-                    WeightHistory.pet_id == pet.id,
-                    WeightHistory.recorded_at == observed_date,
-                )
-                .first()
-            )
+            from app.repositories.care_repository import CareRepository
+            care_repo = CareRepository(db)
+
+            existing = care_repo.find_weight_by_pet_and_date(pet.id, observed_date)
             if existing is None:
-                db.add(
+                care_repo.add_weight_record(
                     WeightHistory(
                         pet_id=pet.id,
                         weight=Decimal(str(round(weight_kg, 2))),
@@ -2660,11 +2630,9 @@ async def extract_and_process_document(
     }
 
     # Load the document record.
-    document = (
-        db.query(Document)
-        .filter(Document.id == document_id)
-        .first()
-    )
+    from app.repositories.document_repository import DocumentRepository
+    doc_repo = DocumentRepository(db)
+    document = doc_repo.find_by_id(document_id)
 
     if not document:
         return {
@@ -2676,7 +2644,9 @@ async def extract_and_process_document(
         }
 
     # Load the pet for species matching.
-    pet = db.query(Pet).filter(Pet.id == document.pet_id).first()
+    from app.repositories.pet_repository import PetRepository
+    pet_repo = PetRepository(db)
+    pet = pet_repo.get_by_id(document.pet_id)
     if not pet:
         document.extraction_status = "failed"
         db.commit()
@@ -3002,9 +2972,9 @@ async def extract_and_process_document(
                     break
 
         # Replace previously extracted diagnostic values for this document.
-        db.query(DiagnosticTestResult).filter(
-            DiagnosticTestResult.document_id == document.id
-        ).delete()
+        from app.repositories.health_repository import HealthRepository
+        health_repo = HealthRepository(db)
+        health_repo.delete_diagnostics_by_document(document.id)
 
         diagnostic_values = metadata.get("diagnostic_values") or []
         for raw in diagnostic_values:
@@ -3239,11 +3209,9 @@ async def extract_and_process_document(
                         )
 
                 # Upsert by (pet_id, name) — update if exists, create if not.
-                existing_condition = (
-                    db.query(Condition)
-                    .filter(Condition.pet_id == pet.id, Condition.name == condition_name)
-                    .first()
-                )
+                from app.repositories.care_repository import CareRepository
+                care_repo = CareRepository(db)
+                existing_condition = care_repo.find_condition_by_pet_and_name(pet.id, condition_name)
                 if existing_condition:
                     # Ensure the condition is marked as active (re-activation on new documents)
                     existing_condition.is_active = True
@@ -3323,11 +3291,7 @@ async def extract_and_process_document(
                         continue  # Skip ConditionMedication for supplements
 
                     # Medicines → condition_medications (existing path)
-                    existing_med = (
-                        db.query(ConditionMedication)
-                        .filter(ConditionMedication.condition_id == condition_obj.id, ConditionMedication.name == med_name)
-                        .first()
-                    )
+                    existing_med = care_repo.find_medication_by_condition_and_name(condition_obj.id, med_name)
                     # Parse end_date if provided. For chronic conditions, default to far-future date.
                     med_end_date = None
                     if med.get("end_date"):
@@ -3361,11 +3325,7 @@ async def extract_and_process_document(
                     mon_name = str(mon.get("name") or "").strip()
                     if not mon_name:
                         continue
-                    existing_mon = (
-                        db.query(ConditionMonitoring)
-                        .filter(ConditionMonitoring.condition_id == condition_obj.id, ConditionMonitoring.name == mon_name)
-                        .first()
-                    )
+                    existing_mon = care_repo.find_monitoring_by_condition_and_name(condition_obj.id, mon_name)
                     # Parse recheck_due_date if provided.
                     mon_recheck = None
                     if mon.get("recheck_due_date"):
@@ -3401,11 +3361,7 @@ async def extract_and_process_document(
                 # Upsert placeholder condition for medicines that have no named diagnosis.
                 # Per-pet upsert (not per-document) due to unique constraint (pet_id, name).
                 STANDALONE_CONDITION_NAME = "Prescription Medications"
-                standalone_condition = (
-                    db.query(Condition)
-                    .filter(Condition.pet_id == pet.id, Condition.name == STANDALONE_CONDITION_NAME)
-                    .first()
-                )
+                standalone_condition = care_repo.find_condition_by_pet_and_name(pet.id, STANDALONE_CONDITION_NAME)
                 if not standalone_condition:
                     standalone_condition = Condition(
                         pet_id=pet.id,
@@ -3437,14 +3393,7 @@ async def extract_and_process_document(
                     else:
                         # Medicines → condition_medications under placeholder condition
                         try:
-                            existing = (
-                                db.query(ConditionMedication)
-                                .filter(
-                                    ConditionMedication.condition_id == standalone_condition.id,
-                                    ConditionMedication.name == med_name
-                                )
-                                .first()
-                            )
+                            existing = care_repo.find_medication_by_condition_and_name(standalone_condition.id, med_name)
                             med_end_date = None
                             if med.get("end_date"):
                                 try:
@@ -3511,11 +3460,9 @@ async def extract_and_process_document(
                     db.flush()
 
                     # Upsert by (pet_id, name, role).
-                    existing_contact = (
-                        db.query(Contact)
-                        .filter(Contact.pet_id == pet.id, Contact.name == contact_name, Contact.role == role)
-                        .first()
-                    )
+                    from app.repositories.contact_repository import ContactRepository
+                    contact_repo = ContactRepository(db)
+                    existing_contact = contact_repo.find_by_pet_name_and_role(pet.id, contact_name, role)
                     if existing_contact:
                         if raw_contact.get("clinic_name"):
                             existing_contact.clinic_name = str(raw_contact["clinic_name"])[:200]
@@ -3555,11 +3502,7 @@ async def extract_and_process_document(
             if selected_doctor_name and _is_plausible_doctor_name(selected_doctor_name, pet_name=pet.name):
                 try:
                     db.flush()
-                    existing_doc_contact = (
-                        db.query(Contact)
-                        .filter(Contact.pet_id == pet.id, Contact.name == selected_doctor_name, Contact.role == "veterinarian")
-                        .first()
-                    )
+                    existing_doc_contact = contact_repo.find_by_pet_name_and_role(pet.id, selected_doctor_name, "veterinarian")
                     if existing_doc_contact:
                         # Refresh source tracking to reflect the latest clinical document.
                         existing_doc_contact.document_id = document.id
@@ -3601,11 +3544,7 @@ async def extract_and_process_document(
                     continue
                 try:
                     db.flush()
-                    existing_item_contact = (
-                        db.query(Contact)
-                        .filter(Contact.pet_id == pet.id, Contact.name == item_doctor, Contact.role == "veterinarian")
-                        .first()
-                    )
+                    existing_item_contact = contact_repo.find_by_pet_name_and_role(pet.id, item_doctor, "veterinarian")
                     if existing_item_contact:
                         # Refresh source tracking to reflect the latest clinical document.
                         existing_item_contact.document_id = document.id

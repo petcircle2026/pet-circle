@@ -230,3 +230,20 @@ class PetRepository:
         from sqlalchemy import func
         return self.db.query(func.count(Pet.id)).filter(Pet.is_deleted == False).scalar() or 0
 
+    def find_by_user_desc(self, user_id: UUID) -> list:
+        """Find pets for a user ordered by creation date (descending)."""
+        return (
+            self.db.query(Pet)
+            .filter(Pet.user_id == user_id, Pet.is_deleted == False)
+            .order_by(Pet.created_at.desc())
+            .all()
+        )
+
+    def has_pet_with_id(self, pet_id: UUID) -> bool:
+        """Check if pet exists."""
+        return (
+            self.db.query(Pet.id)
+            .filter(Pet.id == pet_id, Pet.is_deleted == False)
+            .first() is not None
+        )
+

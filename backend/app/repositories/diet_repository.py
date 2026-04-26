@@ -320,3 +320,22 @@ class DietRepository:
             .all()
         )
 
+    def find_by_pet(self, pet_id: UUID) -> list:
+        """Find all diet items for a pet."""
+        return (
+            self.db.query(DietItem)
+            .filter(DietItem.pet_id == pet_id)
+            .all()
+        )
+
+    def find_current_by_pet(self, pet_id: UUID) -> DietItem | None:
+        """Find current active diet for a pet."""
+        return (
+            self.db.query(DietItem)
+            .filter(
+                DietItem.pet_id == pet_id,
+                DietItem.is_current == True,
+            )
+            .first()
+        )
+
