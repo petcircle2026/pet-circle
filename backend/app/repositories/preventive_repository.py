@@ -373,6 +373,28 @@ class PreventiveRepository:
             .all()
         )
 
+    def find_latest_by_pet_and_item_name(self, pet_id: UUID, item_name: str):
+        """Find the latest non-cancelled record for a pet and item name, ordered by completion date."""
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .join(
+                PreventiveMaster,
+                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
+            )
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveMaster.item_name == item_name,
+                PreventiveRecord.status != "cancelled",
+            )
+            .order_by(
+                PreventiveRecord.last_done_date.desc().nullslast(),
+                PreventiveRecord.next_due_date.desc().nullslast(),
+                PreventiveRecord.created_at.desc().nullslast(),
+                PreventiveRecord.id.desc(),
+            )
+            .first()
+        )
+
     def find_all_upcoming_overdue_with_pets(self):
         """
         Fetch all upcoming/overdue preventive records joined with Pet, User,
@@ -567,5 +589,63 @@ class PreventiveRepository:
             )
             .order_by(PreventiveRecord.created_at.asc())
             .first()
+        )
+
+    def find_by_pet_and_custom_item(self, pet_id: UUID, custom_item_id: UUID) -> PreventiveRecord | None:
+        """Find a preventive record for a pet by custom preventive item ID."""
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.custom_preventive_item_id == custom_item_id,
+            )
+            .first()
+        )
+
+    def find_all_with_master_for_pet(self, pet_id: UUID) -> list:
+        """Find all preventive records with master details for a pet."""
+        from app.models.health.preventive_master import PreventiveMaster
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .all()
+        )
+
+    def find_by_pet_and_master(self, pet_id: UUID, master_id: UUID) -> PreventiveRecord | None:
+        """Find a preventive record for a pet by preventive master ID."""
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id == master_id,
+            )
+            .first()
+        )
+
+    def find_existing_master_ids_for_pet(self, pet_id: UUID) -> set[UUID]:
+        """Find all preventive master IDs already seeded for a pet."""
+        results = (
+            self.db.query(PreventiveRecord.preventive_master_id)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        return {row[0] for row in results if row[0] is not None}
+
+    def find_with_master_ordered_by_due(self, pet_id: UUID) -> list:
+        """Find all preventive records with master details for a pet, ordered by due date."""
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .join(
+                PreventiveMaster,
+                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
+            )
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .order_by(PreventiveRecord.next_due_date.asc())
+            .all()
         )
 

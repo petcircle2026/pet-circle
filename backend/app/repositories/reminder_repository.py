@@ -29,6 +29,63 @@ class ReminderRepository:
         """Fetch a reminder by ID."""
         return self.db.query(Reminder).filter(Reminder.id == reminder_id).first()
 
+    def find_by_id_and_user(self, reminder_id: UUID, user_id: UUID) -> Reminder | None:
+        """Fetch a reminder by ID, verifying it belongs to the user's pets."""
+        from app.models.core.pet import Pet
+        return (
+            self.db.query(Reminder)
+            .join(Pet, Reminder.pet_id == Pet.id)
+            .filter(
+                Reminder.id == reminder_id,
+                Pet.user_id == user_id,
+                Pet.is_deleted == False,
+            )
+            .first()
+        )
+
+    def find_latest_sent_for_user(self, user_id: UUID) -> Reminder | None:
+        """Find the most recently sent reminder for any of the user's pets."""
+        from app.models.core.pet import Pet
+        return (
+            self.db.query(Reminder)
+            .join(Pet, Reminder.pet_id == Pet.id)
+            .filter(
+                Pet.user_id == user_id,
+                Pet.is_deleted == False,
+                Reminder.status == "sent",
+            )
+            .order_by(Reminder.sent_at.desc())
+            .first()
+        )
+
+    def find_active_for_pet_with_details(self, pet_id: UUID) -> list:
+        """Find active reminders for a pet with preventive record and master details."""
+        from app.models.health.preventive_record import PreventiveRecord
+        from app.models.health.preventive_master import PreventiveMaster
+        return (
+            self.db.query(Reminder, PreventiveRecord, PreventiveMaster)
+            .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)
+            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                Reminder.status.in_(["pending", "sent"]),
+            )
+            .order_by(Reminder.next_due_date.asc())
+            .all()
+        )
+
+    def find_stale_by_record_and_date(self, record_id: UUID, due_date: date) -> List[Reminder]:
+        """Find pending/sent reminders for a record with a specific due date (invalidated by updates)."""
+        return (
+            self.db.query(Reminder)
+            .filter(
+                Reminder.preventive_record_id == record_id,
+                Reminder.next_due_date == due_date,
+                Reminder.status.in_(["pending", "sent"]),
+            )
+            .all()
+        )
+
     def find_by_pet_id(self, pet_id: UUID) -> List[Reminder]:
         """Fetch all reminders for a pet."""
         return (

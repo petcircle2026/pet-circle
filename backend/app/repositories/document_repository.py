@@ -31,6 +31,17 @@ class DocumentRepository:
         """Fetch a document by ID."""
         return self.db.query(Document).filter(Document.id == document_id).first()
 
+    def find_by_id_and_pet(self, document_id: UUID, pet_id: UUID) -> Document | None:
+        """Fetch a document by ID, verifying it belongs to the pet."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.id == document_id,
+                Document.pet_id == pet_id,
+            )
+            .first()
+        )
+
     def find_by_pet_id(self, pet_id: UUID) -> List[Document]:
         """Fetch all documents for a pet."""
         return (
@@ -185,6 +196,62 @@ class DocumentRepository:
             self.db.query(func.count(Document.id))
             .filter(Document.pet_id == pet_id)
             .scalar() or 0
+        )
+
+    def find_by_wamid(self, wamid: str) -> Document | None:
+        """Find a document by its WhatsApp message ID."""
+        return (
+            self.db.query(Document)
+            .filter(Document.source_wamid == wamid)
+            .first()
+        )
+
+    def find_by_pet_and_filename(self, pet_id: UUID, filename: str, cutoff: datetime) -> Document | None:
+        """Find a document by pet and filename within a time window."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.document_name == filename,
+                Document.created_at >= cutoff,
+            )
+            .first()
+        )
+
+    def find_by_pet_and_media_id(self, pet_id: UUID, media_id: str, cutoff: datetime) -> Document | None:
+        """Find a document by pet and media ID within a time window."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.file_path.like(f"%{media_id}%"),
+                Document.created_at >= cutoff,
+            )
+            .first()
+        )
+
+    def count_extracted_by_ids(self, document_ids: list[UUID]) -> int:
+        """Count documents with successful or partial extraction status from a list of IDs."""
+        return (
+            self.db.query(func.count(Document.id))
+            .filter(
+                Document.id.in_(document_ids),
+                Document.extraction_status.in_(["success", "partially_extracted"]),
+            )
+            .scalar() or 0
+        )
+
+    def find_pending_by_pet_and_ids(self, pet_id: UUID, document_ids: list[UUID]) -> list:
+        """Find pending documents for a pet from a list of document IDs."""
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status == "pending",
+                Document.id.in_(document_ids),
+            )
+            .order_by(Document.created_at.asc())
+            .all()
         )
 
     def count_by_status(self, status: str) -> int:
@@ -447,5 +514,31 @@ class DocumentRepository:
             )
             .order_by(desc(Document.created_at))
             .all()
+        )
+
+    def count_diagnostic_by_month_for_pet(self, pet_id: UUID) -> list:
+        """Count diagnostic documents by month for a pet (for trend analysis)."""
+        from sqlalchemy import func
+        return (
+            self.db.query(
+                func.to_char(Document.created_at, "YYYY-MM").label("month"),
+                func.count().label("count"),
+            )
+            .filter(
+                Document.pet_id == pet_id,
+                Document.document_category == "Diagnostic",
+                Document.extraction_status == "success",
+            )
+            .group_by(func.to_char(Document.created_at, "YYYY-MM"))
+            .order_by(func.to_char(Document.created_at, "YYYY-MM"))
+            .all()
+        )
+
+    def count_pending_by_pet(self, pet_id: UUID) -> int:
+        """Count pending documents for a pet."""
+        return (
+            self.db.query(Document)
+            .filter(Document.pet_id == pet_id, Document.extraction_status == "pending")
+            .count()
         )
 

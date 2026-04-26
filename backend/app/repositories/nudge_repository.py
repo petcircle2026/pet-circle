@@ -404,3 +404,16 @@ class NudgeRepository:
             .all()
         )
 
+    def find_latest_dismissed_for_pet(self, pet_id: UUID) -> Nudge | None:
+        """Find the most recent undismissed non-mandatory nudge for a pet."""
+        return (
+            self.db.query(Nudge)
+            .filter(
+                Nudge.pet_id == pet_id,
+                Nudge.dismissed == False,
+                Nudge.mandatory == False,
+            )
+            .order_by(desc(Nudge.created_at))
+            .first()
+        )
+

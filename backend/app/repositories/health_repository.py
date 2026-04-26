@@ -397,3 +397,19 @@ class HealthRepository:
         self.db.flush()
         return count
 
+    def get_medication_by_id(self, medication_id: UUID) -> ConditionMedication | None:
+        """Fetch a condition medication by ID."""
+        return (
+            self.db.query(ConditionMedication)
+            .filter(ConditionMedication.id == medication_id)
+            .first()
+        )
+
+    def get_monitoring_by_id(self, monitoring_id: UUID) -> ConditionMonitoring | None:
+        """Fetch a condition monitoring item by ID."""
+        return (
+            self.db.query(ConditionMonitoring)
+            .filter(ConditionMonitoring.id == monitoring_id)
+            .first()
+        )
+

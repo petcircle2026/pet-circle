@@ -120,3 +120,13 @@ class PetPreferenceRepository:
             .first() is not None
         )
 
+    def find_recent_by_pet(self, pet_id: UUID, limit: int = 10) -> List[PetPreference]:
+        """Find recent preferences for a pet, ordered by update date."""
+        return (
+            self.db.query(PetPreference)
+            .filter(PetPreference.pet_id == pet_id)
+            .order_by(desc(PetPreference.updated_at))
+            .limit(limit)
+            .all()
+        )
+

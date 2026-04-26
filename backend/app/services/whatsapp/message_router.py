@@ -29,6 +29,17 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.repositories.pet_repository import PetRepository
+from app.repositories.user_repository import UserRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.conflict_flag_repository import ConflictFlagRepository
+from app.repositories.nudge_repository import NudgeRepository
+from app.repositories.dashboard_token_repository import DashboardTokenRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.care_repository import CareRepository
 from app.core.constants import (
     ACKNOWLEDGMENTS,
     CONFLICT_KEEP_EXISTING,
@@ -923,18 +934,9 @@ async def route_message(db: Session, message_data: dict) -> None:
                 from sqlalchemy import String, cast
 
                 from app.models.messaging.message_log import MessageLog
-                already_sent = (
-                    db.query(MessageLog.id)
-                    .filter(
-                        MessageLog.mobile_number == from_number,
-                        MessageLog.direction == "outgoing",
-                        MessageLog.message_type == "text",
-                        cast(MessageLog.payload["text"]["body"], String).like(
-                            "%Please send a text%"
-                        ),
-                    )
-                    .first()
-                )
+                from app.repositories.message_log_repository import MessageLogRepository
+                msg_repo = MessageLogRepository(db)
+                already_sent = msg_repo.find_sent_setup_prompt(from_number)
                 if not already_sent:
                     await send_text_message(
                         db, from_number,
@@ -1267,16 +1269,8 @@ async def _try_handle_reschedule_date(
     reminder_id = user.active_reminder_id
 
     # Verify the reminder still exists and belongs to this user.
-    reminder = (
-        db.query(Reminder)
-        .join(Pet, Reminder.pet_id == Pet.id)
-        .filter(
-            Reminder.id == reminder_id,
-            Pet.user_id == user.id,
-            Pet.is_deleted == False,
-        )
-        .first()
-    )
+    reminder_repo = ReminderRepository(db)
+    reminder = reminder_repo.find_by_id_and_user(reminder_id, user.id)
 
     if not reminder:
         # Stale state — clear it and do not consume the message.
@@ -1376,17 +1370,8 @@ async def _handle_reminder_button(db: Session, user, payload: str) -> None:
 
     # Find the latest sent reminder for this user's pets via pet_id FK.
     # Reminder.pet_id was backfilled by migration 028 for all source types.
-    reminder = (
-        db.query(Reminder)
-        .join(Pet, Reminder.pet_id == Pet.id)
-        .filter(
-            Pet.user_id == user.id,
-            Pet.is_deleted == False,
-            Reminder.status == "sent",
-        )
-        .order_by(Reminder.sent_at.desc())
-        .first()
-    )
+    reminder_repo = ReminderRepository(db)
+    reminder = reminder_repo.find_latest_sent_for_user(user.id)
 
     if not reminder:
         await send_text_message(db, from_number, "No active reminder found to respond to.")
@@ -1458,18 +1443,8 @@ async def _handle_conflict_button(db: Session, user, payload: str) -> None:
 
     # Find the latest pending conflict for this user's pets via direct JOIN
     # (avoids separate pet query).
-    conflict = (
-        db.query(ConflictFlag)
-        .join(PreventiveRecord, ConflictFlag.preventive_record_id == PreventiveRecord.id)
-        .join(Pet, PreventiveRecord.pet_id == Pet.id)
-        .filter(
-            Pet.user_id == user.id,
-            Pet.is_deleted == False,
-            ConflictFlag.status == "pending",
-        )
-        .order_by(ConflictFlag.created_at.desc())
-        .first()
-    )
+    conflict_repo = ConflictFlagRepository(db)
+    conflict = conflict_repo.find_latest_pending_for_user(user.id)
 
     if not conflict:
         await send_text_message(db, from_number, "No pending conflicts found.")
@@ -1484,13 +1459,7 @@ async def _handle_conflict_button(db: Session, user, payload: str) -> None:
         # Preventive record date changed — refresh dashboard cache.
         try:
             from app.services.shared.precompute_service import precompute_dashboard_enrichments
-            pet_for_conflict = (
-                db.query(Pet)
-                .join(PreventiveRecord, Pet.id == PreventiveRecord.pet_id)
-                .join(ConflictFlag, ConflictFlag.preventive_record_id == PreventiveRecord.id)
-                .filter(ConflictFlag.id == conflict.id)
-                .first()
-            )
+            pet_for_conflict = conflict_repo.find_pet_by_conflict_id(conflict.id)
             if pet_for_conflict:
                 asyncio.create_task(precompute_dashboard_enrichments(str(pet_for_conflict.id)))
         except Exception as _pre_exc:
@@ -1523,16 +1492,8 @@ async def _handle_nudge_button(db: Session, user, payload: str) -> None:
     elif payload == NUDGE_DISMISS:
         # Dismiss the most recent undismissed nudge
         from app.models.messaging.nudge import Nudge
-        nudge = (
-            db.query(Nudge)
-            .filter(
-                Nudge.pet_id == pet.id,
-                Nudge.dismissed == False,
-                Nudge.mandatory == False,
-            )
-            .order_by(Nudge.created_at.desc())
-            .first()
-        )
+        nudge_repo = NudgeRepository(db)
+        nudge = nudge_repo.find_latest_dismissed_for_pet(pet.id)
         if nudge:
             nudge.dismissed = True
             db.commit()
@@ -1541,11 +1502,8 @@ async def _handle_nudge_button(db: Session, user, payload: str) -> None:
             await send_text_message(db, from_number, "No dismissible nudges found.")
     elif payload == NUDGE_VIEW_DASHBOARD:
         record_nudge_engagement(db, user.id, pet.id)
-        token = (
-            db.query(DashboardToken)
-            .filter(DashboardToken.pet_id == pet.id, DashboardToken.is_active == True)
-            .first()
-        )
+        dashboard_repo = DashboardTokenRepository(db)
+        token = dashboard_repo.find_active_by_pet(pet.id)
         if token:
             from app.config import settings
             url = f"{settings.FRONTEND_URL}/dashboard/{token.token}"
@@ -1591,12 +1549,8 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
         )
 
     # Find user's most recent active pet.
-    pet = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .order_by(Pet.created_at.desc())
-        .first()
-    )
+    pet_repo = PetRepository(db)
+    pet = pet_repo.find_by_user_desc(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "Please register a pet first.")
@@ -1609,11 +1563,8 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
     message_id = message_data.get("message_id")
 
     if message_id:
-        existing_by_wamid = (
-            db.query(Document.id)
-            .filter(Document.source_wamid == message_id)
-            .first()
-        )
+        doc_repo = DocumentRepository(db)
+        existing_by_wamid = doc_repo.find_by_wamid(message_id)
         if existing_by_wamid:
             logger.info(
                 "Duplicate document detected (wamid dedup): wamid=%s, "
@@ -1627,15 +1578,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
     dedup_cutoff = datetime.now(UTC) - timedelta(hours=24)
 
     if original_filename:
-        existing_doc = (
-            db.query(Document.id)
-            .filter(
-                Document.pet_id == pet.id,
-                Document.document_name == original_filename,
-                Document.created_at >= dedup_cutoff,
-            )
-            .first()
-        )
+        existing_doc = doc_repo.find_by_pet_and_filename(pet.id, original_filename, dedup_cutoff)
         if existing_doc:
             logger.info(
                 "Duplicate document detected (filename dedup): filename=%s, "
@@ -1644,14 +1587,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
             )
             return
     elif media_id:
-        existing_doc = (
-            db.query(Document.id)
-            .filter(
-                Document.pet_id == pet.id,
-                Document.file_path.like(f"%{media_id}%"),
-                Document.created_at >= dedup_cutoff,
-            )
-            .first()
+        existing_doc = doc_repo.find_by_pet_and_media_id(pet.id, media_id, dedup_cutoff)
         )
         if existing_doc:
             logger.info(
@@ -1945,14 +1881,8 @@ async def run_extraction_batch(
             # know the upload was received (rather than getting no response at all).
             if document_ids and from_number and pet:
                 try:
-                    duplicate_count = (
-                        bg_db.query(Document)
-                        .filter(
-                            Document.id.in_(document_ids),
-                            Document.extraction_status.in_(["success", "partially_extracted"]),
-                        )
-                        .count()
-                    )
+                    doc_repo_bg = DocumentRepository(bg_db)
+                    duplicate_count = doc_repo_bg.count_extracted_by_ids(document_ids)
                     if duplicate_count > 0:
                         pet_display = (pet.name if pet else None) or pet_name
                         dashboard_link = _get_dashboard_link(bg_db, pet)
@@ -1971,8 +1901,10 @@ async def run_extraction_batch(
             return
 
         total = len(pending_docs)
-        user = bg_db.query(User).filter(User.id == user_id).first()
-        pet = bg_db.query(Pet).filter(Pet.id == pet_id).first()
+        user_repo_bg = UserRepository(bg_db)
+        pet_repo_bg = PetRepository(bg_db)
+        user = user_repo_bg.find_by_id(user_id)
+        pet = pet_repo_bg.find_by_id(pet_id)
         if user and from_number:
             user._plaintext_mobile = from_number
 
@@ -2190,16 +2122,8 @@ async def _delayed_batch_extraction(
             _batch_is_onboarding.pop(pet_key, None)
             return
 
-        pending_docs = (
-            bg_db.query(Document)
-            .filter(
-                Document.pet_id == pet_id,
-                Document.extraction_status == "pending",
-                Document.id.in_(batched_doc_ids),
-            )
-            .order_by(Document.created_at.asc())
-            .all()
-        )
+        doc_repo_bg = DocumentRepository(bg_db)
+        pending_docs = doc_repo_bg.find_pending_by_pet_and_ids(pet_id, batched_doc_ids)
 
         if not pending_docs:
             # DB has no pending docs in this batch (already extracted or failed).
@@ -2207,20 +2131,15 @@ async def _delayed_batch_extraction(
             # the user their documents are already on record.
             duplicate_count = 0
             if batched_doc_ids and from_number:
-                duplicate_count = (
-                    bg_db.query(Document)
-                    .filter(
-                        Document.id.in_(batched_doc_ids),
-                        Document.extraction_status.in_(["success", "partially_extracted"]),
-                    )
-                    .count()
-                )
+                doc_repo_bg = DocumentRepository(bg_db)
+                duplicate_count = doc_repo_bg.count_extracted_by_ids(batched_doc_ids)
             unsupported_count = _unsupported_format_count.pop(pet_key, 0)
             _batch_document_ids.pop(pet_key, None)
             _batch_is_onboarding.pop(pet_key, None)
             if from_number:
                 if duplicate_count > 0:
-                    pet_obj = bg_db.query(Pet).filter(Pet.id == pet_id).first()
+                    pet_repo_bg = PetRepository(bg_db)
+                    pet_obj = pet_repo_bg.find_by_id(pet_id)
                     pet_display = (pet_obj.name if pet_obj else None) or pet_name
                     dashboard_link = _get_dashboard_link(bg_db, pet_obj) if pet_obj else None
                     msg = (
@@ -2247,8 +2166,10 @@ async def _delayed_batch_extraction(
 
         from app.models.core.user import User
 
-        user = bg_db.query(User).filter(User.id == user_id).first()
-        pet = bg_db.query(Pet).filter(Pet.id == pet_id).first()
+        user_repo_bg = UserRepository(bg_db)
+        pet_repo_bg = PetRepository(bg_db)
+        user = user_repo_bg.find_by_id(user_id)
+        pet = pet_repo_bg.find_by_id(pet_id)
         if user:
             user._plaintext_mobile = from_number
 
@@ -2388,12 +2309,8 @@ async def _handle_query(db: Session, user, text: str) -> None:
 
     from_number = _get_mobile(user)
 
-    pet = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .order_by(Pet.created_at.desc())
-        .first()
-    )
+    pet_repo = PetRepository(db)
+    pet = pet_repo.find_by_user_desc(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "Please register a pet first.")
@@ -2447,9 +2364,8 @@ async def _send_dashboard_links(db, user) -> None:
 
     from_number = _get_mobile(user)
 
-    pets = db.query(Pet).filter(
-        Pet.user_id == user.id, Pet.is_deleted == False
-    ).all()
+    pet_repo = PetRepository(db)
+    pets = pet_repo.find_by_user(user.id)
 
     if not pets:
         await send_text_message(db, from_number, "No pets found.")
@@ -2457,11 +2373,8 @@ async def _send_dashboard_links(db, user) -> None:
 
     # Batch-load all active tokens for user's pets to avoid N+1 queries.
     pet_ids = [p.id for p in pets]
-    tokens = (
-        db.query(DashboardToken)
-        .filter(DashboardToken.pet_id.in_(pet_ids), DashboardToken.revoked == False)
-        .all()
-    )
+    dashboard_repo = DashboardTokenRepository(db)
+    tokens = dashboard_repo.find_active_by_pet_ids(pet_ids)
     token_by_pet = {t.pet_id: t for t in tokens}
 
     messages = []
@@ -2492,17 +2405,8 @@ async def _send_dashboard_links(db, user) -> None:
 
             # Fetch and append active reminders for this pet
             try:
-                reminders = (
-                    db.query(Reminder, PreventiveRecord, PreventiveMaster)
-                    .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)
-                    .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-                    .filter(
-                        PreventiveRecord.pet_id == pet.id,
-                        Reminder.status.in_(["pending", "sent"]),
-                    )
-                    .order_by(Reminder.next_due_date.asc())
-                    .all()
-                )
+                reminder_repo = ReminderRepository(db)
+                reminders = reminder_repo.find_active_for_pet_with_details(pet.id)
 
                 if reminders:
                     pet_msg += "\n\nActive Reminders:"
@@ -2540,11 +2444,8 @@ def _get_dashboard_link(db: Session, pet) -> str | None:
         from app.models.auth.dashboard_token import DashboardToken
         from app.services.whatsapp.onboarding import refresh_dashboard_token
 
-        token_record = (
-            db.query(DashboardToken)
-            .filter(DashboardToken.pet_id == pet.id, DashboardToken.revoked == False)
-            .first()
-        )
+        dashboard_repo = DashboardTokenRepository(db)
+        token_record = dashboard_repo.find_active_by_pet_id(pet.id)
 
         if not token_record:
             return None
@@ -2817,21 +2718,14 @@ async def _send_deferred_care_plan(
         from app.repositories.diet_repository import DietRepository
         diet_repo = DietRepository(db)
         diet_count = len(diet_repo.find_by_pet(pet.id))
-        supplement_count = db.query(DietItem).filter(
-            DietItem.pet_id == pet.id,
-            DietItem.type == "supplement",
-        ).count()
+        supplement_count = diet_repo.count_by_pet_and_type(pet.id, "supplement")
         # Use the same tracked preventive counting logic as onboarding and
         # dashboard "What's Found" to keep user-visible counts consistent.
         record_count = _count_tracked_preventive_items(db, pet.id)
         vaccine_count, other_preventive_count = _count_tracked_preventive_items_split(db, pet.id)
-        docs_uploaded = db.query(Document).filter(Document.pet_id == pet.id).count()
-        conditions = (
-            db.query(Condition)
-            .filter(Condition.pet_id == pet.id, Condition.is_active == True)
-            .order_by(Condition.created_at.asc())
-            .all()
-        )
+        docs_uploaded = doc_repo.count_by_pet(pet.id)
+        care_repo = CareRepository(db)
+        conditions = care_repo.find_active_conditions(pet.id)
 
         diet_items = diet_repo.find_by_pet(pet.id)
 

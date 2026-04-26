@@ -46,8 +46,6 @@ State transitions:
         → preventive_record.status = 'cancelled'
         → reminder.status = 'completed'
 """
-from app.models import PreventiveMaster
-
 import logging
 from datetime import date, timedelta
 from uuid import UUID
@@ -65,16 +63,16 @@ from app.core.constants import (
     REMINDER_SNOOZE_7,
     REMINDER_STILL_PENDING,
 )
-from app.models.health.condition_medication import ConditionMedication
-from app.models.health.condition_monitoring import ConditionMonitoring
-from app.models.nutrition.diet_item import DietItem
-from app.models.preventive.preventive_record import PreventiveRecord
-from app.models.preventive.reminder import Reminder
 from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
 )
 from app.utils.date_utils import format_date_for_user, get_today_ist
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.diet_item_repository import DietItemRepository
+from app.repositories.health_repository import HealthRepository
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +118,8 @@ def handle_reminder_response(
         )
 
     # Load the reminder.
-    reminder = (
-        db.query(Reminder)
-        .filter(Reminder.id == reminder_id)
-        .first()
-    )
+    reminder_repo = ReminderRepository(db)
+    reminder = reminder_repo.find_by_id(reminder_id)
 
     if not reminder:
         raise ValueError(f"Reminder not found: {reminder_id}")
@@ -194,19 +189,14 @@ def _handle_done(db: Session, reminder: Reminder) -> dict:
 
 def _handle_done_preventive_record(db: Session, reminder: Reminder, today: date) -> dict:
     """Handle Done for preventive_record-sourced reminders."""
-    record = (
-        db.query(PreventiveRecord)
-        .filter(PreventiveRecord.id == reminder.preventive_record_id)
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    master_repo = PreventiveMasterRepository(db)
+
+    record = preventive_repo.get_by_id(reminder.preventive_record_id)
     if not record:
         raise ValueError(f"Preventive record not found for reminder: {reminder.id}")
 
-    master = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.id == record.preventive_master_id)
-        .first()
-    )
+    master = master_repo.get_by_id(record.preventive_master_id)
     if not master:
         raise ValueError(f"Preventive master not found for record: {record.id}")
 
@@ -234,7 +224,8 @@ def _handle_done_preventive_record(db: Session, reminder: Reminder, today: date)
 
 def _handle_done_diet_item(db: Session, reminder: Reminder, today: date) -> dict:
     """Handle Done for diet_item-sourced (food/supplement) reminders."""
-    item = db.query(DietItem).filter(DietItem.id == reminder.source_id).first()
+    diet_repo = DietItemRepository(db)
+    item = diet_repo.find_by_id(reminder.source_id)
     if item:
         item.last_purchase_date = today
     reminder.status = "completed"
@@ -251,7 +242,8 @@ def _handle_done_diet_item(db: Session, reminder: Reminder, today: date) -> dict
 
 def _handle_done_condition_medication(db: Session, reminder: Reminder, today: date) -> dict:
     """Handle Done for chronic medicine reminders — advance refill_due_date by 30 days."""
-    med = db.query(ConditionMedication).filter(ConditionMedication.id == reminder.source_id).first()
+    health_repo = HealthRepository(db)
+    med = health_repo.get_medication_by_id(reminder.source_id)
     if med and med.refill_due_date:
         med.refill_due_date = med.refill_due_date + timedelta(days=30)
     reminder.status = "completed"
@@ -269,8 +261,8 @@ def _handle_done_condition_medication(db: Session, reminder: Reminder, today: da
 
 def _handle_done_condition_monitoring(db: Session, reminder: Reminder, today: date) -> dict:
     """Handle Done for vet follow-up reminders."""
-    monitoring = db.query(ConditionMonitoring).filter(
-        ConditionMonitoring.id == reminder.source_id).first()
+    health_repo = HealthRepository(db)
+    monitoring = health_repo.get_monitoring_by_id(reminder.source_id)
     if monitoring:
         monitoring.last_done_date = today
         # Clear next_due_date (vet will set new one at the visit)
@@ -301,15 +293,14 @@ def _handle_snooze(db: Session, reminder: Reminder) -> dict:
     new_due = old_due + timedelta(days=snooze_days) if old_due else None
 
     # Update the source record's due date (preventive_record only)
+    preventive_repo = PreventiveRepository(db)
+    diet_repo = DietItemRepository(db)
     if reminder.preventive_record_id:
-        record = db.query(PreventiveRecord).filter(
-            PreventiveRecord.id == reminder.preventive_record_id
-        ).first()
+        record = preventive_repo.get_by_id(reminder.preventive_record_id)
         if record and record.next_due_date:
             record.next_due_date = record.next_due_date + timedelta(days=snooze_days)
     elif reminder.source_type == "diet_item" and reminder.source_id:
-        from app.models.nutrition.diet_item import DietItem
-        item = db.query(DietItem).filter(DietItem.id == reminder.source_id).first()
+        item = diet_repo.find_by_id(reminder.source_id)
         if item and item.last_purchase_date:
             item.last_purchase_date = item.last_purchase_date + timedelta(days=snooze_days)
 
@@ -437,21 +428,16 @@ def apply_reschedule_date(
         ValueError: If the reminder or its linked record is not found.
     """
     # Load the reminder.
-    reminder = (
-        db.query(Reminder)
-        .filter(Reminder.id == reminder_id)
-        .first()
-    )
+    reminder_repo = ReminderRepository(db)
+    reminder = reminder_repo.find_by_id(reminder_id)
 
     if not reminder:
         raise ValueError(f"Reminder not found: {reminder_id}")
 
     # Load the linked preventive record.
-    record = (
-        db.query(PreventiveRecord)
-        .filter(PreventiveRecord.id == reminder.preventive_record_id)
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    master_repo = PreventiveMasterRepository(db)
+    record = preventive_repo.get_by_id(reminder.preventive_record_id)
 
     if not record:
         raise ValueError(
@@ -459,11 +445,7 @@ def apply_reschedule_date(
         )
 
     # Load preventive master for reminder_before_days (status calculation).
-    master = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.id == record.preventive_master_id)
-        .first()
-    )
+    master = master_repo.get_by_id(record.preventive_master_id)
 
     if not master:
         raise ValueError(
@@ -521,11 +503,8 @@ def _handle_cancel(db: Session, reminder: Reminder) -> dict:
         Result dictionary confirming cancellation.
     """
     # Load the linked preventive record.
-    record = (
-        db.query(PreventiveRecord)
-        .filter(PreventiveRecord.id == reminder.preventive_record_id)
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    record = preventive_repo.get_by_id(reminder.preventive_record_id)
 
     if not record:
         raise ValueError(

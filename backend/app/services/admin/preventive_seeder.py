@@ -19,13 +19,12 @@ Rules:
 Circle groupings are defined in SEED_DATA, and the effective seeded set is
 filtered by current scope rules in seed_preventive_master().
 """
-from app.models import PreventiveMaster
-
 import logging
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
 
 logger = logging.getLogger(__name__)
 
@@ -599,10 +598,8 @@ def seed_preventive_master(db: Session) -> int:
     Returns:
         Number of rows inserted (0 if table was already populated).
     """
-    existing_pairs = {
-        (row[0], row[1])
-        for row in db.query(PreventiveMaster.item_name, PreventiveMaster.species).all()
-    }
+    master_repo = PreventiveMasterRepository(db)
+    existing_pairs = set(master_repo.find_existing_item_species_pairs())
 
     excluded_item_names = {
         "Bath & Grooming",

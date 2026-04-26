@@ -1,4 +1,5 @@
 """
+from app.repositories.pet_repository import PetRepository
 PetCircle — Agentic Order Service
 
 An LLM-driven alternative to the deterministic order state machine.

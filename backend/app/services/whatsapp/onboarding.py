@@ -52,6 +52,18 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field, encrypt_field, hash_field
 from app.core.log_sanitizer import mask_phone
+from app.repositories.user_repository import UserRepository
+from app.repositories.pet_repository import PetRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.dashboard_token_repository import DashboardTokenRepository
+from app.repositories.deferred_care_plan_repository import DeferredCarePlanRepository
+from app.repositories.diet_repository import DietRepository
+from app.repositories.care_repository import CareRepository
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.diet_item_repository import DietItemRepository
+from app.repositories.condition_repository import ConditionRepository
 from app.database import get_fresh_session
 from app.models.health.condition import Condition
 from app.models.preventive.custom_preventive_item import CustomPreventiveItem
@@ -285,11 +297,9 @@ def get_or_create_user(db: Session, mobile_number: str) -> tuple[User | None, bo
         Tuple of (User or None, is_existing: bool).
     """
     mobile_h = hash_field(mobile_number)
-    user = (
-        db.query(User)
-        .filter(User.mobile_hash == mobile_h, User.is_deleted == False)
-        .first()
-    )
+    from app.repositories.user_repository import UserRepository
+    user_repo = UserRepository(db)
+    user = user_repo.find_by_mobile_hash(mobile_h)
     if user:
         return user, True
     return None, False
@@ -319,11 +329,7 @@ def create_pending_user(db: Session, mobile_number: str) -> User:
     # --- Guard against duplicates ---
     # Re-check inside create to handle race conditions where two webhook
     # calls pass get_or_create_user simultaneously for a new number.
-    existing = (
-        db.query(User)
-        .filter(User.mobile_hash == mobile_h)
-        .first()
-    )
+    existing = user_repo.find_by_mobile_hash_any(mobile_h)
     if existing:
         if existing.is_deleted:
             # Reactivate a previously soft-deleted user (consent denied earlier).
@@ -361,11 +367,8 @@ def create_pending_user(db: Session, mobile_number: str) -> User:
         # IntegrityError from unique constraint — another request created it first.
         db.rollback()
         logger.warning("Duplicate user insert caught: %s", str(e))
-        existing = (
-            db.query(User)
-            .filter(User.mobile_hash == mobile_h, User.is_deleted == False)
-            .first()
-        )
+        user_repo = UserRepository(db)
+        existing = user_repo.find_by_mobile_hash(mobile_h)
         if existing:
             return existing
         raise  # Re-raise if we still can't find the user.
@@ -427,12 +430,9 @@ async def handle_onboarding_step(
     if state != "complete" and any(
         kw in text_lower for kw in _DASHBOARD_REQUEST_KEYWORDS
     ):
-        pet_for_msg = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id)
-            .order_by(Pet.created_at.desc())
-            .first()
-        )
+        from app.repositories.pet_repository import PetRepository
+        pet_repo = PetRepository(db)
+        pet_for_msg = pet_repo.find_by_user_desc(user.id)
         pet_name = pet_for_msg.name if pet_for_msg else "your pet"
         await send_fn(
             db, mobile,
@@ -879,7 +879,7 @@ def _get_last_saved_detail(user, pet, db) -> str:
     pet_name = pet.name if pet else "your pet"
 
     if pet:
-        diet_count = db.query(DietItem).filter(DietItem.pet_id == pet.id).count()
+        diet_count = len(diet_repo.find_by_pet(pet.id))
         if diet_count > 0:
             return f"{pet_name}'s diet — {diet_count} item(s) recorded"
         if pet.neutered is not None:
@@ -989,11 +989,7 @@ async def _step_welcome(db, user, text, send_fn, message_data: dict | None = Non
         return
 
     # Check pet limit.
-    pet_count = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .count()
-    )
+    pet_count = pet_repo.count_by_user(user.id)
     if pet_count >= MAX_PETS_PER_USER:
         await send_fn(
             db, mobile,
@@ -1635,7 +1631,10 @@ async def _step_diet_portions(db, user, text, send_fn):
         food_type = od.get("food_type", "mix")
         # Remove existing DietItems for this pet (from the first pass) before re-saving with portions.
         from app.models.nutrition.diet_item import DietItem
-        db.query(DietItem).filter(DietItem.pet_id == pet.id).delete()
+        # DietItem deletion: mark as deleted or remove via repo
+        for item in diet_repo.find_by_pet(pet.id):
+            db.delete(item)
+            db.flush()
         db.commit()
         await _store_meal_items(db, pet, updated_items, food_type)
 
@@ -2796,14 +2795,8 @@ def _upsert_preventive_record(db, pet, master, parsed_date, medicine_name: str |
     next_due = compute_next_due_date(parsed_date, recurrence_days)
     status = compute_status(next_due, reminder_before_days)
 
-    existing = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet.id,
-            PreventiveRecord.preventive_master_id == master.id,
-        )
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    existing = preventive_repo.find_by_pet_and_master(pet.id, master.id)
     if existing:
         if not existing.last_done_date or parsed_date > existing.last_done_date:
             existing.last_done_date = parsed_date
@@ -2839,14 +2832,8 @@ def _upsert_pending_preventive_record(db, pet, master) -> None:
     reminder_before_days = master.reminder_before_days or 30
     today = _date.today()
 
-    existing = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet.id,
-            PreventiveRecord.preventive_master_id == master.id,
-        )
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    existing = preventive_repo.find_by_pet_and_master(pet.id, master.id)
     if existing:
         if existing.last_done_date:
             # Real record already exists — do not downgrade it.
@@ -2888,15 +2875,8 @@ def _upsert_user_custom_vaccine_record(db: Session, pet: Pet, vaccine_name: str,
     if not custom_name:
         return
 
-    custom_item = (
-        db.query(CustomPreventiveItem)
-        .filter(
-            CustomPreventiveItem.user_id == pet.user_id,
-            func.lower(CustomPreventiveItem.item_name) == custom_name.lower(),
-            CustomPreventiveItem.species == pet.species,
-        )
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    custom_item = preventive_repo.find_custom_by_user_and_name(pet.user_id, custom_name, pet.species)
     if custom_item is None:
         custom_item = CustomPreventiveItem(
             user_id=pet.user_id,
@@ -2917,14 +2897,7 @@ def _upsert_user_custom_vaccine_record(db: Session, pet: Pet, vaccine_name: str,
     next_due = compute_next_due_date(parsed_date, recurrence_days)
     status = compute_status(next_due, reminder_before_days)
 
-    existing = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet.id,
-            PreventiveRecord.custom_preventive_item_id == custom_item.id,
-        )
-        .first()
-    )
+    existing = PreventiveRepository(db).find_by_pet_and_custom_item(pet.id, custom_item.id)
     if existing:
         if not existing.last_done_date or parsed_date > existing.last_done_date:
             existing.last_done_date = parsed_date
@@ -2965,15 +2938,8 @@ def _essential_annual_vaccine_masters(db: Session, species: str) -> list[Prevent
         "canine coronavirus (ccov)",
     }
 
-    rows = (
-        db.query(PreventiveMaster)
-        .filter(
-            PreventiveMaster.species.in_([species, "both"]),
-            PreventiveMaster.circle == "health",
-            PreventiveMaster.recurrence_days <= 730,
-        )
-        .all()
-    )
+    master_repo = PreventiveMasterRepository(db)
+    rows = master_repo.find_health_circle_by_species(species)
 
     core_vaccines = [
         m
@@ -3029,22 +2995,8 @@ def _match_specific_vaccine_master(
     item_name = _resolve_vaccine_item_name(name)
     if not item_name:
         return None
-    return (
-        db.query(PreventiveMaster)
-        .filter(
-            PreventiveMaster.item_name == item_name,
-            PreventiveMaster.species.in_([species, "both"]),
-            PreventiveMaster.is_core.is_(True),
-        )
-        .order_by(
-            case(
-                (PreventiveMaster.species == species, 0),
-                else_=1,
-            ),
-            PreventiveMaster.id.asc(),
-        )
-        .first()
-    )
+    master_repo = PreventiveMasterRepository(db)
+    return master_repo.find_by_name_and_species(item_name, species, is_core=True)
 
 
 def _infer_preventive_categories_from_catalog(db: Session, medicine_name: str | None) -> set[str]:
@@ -3137,12 +3089,7 @@ async def _store_preventive_data(db, pet, parsed: dict) -> list[str]:
     # Runs in a separate session so onboarding transaction boundaries stay intact.
     _ensure_preventive_master_seeded_for_store()
 
-    has_species_masters = (
-        db.query(PreventiveMaster.id)
-        .filter(PreventiveMaster.species.in_([pet.species, "both"]))
-        .first()
-        is not None
-    )
+    has_species_masters = PreventiveMasterRepository(db).has_for_species(pet.species)
     if not has_species_masters:
         logger.error(
             "Preventive master unavailable for species=%s; skipping preventive persistence for pet_id=%s",
@@ -3256,14 +3203,8 @@ async def _store_preventive_data(db, pet, parsed: dict) -> list[str]:
             ambiguous.append(key)
             continue
 
-        master = (
-            db.query(PreventiveMaster)
-            .filter(
-                PreventiveMaster.item_name.ilike(item_pattern),
-                PreventiveMaster.species.in_([pet.species, "both"]),
-            )
-            .first()
-        )
+        master_repo = PreventiveMasterRepository(db)
+        master = master_repo.find_by_name_pattern_and_species(item_pattern, pet.species)
         if not master:
             logger.warning(
                 "No preventive master for pattern=%s species=%s",
@@ -3296,13 +3237,8 @@ def _build_preventive_summary_text(db, pet) -> str:
         • Blood test: not on record
     """
     from app.models.preventive.preventive_record import PreventiveRecord
-    
-    records = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .filter(PreventiveRecord.pet_id == pet.id)
-        .all()
-    )
+
+    records = PreventiveRepository(db).find_all_with_master_for_pet(pet.id)
 
     category_map = {
         "vaccine": [],
@@ -5140,12 +5076,9 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
     # prompt to upload more documents."
     _DASHBOARD_KEYWORDS = ("dashboard", "link", "care plan", "my plan")
     if any(kw in text_lower for kw in _DASHBOARD_KEYWORDS):
-        pet_for_msg = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id)
-            .order_by(Pet.created_at.desc())
-            .first()
-        )
+        from app.repositories.pet_repository import PetRepository
+        pet_repo = PetRepository(db)
+        pet_for_msg = pet_repo.find_by_user_desc(user.id)
         pet_name = pet_for_msg.name if pet_for_msg else "your pet"
         _set_onboarding_data(user, "awaiting_docs_last_reply_at", now_ts)
         _set_onboarding_data(user, "awaiting_docs_last_reply_text", "building_status")
@@ -5160,7 +5093,8 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
 
     # Guard against late-arriving diet/supplement messages from prior onboarding steps.
     # Fetch pet early here; the variable is re-used below for upload-count logic.
-    pet = db.query(Pet).filter(Pet.user_id == user.id).order_by(Pet.created_at.desc()).first()
+    pet_repo = PetRepository(db)
+    pet = pet_repo.find_by_user_desc(user.id)
     pet_name = pet.name if pet else "your pet"
     if pet:
         prior_classification = await _classify_prior_step_input(text_lower, "awaiting_documents")
@@ -5182,7 +5116,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
     db_count = 0
     in_memory_count = 0
     if pet:
-        db_count = db.query(Document).filter(Document.pet_id == pet.id).count()
+        db_count = DocumentRepository(db).count_by_pet(pet.id)
         try:
             from app.services.whatsapp.message_router import get_recent_upload_count
             in_memory_count = get_recent_upload_count(pet.id)
@@ -5278,17 +5212,7 @@ def _get_active_reminders_text(db: Session, pet_id) -> str:
     Active reminders are those with status 'pending' or 'sent'.
     """
     try:
-        reminders = (
-            db.query(Reminder, PreventiveRecord, PreventiveMaster)
-            .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)
-            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-            .filter(
-                PreventiveRecord.pet_id == pet_id,
-                Reminder.status.in_(["pending", "sent"]),
-            )
-            .order_by(Reminder.next_due_date.asc())
-            .all()
-        )
+        reminders = ReminderRepository(db).find_active_for_pet_with_details(pet_id)
 
         if not reminders:
             return ""
@@ -5328,22 +5252,7 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     try:
         from datetime import datetime as _dt
 
-        rows_updated = (
-            db.query(User)
-            .filter(
-                User.id == user.id,
-                User.onboarding_state == "awaiting_documents",
-            )
-            .update(
-                {
-                    User.onboarding_state: "complete",
-                    User.doc_upload_deadline: None,
-                    User.onboarding_data: None,
-                    User.onboarding_completed_at: _dt.utcnow(),
-                },
-                synchronize_session=False,
-            )
-        )
+        rows_updated = user_repo.mark_onboarding_complete(user.id)
 
         if rows_updated == 0:
             try:
@@ -5387,7 +5296,7 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     # --- Gather data completeness flags ---
     from app.models.nutrition.diet_item import DietItem
 
-    docs_uploaded = db.query(Document).filter(Document.pet_id == pet.id).count()
+    docs_uploaded = DocumentRepository(db).count_by_pet(pet.id)
     # Always resolve token through active-token helper so expired historical
     # tokens are never sent in the final onboarding dashboard link.
     token = _recover_dashboard_token_for_finalize(db, pet.id)
@@ -5395,25 +5304,14 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     # "What's Found" summary to avoid cross-surface count drift.
     record_count = _count_tracked_preventive_items(db, pet.id)
     vaccine_count, other_preventive_count = _count_tracked_preventive_items_split(db, pet.id)
-    conditions = (
-        db.query(Condition)
-        .filter(Condition.pet_id == pet.id, Condition.is_active == True)
-        .order_by(Condition.created_at.asc())
-        .all()
-    )
-    diet_count = db.query(DietItem).filter(DietItem.pet_id == pet.id).count()
-    supplement_count = db.query(DietItem).filter(
-        DietItem.pet_id == pet.id, DietItem.type == "supplement"
-    ).count()
+    conditions = ConditionRepository(db).find_by_pet_and_active(pet.id)
+    diet_count = DietItemRepository(db).count_by_pet(pet.id)
+    supplement_count = DietItemRepository(db).count_by_pet_and_type(pet.id, "supplement")
 
     # Check for pending document extractions.
     pending_extractions = 0
     if docs_uploaded > 0:
-        pending_extractions = (
-            db.query(Document)
-            .filter(Document.pet_id == pet.id, Document.extraction_status == "pending")
-            .count()
-        )
+        pending_extractions = DocumentRepository(db).count_pending_by_pet(pet.id)
 
     # --- If extractions are still in-flight, defer the dashboard link ---
     if docs_uploaded > 0 and pending_extractions > 0:
@@ -5450,7 +5348,7 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     await send_fn(db, mobile, transition_msg)
 
     # Fetch diet items for AI supplement recommendation.
-    diet_items = db.query(DietItem).filter(DietItem.pet_id == pet.id).all()
+    diet_items = DietItemRepository(db).find_by_pet(pet.id)
 
     # Fire-and-forget: pre-generate all AI enrichments (life stage, diet summary,
     # recognition bullets, care plan reasons) in the background so the dashboard
@@ -5720,12 +5618,7 @@ async def _ai_identify_species_from_photo(file_bytes: bytes, mime_type: str) -> 
 
 def _get_pending_pet(db: Session, user_id: UUID) -> Pet | None:
     """Get the most recently created pet for a user (the one being onboarded)."""
-    return (
-        db.query(Pet)
-        .filter(Pet.user_id == user_id, Pet.is_deleted == False)
-        .order_by(Pet.created_at.desc())
-        .first()
-    )
+    return PetRepository(db).find_most_recent_by_user(user_id)
 
 
 def generate_dashboard_token(db: Session, pet_id: UUID) -> str:
@@ -5759,18 +5652,7 @@ def generate_dashboard_token(db: Session, pet_id: UUID) -> str:
 
 def get_or_create_active_dashboard_token(db: Session, pet_id: UUID) -> str:
     """Return latest active token for a pet, creating one only when needed."""
-    now_utc = datetime.now(UTC)
-    token_row = (
-        db.query(DashboardToken)
-        .filter(
-            DashboardToken.pet_id == pet_id,
-            DashboardToken.revoked == False,
-            DashboardToken.expires_at.isnot(None),
-            DashboardToken.expires_at > now_utc,
-        )
-        .order_by(DashboardToken.created_at.desc())
-        .first()
-    )
+    token_row = DashboardTokenRepository(db).find_active_non_expired_by_pet(pet_id)
     if token_row:
         return token_row.token
     return generate_dashboard_token(db, pet_id)
@@ -5795,14 +5677,7 @@ def _recover_dashboard_token_for_finalize(db: Session, pet_id: UUID) -> str | No
 
 def _mark_deferred_care_plan_pending(db: Session, user_id: UUID, pet_id: UUID) -> None:
     """Create or refresh an active per-pet deferred finalization marker."""
-    marker = (
-        db.query(DeferredCarePlanPending)
-        .filter(
-            DeferredCarePlanPending.pet_id == pet_id,
-            DeferredCarePlanPending.is_cleared == False,
-        )
-        .first()
-    )
+    marker = DeferredCarePlanRepository(db).find_uncleared_by_pet(pet_id)
     if marker:
         marker.user_id = user_id
         marker.reason = "pending_extractions"
@@ -5888,13 +5763,7 @@ def refresh_dashboard_token(db: Session, pet_id: UUID) -> str:
         The newly generated hex token string.
     """
     # Batch-revoke all existing active tokens for this pet.
-    revoked_count = (
-        db.query(DashboardToken)
-        .filter(DashboardToken.pet_id == pet_id, DashboardToken.revoked == False)
-        .update({"revoked": True})
-    )
-
-    db.flush()
+    revoked_count = DashboardTokenRepository(db).revoke_active_tokens(pet_id)
 
     logger.info("Revoked %d old token(s) for pet_id=%s", revoked_count, str(pet_id))
     return generate_dashboard_token(db, pet_id)
@@ -5918,27 +5787,13 @@ def seed_preventive_records_for_pet(db: Session, pet: Pet) -> int:
     """
     seed_preventive_master(db)
 
-    masters = (
-        db.query(PreventiveMaster)
-        .filter(PreventiveMaster.species.in_([pet.species, "both"]))
-        .all()
-    )
+    master_repo = PreventiveMasterRepository(db)
+    masters = master_repo.find_health_circle_by_species(pet.species)
 
     # Seed only missing master items. This avoids duplicates when this
     # function is retried for recovery after partial transition failures.
-    existing_master_ids = {
-        row[0]
-        for row in (
-            db.query(PreventiveRecord.preventive_master_id)
-            .filter(
-                PreventiveRecord.pet_id == pet.id,
-                PreventiveRecord.preventive_master_id.isnot(None),
-            )
-            .distinct()
-            .all()
-        )
-        if row[0] is not None
-    }
+    preventive_repo = PreventiveRepository(db)
+    existing_master_ids = preventive_repo.find_existing_master_ids_for_pet(pet.id)
 
     # Compute pet age for age-gated seeding decisions.
     _seed_age_weeks = (

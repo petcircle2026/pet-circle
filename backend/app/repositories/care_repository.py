@@ -480,11 +480,39 @@ class CareRepository:
             .all()
         )
 
+    def find_active_conditions(self, pet_id: UUID) -> list:
+        """Fetch all active conditions for a pet, ordered by creation date."""
+        from app.models.health.condition import Condition
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id, Condition.is_active == True)
+            .order_by(Condition.created_at.asc())
+            .all()
+        )
+
     def find_all_conditions_for_pet(self, pet_id: UUID) -> list:
         """
         Fetch all conditions (active and inactive) for a pet.
         Used by gpt_extraction for document processing.
         """
+        from app.models.health.condition import Condition
+        return (
+            self.db.query(Condition)
+            .filter(Condition.pet_id == pet_id)
+            .all()
+        )
+
+    def find_condition_by_id(self, condition_id: UUID):
+        """Find condition by ID."""
+        from app.models.health.condition import Condition
+        return (
+            self.db.query(Condition)
+            .filter(Condition.id == condition_id)
+            .first()
+        )
+
+    def find_conditions_by_pet(self, pet_id: UUID) -> list:
+        """Find all conditions for a pet (simple query)."""
         from app.models.health.condition import Condition
         return (
             self.db.query(Condition)

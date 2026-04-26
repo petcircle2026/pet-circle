@@ -34,8 +34,6 @@ Rules:
     - No medical advice under any circumstances.
     - If data not available, explicit "I don't have that information" response.
 """
-from app.models import PreventiveMaster
-
 import logging
 from uuid import UUID
 
@@ -46,22 +44,18 @@ from app.core.constants import (
     OPENAI_QUERY_MODEL,
     OPENAI_QUERY_TEMPERATURE,
 )
-from app.models.health.condition import Condition
-from app.models.health.condition_medication import ConditionMedication
-from app.models.health.condition_monitoring import ConditionMonitoring
-from app.models.core.contact import Contact
-from app.models.health.diagnostic_test_result import DiagnosticTestResult
-from app.models.nutrition.diet_item import DietItem
-from app.models.auth.document import Document
-from app.models.core.pet import Pet
-from app.models.pet_profile.pet_ai_insight import PetAiInsight
-from app.models.pet_profile.pet_life_stage_trait import PetLifeStageTrait
-from app.models.preventive.preventive_record import PreventiveRecord
-from app.models.preventive.reminder import Reminder
-from app.models.core.user import User
-from app.models.health.weight_history import WeightHistory
 from app.services.shared.diet_service import split_diet_items_by_type
 from app.utils.retry import retry_openai_call
+from app.repositories.pet_repository import PetRepository
+from app.repositories.user_repository import UserRepository
+from app.repositories.health_repository import HealthRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.contact_repository import ContactRepository
+from app.repositories.diet_item_repository import DietItemRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.reminder_repository import ReminderRepository
+from app.repositories.pet_life_stage_trait_repository import PetLifeStageTraitRepository
+from app.repositories.pet_ai_insight_repository import PetAiInsightRepository
 
 logger = logging.getLogger(__name__)
 
@@ -173,12 +167,20 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
     Returns:
         Formatted text string with all pet data for GPT context.
     """
+    # --- Initialize repositories ---
+    pet_repo = PetRepository(db)
+    user_repo = UserRepository(db)
+    health_repo = HealthRepository(db)
+    document_repo = DocumentRepository(db)
+    preventive_repo = PreventiveRepository(db)
+    reminder_repo = ReminderRepository(db)
+
     # --- Pet profile ---
-    pet = db.query(Pet).filter(Pet.id == pet_id).first()
+    pet = pet_repo.get_by_id(pet_id)
     if not pet:
         return "No pet data available."
 
-    user = db.query(User).filter(User.id == pet.user_id).first()
+    user = user_repo.get_by_id(pet.user_id) if pet.user_id else None
 
     context_parts = []
 
@@ -200,17 +202,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append(f"Owner: {user.full_name}")
 
     # --- Preventive records ---
-    # Recurrence and item data always from preventive_master in DB.
-    records = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .join(
-            PreventiveMaster,
-            PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-        )
-        .filter(PreventiveRecord.pet_id == pet_id)
-        .order_by(PreventiveRecord.next_due_date.asc())
-        .all()
-    )
+    records = preventive_repo.find_with_master_ordered_by_due(pet_id)
 
     context_parts.append("\n=== Preventive Health Records ===")
     if records:
@@ -231,23 +223,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No preventive records found.")
 
     # --- Reminders ---
-    reminders = (
-        db.query(Reminder, PreventiveRecord, PreventiveMaster)
-        .join(
-            PreventiveRecord,
-            Reminder.preventive_record_id == PreventiveRecord.id,
-        )
-        .join(
-            PreventiveMaster,
-            PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-        )
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            Reminder.status.in_(["pending", "sent"]),
-        )
-        .order_by(Reminder.next_due_date.asc())
-        .all()
-    )
+    reminders = reminder_repo.find_active_for_pet_with_details(pet_id)
 
     context_parts.append("\n=== Active Reminders ===")
     if reminders:
@@ -260,19 +236,10 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No active reminders.")
 
     # --- Documents (fetched here, detailed output below) ---
-    documents = (
-        db.query(Document)
-        .filter(Document.pet_id == pet_id)
-        .all()
-    )
+    documents = document_repo.find_by_pet(pet_id)
 
     # --- Conditions ---
-    conditions = (
-        db.query(Condition)
-        .filter(Condition.pet_id == pet_id)
-        .order_by(Condition.diagnosed_at.desc().nullslast())
-        .all()
-    )
+    conditions = health_repo.get_all_conditions_by_pet(pet_id)
 
     context_parts.append("\n=== Medical Conditions ===")
     if conditions:
@@ -290,11 +257,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
             context_parts.append(line)
 
             # Medications for this condition
-            meds = (
-                db.query(ConditionMedication)
-                .filter(ConditionMedication.condition_id == cond.id)
-                .all()
-            )
+            meds = health_repo.get_medications_by_condition(cond.id)
             for med in meds:
                 med_line = f"  • Med: {med.name}"
                 if med.dose:
@@ -308,11 +271,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
                 context_parts.append(med_line)
 
             # Monitoring for this condition
-            monitors = (
-                db.query(ConditionMonitoring)
-                .filter(ConditionMonitoring.condition_id == cond.id)
-                .all()
-            )
+            monitors = health_repo.get_monitoring_items_by_condition(cond.id)
             for mon in monitors:
                 mon_line = f"  • Monitor: {mon.name}"
                 if mon.frequency:
@@ -326,13 +285,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No conditions recorded.")
 
     # --- Diagnostic Test Results ---
-    diagnostics = (
-        db.query(DiagnosticTestResult)
-        .filter(DiagnosticTestResult.pet_id == pet_id)
-        .order_by(DiagnosticTestResult.observed_at.desc().nullslast())
-        .limit(50)
-        .all()
-    )
+    diagnostics = health_repo.find_all_diagnostics_for_pet(pet_id)[:50]
 
     context_parts.append("\n=== Diagnostic Test Results ===")
     if diagnostics:
@@ -352,13 +305,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No diagnostic test results.")
 
     # --- Weight History ---
-    weights = (
-        db.query(WeightHistory)
-        .filter(WeightHistory.pet_id == pet_id)
-        .order_by(WeightHistory.recorded_at.desc())
-        .limit(10)
-        .all()
-    )
+    weights = health_repo.get_weight_history(pet_id, limit=10)
 
     context_parts.append("\n=== Weight History ===")
     if weights:
@@ -371,11 +318,8 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No weight history recorded.")
 
     # --- Diet & Nutrition ---
-    diet_items = (
-        db.query(DietItem)
-        .filter(DietItem.pet_id == pet_id)
-        .all()
-    )
+    diet_repo = DietItemRepository(db)
+    diet_items = diet_repo.find_by_pet(pet_id)
 
     context_parts.append("\n=== Diet & Nutrition ===")
     if diet_items:
@@ -416,11 +360,8 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No diet information recorded.")
 
     # --- Vet & Healthcare Contacts ---
-    contacts = (
-        db.query(Contact)
-        .filter(Contact.pet_id == pet_id)
-        .all()
-    )
+    contact_repo = ContactRepository(db)
+    contacts = contact_repo.find_by_pet(pet_id)
 
     context_parts.append("\n=== Healthcare Contacts ===")
     if contacts:
@@ -459,12 +400,8 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No documents uploaded.")
 
     # --- Life Stage Traits ---
-    life_stage = (
-        db.query(PetLifeStageTrait)
-        .filter(PetLifeStageTrait.pet_id == pet_id)
-        .order_by(PetLifeStageTrait.generated_at.desc().nullslast())
-        .first()
-    )
+    life_stage_repo = PetLifeStageTraitRepository(db)
+    life_stage = life_stage_repo.find_latest_by_pet(pet_id)
 
     if life_stage:
         context_parts.append(f"\n=== Life Stage: {life_stage.life_stage} ===")
@@ -477,13 +414,8 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
                 context_parts.append(f"- {text}")
 
     # --- AI Insights (cached) ---
-    insights = (
-        db.query(PetAiInsight)
-        .filter(PetAiInsight.pet_id == pet_id)
-        .order_by(PetAiInsight.generated_at.desc().nullslast())
-        .limit(3)
-        .all()
-    )
+    insight_repo = PetAiInsightRepository(db)
+    insights = insight_repo.find_recent_by_pet(pet_id, limit=3)
 
     if insights:
         context_parts.append("\n=== AI Health Insights ===")
