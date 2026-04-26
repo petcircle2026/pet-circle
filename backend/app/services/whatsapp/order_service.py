@@ -1,5 +1,4 @@
 """
-from app.repositories.pet_repository import PetRepository
 PetCircle — Order Service
 
 Handles the WhatsApp order conversation flow:
@@ -19,8 +18,6 @@ Flow states:
 
 State is tracked via user.order_state and user.active_order_id.
 """
-from app.models import ProductMedicines
-
 import asyncio
 import logging
 from uuid import UUID
@@ -43,8 +40,9 @@ from app.core.constants import (
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
-from app.models.commerce.order import Order
-from app.models.core.pet import Pet
+from app.repositories.pet_repository import PetRepository
+from app.repositories.order_repository import OrderRepository
+from app.repositories.preventive_master_repository import PreventiveMasterRepository
 from app.services.shared.recommendation_service import (
     get_or_generate_recommendations,
     get_pet_top_preferences,
@@ -66,10 +64,9 @@ def _get_medicines_example_text(db: Session, species: str | None = None) -> str:
     order flow is never blocked by a catalog query failure.
     """
     try:
-        
-        query = db.query(ProductMedicines.product_name).filter(
-            ProductMedicines.active == True,
-        )
+        master_repo = PreventiveMasterRepository(db)
+        medicines = master_repo.find_all_active_medicines()
+        query = medicines
         if species:
             query = query.filter(ProductMedicines.life_stage_tags.ilike(f"%{species}%"))
         rows = query.order_by(ProductMedicines.popularity_rank.asc()).limit(3).all()
@@ -96,7 +93,8 @@ async def start_order_flow(db: Session, user) -> None:
     # Draft orders have empty items_description — they were created when the
     # user selected a category but never confirmed.
     if user.active_order_id:
-        old_order = db.query(Order).filter(Order.id == user.active_order_id).first()
+        order_repo = OrderRepository(db)
+        old_order = order_repo.find_by_id(user.active_order_id)
         if old_order and not old_order.items_description:
             db.delete(old_order)
             logger.info("Cleaned up abandoned draft order %s", str(old_order.id))
@@ -241,7 +239,8 @@ async def handle_recommendation_selection(db: Session, user, text: str) -> None:
 
     # Quick shortcut: "usual" / "repeat" selects top saved preferences.
     if text_lower in {"usual", "repeat", "my usual", "usual items", "same as last"}:
-        pet = db.query(Pet).filter(Pet.id == order.pet_id).first()
+        pet_repo = PetRepository(db)
+        pet = pet_repo.get_by_id(order.pet_id)
         if not pet:
             await send_text_message(db, from_number, "Error: pet not found. Please try again.")
             return
@@ -284,7 +283,8 @@ async def handle_recommendation_selection(db: Session, user, text: str) -> None:
         # User selected recommendations by number
         try:
             # Get recommendations again from DB
-            pet = db.query(Pet).filter(Pet.id == order.pet_id).first()
+            pet_repo = PetRepository(db)
+        pet = pet_repo.get_by_id(order.pet_id)
             if not pet:
                 await send_text_message(db, from_number, "Error: pet not found. Please try again.")
                 return
@@ -555,7 +555,8 @@ async def handle_order_items(db: Session, user, text: str) -> None:
     # Record custom preferences (split by commas)
     if order_pet_id is not None:
         # Pet already selected (from recommendations flow)
-        pet = db.query(Pet).filter(Pet.id == order_pet_id).first()
+        pet_repo = PetRepository(db)
+        pet = pet_repo.get_by_id(order_pet_id)
         if pet:
             items = [item.strip() for item in order.items_description.split(",")]
             for item in items:
@@ -648,7 +649,10 @@ async def handle_order_confirmation(db: Session, user, payload: str) -> None:
         _clear_order_state(db, user)
 
         pet_id = getattr(order, "pet_id", None)
-        pet = db.query(Pet).filter(Pet.id == pet_id).first() if pet_id is not None else None
+        pet = None
+        if pet_id is not None:
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(pet_id)
 
         await send_text_message(
             db, from_number,
@@ -713,18 +717,16 @@ async def handle_admin_order_status_feedback(db: Session, from_number: str, payl
         order_id_str = payload.split(":", 1)[1]
         try:
             order_id = UUID(order_id_str)
-            order = db.query(Order).filter(Order.id == order_id).first()
+            order_repo = OrderRepository(db)
+            order = order_repo.find_by_id(order_id)
         except Exception:
             pass
 
     if not order:
         # Fixed template button — resolve the most recent pending order.
-        order = (
-            db.query(Order)
-            .filter(Order.status == "pending")
-            .order_by(Order.created_at.desc())
-            .first()
-        )
+        order_repo = OrderRepository(db)
+        pending_orders = order_repo.find_pending()
+        order = pending_orders[0] if pending_orders else None
 
     if not order:
         await send_text_message(db, from_number, "No pending orders found.")
@@ -905,19 +907,17 @@ def _get_mobile(user) -> str:
 
 def _get_active_pets(db: Session, user) -> list:
     """Get all active (non-deleted) pets for a user, ordered by name."""
-    return (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .order_by(Pet.name)
-        .all()
-    )
+    pet_repo = PetRepository(db)
+    pets = [p for p in pet_repo.find_by_user(user.id) if not p.is_deleted]
+    return sorted(pets, key=lambda p: p.name or "")
 
 
 def _get_active_order(db: Session, user) -> Order | None:
     """Get the user's active draft order by active_order_id."""
     if not user.active_order_id:
         return None
-    return db.query(Order).filter(Order.id == user.active_order_id).first()
+    order_repo = OrderRepository(db)
+    return order_repo.find_by_id(user.active_order_id)
 
 
 def _match_pet_from_text(pets: list, text: str):
