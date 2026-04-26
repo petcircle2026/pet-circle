@@ -385,3 +385,17 @@ class ReminderRepository:
             .first()
         )
 
+    def find_unresponded_by_pet_and_type(
+        self, pet_id: UUID, reminder_type: str
+    ) -> list:
+        """Find unresponded reminders of a specific type for a pet."""
+        return (
+            self.db.query(Reminder)
+            .filter(
+                Reminder.pet_id == pet_id,
+                Reminder.reminder_type == reminder_type,
+                Reminder.responded == False,
+            )
+            .all()
+        )
+

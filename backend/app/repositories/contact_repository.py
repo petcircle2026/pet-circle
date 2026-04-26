@@ -204,3 +204,51 @@ class ContactRepository:
         self.db.flush()
         return count
 
+    def find_all_for_pet(self, pet_id: UUID) -> List[Contact]:
+        """
+        Fetch all contacts for a pet (all types).
+        Used by gpt_extraction for contact extraction.
+
+        Args:
+            pet_id: Pet ID
+
+        Returns:
+            List of contacts for the pet.
+        """
+        return (
+            self.db.query(Contact)
+            .filter(Contact.pet_id == pet_id)
+            .all()
+        )
+
+    def find_by_pet_and_type(self, pet_id: UUID, contact_type: str) -> List[Contact]:
+        """
+        Find contacts for a pet of a specific type.
+        Used by gpt_extraction for typed contact extraction.
+
+        Args:
+            pet_id: Pet ID
+            contact_type: Contact type (e.g. "vet", "emergency")
+
+        Returns:
+            List of matching contacts.
+        """
+        return (
+            self.db.query(Contact)
+            .filter(Contact.pet_id == pet_id, Contact.contact_type == contact_type)
+            .all()
+        )
+
+    def find_by_pet_name_and_role(
+        self, pet_id: UUID, contact_name: str, role: str
+    ) -> Contact | None:
+        """
+        Find contact by pet, name, and role.
+        Used by gpt_extraction for duplicate detection.
+        """
+        return (
+            self.db.query(Contact)
+            .filter(Contact.pet_id == pet_id, Contact.name == contact_name, Contact.role == role)
+            .first()
+        )
+

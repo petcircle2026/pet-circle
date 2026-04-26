@@ -325,7 +325,9 @@ async def _auto_finalize_onboarding_after_deadline(user_id, from_number, wait_se
 
         bg_db = get_fresh_session()
         try:
-            user = bg_db.query(User).filter(User.id == user_id).first()
+            from app.repositories.user_repository import UserRepository
+            user_repo = UserRepository(bg_db)
+            user = user_repo.find_by_id(user_id)
             if not user:
                 return
             if user.onboarding_state != "awaiting_documents":
@@ -363,16 +365,8 @@ async def sweep_expired_document_windows_once(batch_size: int = 50) -> int:
     finalized_count = 0
     bg_db = get_fresh_session()
     try:
-        expired_users = (
-            bg_db.query(User)
-            .filter(
-                User.onboarding_state == "awaiting_documents",
-                User.doc_upload_deadline.isnot(None),
-            )
-            .order_by(User.doc_upload_deadline.asc())
-            .limit(batch_size)
-            .all()
-        )
+        user_repo = UserRepository(bg_db)
+        expired_users = user_repo.find_awaiting_documents_with_expired_deadline(batch_size)
 
         for expired_user in expired_users:
             if not is_doc_upload_deadline_expired(expired_user.doc_upload_deadline):
@@ -447,25 +441,18 @@ def _has_pending_deferred_care_plan(db: Session, pet_id, user=None) -> bool:
     are auto-cleared so users are never permanently locked out if the extraction
     pipeline fails before reaching _send_deferred_care_plan.
     """
-    marker = (
-        db.query(DeferredCarePlanPending)
-        .filter(
-            DeferredCarePlanPending.pet_id == pet_id,
-            DeferredCarePlanPending.is_cleared == False,
-        )
-        .first()
-    )
+    from app.repositories.deferred_care_plan_repository import DeferredCarePlanRepository
+    deferred_repo = DeferredCarePlanRepository(db)
+    marker = deferred_repo.find_uncleared_by_pet(pet_id)
     if marker is not None:
         # Auto-clear stale marker: if it's been more than the threshold and
         # there are no pending documents left, the extraction pipeline is done
         # (success, failure, or lost) — unblock the user.
         stale_cutoff = datetime.now(UTC) - timedelta(minutes=_DEFERRED_MARKER_STALE_MINUTES)
         if marker.created_at and marker.created_at < stale_cutoff:
-            pending_doc_count = (
-                db.query(Document)
-                .filter(Document.pet_id == pet_id, Document.extraction_status == "pending")
-                .count()
-            )
+            from app.repositories.document_repository import DocumentRepository
+        doc_repo = DocumentRepository(db)
+        pending_doc_count = len(doc_repo.find_pending_by_pet(pet_id))
             if pending_doc_count == 0:
                 logger.info(
                     "Auto-clearing stale deferred marker for pet=%s (age > %dmin, no pending docs)",
@@ -515,20 +502,7 @@ def _clear_deferred_care_plan_marker(db: Session, pet_id, user=None) -> int:
     Callers can use this as a "claim" check to ensure only one concurrent
     sender wins the race to deliver the deferred care plan.
     """
-    rows_cleared = (
-        db.query(DeferredCarePlanPending)
-        .filter(
-            DeferredCarePlanPending.pet_id == pet_id,
-            DeferredCarePlanPending.is_cleared == False,
-        )
-        .update(
-            {
-                DeferredCarePlanPending.is_cleared: True,
-                DeferredCarePlanPending.cleared_at: datetime.now(UTC),
-            },
-            synchronize_session=False,
-        )
-    )
+    rows_cleared = deferred_repo.mark_cleared(pet_id)
     if user is not None and getattr(user, "dashboard_link_pending", False):
         user.dashboard_link_pending = False
         rows_cleared = max(rows_cleared, 1)
@@ -537,15 +511,9 @@ def _clear_deferred_care_plan_marker(db: Session, pet_id, user=None) -> int:
 
 def _get_active_deferred_marker(db: Session, pet_id):
     """Return the active deferred care-plan marker row for a pet, if any."""
-    return (
-        db.query(DeferredCarePlanPending)
-        .filter(
-            DeferredCarePlanPending.pet_id == pet_id,
-            DeferredCarePlanPending.is_cleared == False,
-        )
-        .order_by(DeferredCarePlanPending.created_at.desc())
-        .first()
-    )
+    from app.repositories.deferred_care_plan_repository import DeferredCarePlanRepository
+    deferred_repo = DeferredCarePlanRepository(db)
+    return deferred_repo.find_uncleared_by_pet(pet_id)
 
 
 def _should_use_agentic_order() -> bool:
@@ -1067,12 +1035,9 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # is irrelevant noise and is silently swallowed so it cannot derail
     # the in-flight delivery flow. The care plan + dashboard link will
     # be sent automatically when generation/extraction completes.
-    _deferred_pet = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .order_by(Pet.created_at.desc())
-        .first()
-    )
+    from app.repositories.pet_repository import PetRepository
+    pet_repo = PetRepository(db)
+    _deferred_pet = pet_repo.find_by_user_desc(user.id)
     if _deferred_pet and _has_pending_deferred_care_plan(db, _deferred_pet.id, user=user):
         logger.info(
             "Documents processing — routing query %r directly for pet=%s, skipping other handlers",
@@ -1185,9 +1150,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # "add pet" command — restart pet portion of onboarding
     if text_lower in ("add pet", "new pet", "add another pet"):
         pet_count = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-            .count()
+            pet_repo.count_by_user(user.id)
         )
         if pet_count >= MAX_PETS_PER_USER:
             await send_text_message(
@@ -1249,10 +1212,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # persist it as a tagged diet item, then also answer any question present.
     if _is_vet_diet_intent(text_lower):
         chat_pet = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-            .order_by(Pet.created_at.desc())
-            .first()
+            pet_repo.find_by_user_desc(user.id)
         )
         if chat_pet:
             await _handle_vet_diet_chat(db, user, text, from_number, chat_pet)
@@ -1266,7 +1226,7 @@ async def _send_help_menu(db: Session, from_number: str, user=None) -> None:
     """Send the help/commands menu to the user, personalised with pet name."""
     pet_name = None
     if user:
-        pet = db.query(Pet).filter(Pet.user_id == user.id).order_by(Pet.created_at.desc()).first()
+        pet = pet_repo.find_by_user_desc(user.id)
         if pet:
             pet_name = pet.name
 
@@ -1548,11 +1508,7 @@ async def _handle_nudge_button(db: Session, user, payload: str) -> None:
     from_number = _get_mobile(user)
 
     # Find user's active pet
-    pet = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)
-        .first()
-    )
+    pet = pet_repo.find_by_user(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "No active pet found.")
@@ -1950,16 +1906,9 @@ async def run_extraction_batch(
     bg_db = get_fresh_session()
 
     try:
-        pending_docs = (
-            bg_db.query(Document)
-            .filter(
-                Document.pet_id == pet_id,
-                Document.extraction_status == "pending",
-                Document.id.in_(document_ids),
-            )
-            .order_by(Document.created_at.asc())
-            .all()
-        )
+        from app.repositories.document_repository import DocumentRepository
+        doc_repo = DocumentRepository(bg_db)
+        pending_docs = doc_repo.find_pending_by_pet_and_ids(pet_id, document_ids)
 
         if not pending_docs:
             logger.info(
@@ -1968,8 +1917,12 @@ async def run_extraction_batch(
             )
             # Docs were processed by another consumer or path — still clear any
             # lingering deferred marker so the user is not permanently locked out.
-            user = bg_db.query(User).filter(User.id == user_id).first()
-            pet = bg_db.query(Pet).filter(Pet.id == pet_id).first()
+            from app.repositories.user_repository import UserRepository
+            user_repo = UserRepository(bg_db)
+            user = user_repo.find_by_id(user_id)
+            from app.repositories.pet_repository import PetRepository
+            bg_pet_repo = PetRepository(bg_db)
+            pet = bg_pet_repo.find_by_id(pet_id)
             if pet and _has_pending_deferred_care_plan(bg_db, pet.id, user=user):
                 try:
                     _clear_deferred_care_plan_marker(bg_db, pet.id, user=user)
@@ -2861,7 +2814,9 @@ async def _send_deferred_care_plan(
         from app.models.health.condition import Condition
         from app.models.nutrition.diet_item import DietItem
 
-        diet_count = db.query(DietItem).filter(DietItem.pet_id == pet.id).count()
+        from app.repositories.diet_repository import DietRepository
+        diet_repo = DietRepository(db)
+        diet_count = len(diet_repo.find_by_pet(pet.id))
         supplement_count = db.query(DietItem).filter(
             DietItem.pet_id == pet.id,
             DietItem.type == "supplement",
@@ -2878,7 +2833,7 @@ async def _send_deferred_care_plan(
             .all()
         )
 
-        diet_items = db.query(DietItem).filter(DietItem.pet_id == pet.id).all()
+        diet_items = diet_repo.find_by_pet(pet.id)
 
         # Pre-warm dashboard cache concurrently with care plan message assembly.
         # Both are awaited together so the cache is guaranteed to be warm before

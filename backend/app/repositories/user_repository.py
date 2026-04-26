@@ -243,3 +243,18 @@ class UserRepository:
         """Check if an active token exists."""
         return self.find_token_by_value(token_value) is not None
 
+    def find_awaiting_documents_with_expired_deadline(self, limit: int = 10) -> List[User]:
+        """Find users awaiting documents whose upload deadline expired."""
+        from datetime import datetime as dt
+        return (
+            self.db.query(User)
+            .filter(
+                User.onboarding_state == "awaiting_documents",
+                User.doc_upload_deadline.isnot(None),
+                User.doc_upload_deadline < dt.utcnow(),
+            )
+            .order_by(User.doc_upload_deadline.asc())
+            .limit(limit)
+            .all()
+        )
+

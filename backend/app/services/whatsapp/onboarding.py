@@ -113,20 +113,9 @@ _CARE_PLAN_VACCINE_TERMS = [
 
 def _count_tracked_preventive_items(db: Session, pet_id) -> int:
     """Return tracked preventive items count used across care-plan surfaces."""
-    return (
-        db.query(PreventiveRecord)
-        .outerjoin(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .outerjoin(CustomPreventiveItem, PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.last_done_date.isnot(None),
-            or_(
-                PreventiveMaster.is_core.is_(True),
-                CustomPreventiveItem.id.isnot(None),
-            ),
-        )
-        .count()
-    )
+    from app.repositories.preventive_repository import PreventiveRepository
+    preventive_repo = PreventiveRepository(db)
+    return preventive_repo.count_core_with_last_done(pet_id)
 
 
 def _count_tracked_preventive_items_split(db: Session, pet_id) -> tuple[int, int]:
@@ -135,33 +124,9 @@ def _count_tracked_preventive_items_split(db: Session, pet_id) -> tuple[int, int
     Splits the total tracked count into vaccines (matched by keyword) and all
     other preventive items so care-plan messages can reference each separately.
     """
-    from sqlalchemy import or_ as _or
-    base_q = (
-        db.query(PreventiveRecord)
-        .outerjoin(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .outerjoin(CustomPreventiveItem, PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.last_done_date.isnot(None),
-            _or(
-                PreventiveMaster.is_core.is_(True),
-                CustomPreventiveItem.id.isnot(None),
-            ),
-        )
-    )
-    # Match vaccine keywords against BOTH PreventiveMaster.item_name and
-    # CustomPreventiveItem.item_name.  Vaccines logged as custom items (e.g.
-    # when the extractor couldn't map them to a master) have master=NULL after
-    # the outer-join, so a filter on PreventiveMaster.item_name alone would
-    # undercount them to zero — which surfaces as "N preventive care items"
-    # with no vaccine split in the care-plan message.
-    vaccine_filter = _or(
-        *[PreventiveMaster.item_name.ilike(f"%{kw}%") for kw in _CARE_PLAN_VACCINE_TERMS],
-        *[CustomPreventiveItem.item_name.ilike(f"%{kw}%") for kw in _CARE_PLAN_VACCINE_TERMS],
-    )
-    vaccine_count = base_q.filter(vaccine_filter).count()
-    total = base_q.count()
-    return vaccine_count, total - vaccine_count
+    from app.repositories.preventive_repository import PreventiveRepository
+    preventive_repo = PreventiveRepository(db)
+    return preventive_repo.count_core_split_by_vaccine(pet_id, _CARE_PLAN_VACCINE_TERMS)
 
 # --- Colloquial input sets ---
 # Accepted variations for yes/no across all onboarding steps.
