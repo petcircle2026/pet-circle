@@ -18,89 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 
-# Keywords that indicate packaged food
-PACKAGED_KW = [
-    "royal canin", "pedigree", "hills", "drools", "purina", "kibble",
-    "wet food", "can", "pouch", "whiskas", "iams", "eukanuba",
-    "orijen", "acana", "farmina", "science diet", "pro plan",
-]
+import json as _json
 
-# Keywords that indicate homemade / home-cooked food
-HOMEMADE_KW = [
-    # Explicit markers
-    "home", "homemade", "home made", "home-made", "ghar ka",
-    # Grains & staples
-    "khichdi", "dal", "roti", "rice", "chapati", "paratha", "dalia",
-    "oats", "porridge", "upma", "idli", "dosa",
-    # Proteins
-    "chicken", "egg", "mutton", "fish", "paneer", "tofu",
-    "liver", "keema",
-    # Vegetables
-    "carrot", "pumpkin", "lauki", "bottle gourd", "sweet potato",
-    "potato", "beans", "spinach", "palak", "beetroot", "broccoli",
-    "zucchini", "cucumber", "cabbage", "cauliflower",
-    # Dairy
-    "curd", "yogurt", "yoghurt", "dahi", "buttermilk", "chaas",
-    "cottage cheese",
-    # Cooking methods (indicate homemade)
-    "boiled", "cooked", "steamed", "baked", "mashed", "grilled",
-    "sauteed", "stewed",
-    # Fruits (given as home treats)
-    "apple", "banana", "watermelon", "papaya", "mango",
-]
+# ── Food type classification cache (LLM-backed) ─────────────────────
+_FOOD_TYPE_CACHE: dict[str, str] = {}
 
-# ── Supplement ambiguity resolution ─────────────────────────────────
-SUPPLEMENT_AMBIGUITY_MAP: dict[str, list[str]] = {
-    "omega": ["Omega-3", "Omega-6", "Omega-9"],
-    "vitamin b": ["B1", "B2", "B3", "B5", "B6", "B7", "B9", "B12", "B-complex"],
-    "collagen": ["Type I", "Type II", "Type III"],
-    "probiotics": ["Lactobacillus spp.", "Bifidobacterium spp.", "Enterococcus spp.", "multi-strain blends"],
-    "joint supplement": ["Glucosamine", "Chondroitin", "MSM", "Hyaluronic acid", "combination formulas"],
-    "calming supplement": ["L-theanine", "Melatonin", "Chamomile", "Valerian root", "Tryptophan blends"],
-    "skin & coat supplement": ["Omega fatty acids", "Biotin", "Zinc", "Vitamin E", "combination formulas"],
-    "digestive supplement": ["Probiotics", "Prebiotics", "Digestive enzymes", "fiber blends"],
-    "immune support": ["Beta-glucans", "Colostrum", "Vitamins", "Herbal blends"],
-    "herbal supplement": ["Ginseng types", "Ashwagandha extracts", "Turmeric/curcumin forms"],
-}
-
-
-def resolve_supplement_coverage(label: str) -> list[str] | None:
-    """Return covered sub-types for a generic supplement label, or None if specific.
-
-    Matching rule: normalized label equals a key, OR starts with a key where
-    the next character is NOT a hyphen or digit (which indicates a specific
-    variant, e.g. "Omega-3" or "B12").
-    Keys are tested longest-first to avoid shorter keys shadowing longer ones.
-    """
-    normalized = label.strip().lower()
-    for key in sorted(SUPPLEMENT_AMBIGUITY_MAP, key=len, reverse=True):
-        if normalized == key:
-            return SUPPLEMENT_AMBIGUITY_MAP[key]
-        if normalized.startswith(key) and len(normalized) > len(key):
-            next_char = normalized[len(key)]
-            if next_char != "-" and not next_char.isdigit():
-                return SUPPLEMENT_AMBIGUITY_MAP[key]
-    return None
-
-
-def expand_supplement_labels(labels: list[str]) -> list[str]:
-    """Expand ambiguous generic supplement labels to their covered sub-types.
-
-    Specific labels are kept as-is. Result is deduplicated (insertion order).
-    Example: ["Omega", "Omega-3"] → ["Omega-3", "Omega-6", "Omega-9"]
-    ("Omega-3" is dropped because it was already added when "Omega" expanded.)
-    """
-    seen: set[str] = set()
-    result: list[str] = []
-    for label in labels:
-        expanded = resolve_supplement_coverage(label)
-        entries = expanded if expanded is not None else [label]
-        for entry in entries:
-            if entry not in seen:
-                seen.add(entry)
-                result.append(entry)
-    return result
-
+# ── Supplement expansion cache (LLM-backed) ─────────────────────────
+_SUPPLEMENT_CACHE: dict[str, list[str] | None] = {}
 
 # ── Frequency word → multiplier and period ──────────────────────────
 _FREQ_WORDS: dict[str, tuple[int, str]] = {
@@ -139,6 +63,84 @@ _FREQ_WORDS: dict[str, tuple[int, str]] = {
     "alternate days": (1, "alternate day"),
     "every other day": (1, "alternate day"),
 }
+
+
+def _classify_food_type_llm(label: str) -> str:
+    """Classify a food label as 'packaged' or 'homemade' using the LLM (sync)."""
+    if label in _FOOD_TYPE_CACHE:
+        return _FOOD_TYPE_CACHE[label]
+
+    from app.core.constants import OPENAI_QUERY_MODEL
+    from app.utils.ai_client import get_sync_ai_client
+
+    client = get_sync_ai_client()
+    try:
+        response = client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            temperature=0.0,
+            max_tokens=10,
+            system=(
+                "Classify the pet food label as 'packaged' (commercial brand/kibble/canned) "
+                "or 'homemade' (home-cooked, raw ingredient, regional food). "
+                "Return only 'packaged' or 'homemade'."
+            ),
+            messages=[{"role": "user", "content": label}],
+        )
+        result = response.content[0].text.strip().lower()
+        food_type = result if result in {"packaged", "homemade"} else "packaged"
+    except Exception as e:
+        logger.warning("LLM food type classification failed for '%s': %s", label, e)
+        food_type = "packaged"
+
+    _FOOD_TYPE_CACHE[label] = food_type
+    return food_type
+
+
+def resolve_supplement_coverage(label: str) -> list[str] | None:
+    """Return covered sub-types for a generic supplement label using the LLM, or None if specific."""
+    if label in _SUPPLEMENT_CACHE:
+        return _SUPPLEMENT_CACHE[label]
+
+    from app.core.constants import OPENAI_QUERY_MODEL
+    from app.utils.ai_client import get_sync_ai_client
+
+    client = get_sync_ai_client()
+    try:
+        response = client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            temperature=0.0,
+            max_tokens=100,
+            system=(
+                "Given a pet supplement label, if it is a generic category (e.g. 'Omega', 'Vitamin B'), "
+                "return a JSON array of specific sub-types it covers. "
+                "If it is already specific (e.g. 'Omega-3', 'B12'), return the JSON string null. "
+                "Return ONLY valid JSON — array or null."
+            ),
+            messages=[{"role": "user", "content": label}],
+        )
+        raw = response.content[0].text.strip()
+        parsed = _json.loads(raw)
+        result: list[str] | None = parsed if isinstance(parsed, list) else None
+    except Exception as e:
+        logger.warning("LLM supplement resolution failed for '%s': %s", label, e)
+        result = None
+
+    _SUPPLEMENT_CACHE[label] = result
+    return result
+
+
+def expand_supplement_labels(labels: list[str]) -> list[str]:
+    """Expand ambiguous generic supplement labels to their covered sub-types."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for label in labels:
+        expanded = resolve_supplement_coverage(label)
+        entries = expanded if expanded is not None else [label]
+        for entry in entries:
+            if entry not in seen:
+                seen.add(entry)
+                result.append(entry)
+    return result
 
 # Regex: "Nx/day", "2x/week", "3x daily" etc.
 _RE_NX = re.compile(
@@ -338,22 +340,12 @@ def parse_nutrition_detail(raw: str | None) -> str | None:
 
 
 def classify_food(label: str, food_type: str) -> tuple[str, str]:
-    """
-    Auto-classify food type and assign icon.
-
-    Returns (type, icon) tuple.
-    """
+    """Auto-classify food type and assign icon. Returns (type, icon) tuple."""
     if food_type == "supplement":
         return "supplement", "💊"
 
-    label_lower = label.lower()
-    for kw in PACKAGED_KW:
-        if kw in label_lower:
-            return "packaged", "🥣"
-    for kw in HOMEMADE_KW:
-        if kw in label_lower:
-            return "homemade", "🥗"
-    return food_type, "🥗" if food_type == "homemade" else "🥣"
+    resolved_type = _classify_food_type_llm(label) if food_type not in {"packaged", "homemade"} else food_type
+    return resolved_type, "🥗" if resolved_type == "homemade" else "🥣"
 
 
 async def get_diet_items(db: Session, pet_id) -> list[dict]:

@@ -18,7 +18,6 @@ Rules:
     - No hidden logic — every calculation is documented.
 """
 import logging
-import re
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -28,6 +27,7 @@ from app.models.preventive.preventive_record import PreventiveRecord
 from app.repositories.preventive_master_repository import PreventiveMasterRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.utils.date_utils import get_today_ist
+from app.utils.frequency import frequency_to_days
 
 logger = logging.getLogger(__name__)
 
@@ -59,41 +59,7 @@ def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int 
         if not product or not product.repeat_frequency:
             return None
 
-        freq = str(product.repeat_frequency).lower()
-
-        # Extract number and unit from repeat_frequency
-        # Patterns: "Every N weeks", "Every N months", "Monthly", "Quarterly", "Annually"
-
-        # Try "Every N weeks" pattern
-        match = re.search(r"every\s+(\d+)\s+weeks?", freq)
-        if match:
-            weeks = int(match.group(1))
-            return weeks * 7
-
-        # Try "Every N months" pattern
-        match = re.search(r"every\s+(\d+)\s+months?", freq)
-        if match:
-            months = int(match.group(1))
-            return months * 30
-
-        # Try "Every N days" pattern
-        match = re.search(r"every\s+(\d+)\s+days?", freq)
-        if match:
-            return int(match.group(1))
-
-        # Check for common keywords
-        if "monthly" in freq or "once a month" in freq:
-            return 30
-        elif "quarterly" in freq or "3 month" in freq:
-            return 90
-        elif "annually" in freq or "yearly" in freq:
-            return 365
-        elif "fortnightly" in freq or "bi-weekly" in freq or "biweekly" in freq:
-            return 14
-        elif "weekly" in freq:
-            return 7
-
-        return None
+        return frequency_to_days(product.repeat_frequency)
 
     except Exception as exc:
         logger.warning(f"Could not extract recurrence from medicine '{medicine_name}': {exc}")
@@ -118,7 +84,14 @@ def compute_next_due_date(last_done_date: date, recurrence_days: int) -> date:
     Returns:
         The computed next due date.
     """
-    return last_done_date + timedelta(days=recurrence_days)
+    next_due = last_done_date + timedelta(days=recurrence_days)
+    logger.debug(
+        "compute_next_due_date: last_done=%s recurrence_days=%d next_due=%s",
+        last_done_date,
+        recurrence_days,
+        next_due,
+    )
+    return next_due
 
 
 def compute_status(next_due_date: date, reminder_before_days: int) -> str:
@@ -145,17 +118,24 @@ def compute_status(next_due_date: date, reminder_before_days: int) -> str:
     today = get_today_ist()
 
     if today > next_due_date:
-        # Past the due date — action is overdue.
+        logger.debug(
+            "compute_status: today=%s next_due=%s reminder_before=%d -> overdue",
+            today, next_due_date, reminder_before_days,
+        )
         return "overdue"
 
-    # Check if today falls within the reminder window.
-    # reminder_window_start = next_due_date - reminder_before_days
-    # If today >= reminder_window_start, the item is 'upcoming'.
     reminder_window_start = next_due_date - timedelta(days=reminder_before_days)
     if today >= reminder_window_start:
+        logger.debug(
+            "compute_status: today=%s next_due=%s reminder_before=%d window_start=%s -> upcoming",
+            today, next_due_date, reminder_before_days, reminder_window_start,
+        )
         return "upcoming"
 
-    # Not yet within the reminder window — fully up to date.
+    logger.debug(
+        "compute_status: today=%s next_due=%s reminder_before=%d -> up_to_date",
+        today, next_due_date, reminder_before_days,
+    )
     return "up_to_date"
 
 

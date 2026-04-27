@@ -5,16 +5,34 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import time
 
-from app.core.constants import STAGE_D3, STAGE_DUE, STAGE_OVERDUE, STAGE_T7
+from app.core.constants import (
+    REMINDER_MAX_PER_PET_PER_DAY,
+    REMINDER_MIN_DAYS_SAME_ITEM,
+    REMINDER_SEND_TIME_D3,
+    REMINDER_SEND_TIME_DUE,
+    REMINDER_SEND_TIME_HYGIENE,
+    REMINDER_SEND_TIME_OVERDUE,
+    REMINDER_SEND_TIME_T7,
+    STAGE_D3,
+    STAGE_DUE,
+    STAGE_OVERDUE,
+    STAGE_T7,
+)
 
-# Time rules (IST).
+# Guard rails: sourced from constants.py to keep a single source of truth.
+# The reminder_config DB table (migration 024) can override at runtime via reminder_config_loader.
+MAX_REMINDERS_PER_PET_PER_DAY: int = REMINDER_MAX_PER_PET_PER_DAY
+MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS: int = REMINDER_MIN_DAYS_SAME_ITEM
+
+# Time rules (IST) - sourced from constants.py.
+# Can be overridden at runtime via the reminder_config DB table (migration 024).
 STANDARD_STAGE_SEND_TIMES: dict[str, time] = {
-    STAGE_T7: time(hour=9, minute=0),
-    STAGE_DUE: time(hour=10, minute=0),
-    STAGE_D3: time(hour=9, minute=0),
-    STAGE_OVERDUE: time(hour=9, minute=0),
+    STAGE_T7:      time(hour=REMINDER_SEND_TIME_T7[0],      minute=REMINDER_SEND_TIME_T7[1]),
+    STAGE_DUE:     time(hour=REMINDER_SEND_TIME_DUE[0],     minute=REMINDER_SEND_TIME_DUE[1]),
+    STAGE_D3:      time(hour=REMINDER_SEND_TIME_D3[0],      minute=REMINDER_SEND_TIME_D3[1]),
+    STAGE_OVERDUE: time(hour=REMINDER_SEND_TIME_OVERDUE[0], minute=REMINDER_SEND_TIME_OVERDUE[1]),
 }
-HYGIENE_DUE_SEND_TIME: time = time(hour=10, minute=0)
+HYGIENE_DUE_SEND_TIME: time = time(hour=REMINDER_SEND_TIME_HYGIENE[0], minute=REMINDER_SEND_TIME_HYGIENE[1])
 
 
 @dataclass(frozen=True)

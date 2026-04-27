@@ -40,22 +40,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.constants import (
-    REMINDER_IGNORE_THRESHOLD,
+    HYGIENE_ITEM_LABELS,
     REMINDER_MONTHLY_INTERVAL_DAYS,
-    SNOOZE_DAYS_DEWORMING,
-    SNOOZE_DAYS_FLEA,
-    SNOOZE_DAYS_FOOD,
-    SNOOZE_DAYS_HYGIENE,
-    SNOOZE_DAYS_MEDICINE,
-    SNOOZE_DAYS_SUPPLEMENT,
-    SNOOZE_DAYS_VACCINE,
-    SNOOZE_DAYS_VET_FOLLOWUP,
     STAGE_D3,
     STAGE_DUE,
     STAGE_OVERDUE,
     STAGE_PRIORITY_ORDER,
     STAGE_T7,
 )
+from app.domain.reminders.reminder_logic import classify_item_category as _classify_item_category
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
 from app.models.health.condition_medication import ConditionMedication
@@ -70,9 +63,8 @@ from app.repositories.preventive_master_repository import PreventiveMasterReposi
 from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.reminder_repository import ReminderRepository
 from app.services.shared.care_plan_engine import get_display_name
+from app.services.admin.reminder_config_loader import ReminderConfigLoader, ReminderSettings
 from app.services.admin.reminder_templates import (
-    MAX_REMINDERS_PER_PET_PER_DAY,
-    MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS,
     get_reminder_template,
     get_send_time,
     substitute_variables,
@@ -80,29 +72,6 @@ from app.services.admin.reminder_templates import (
 from app.utils.date_utils import IST, format_date_for_user, get_today_ist
 
 logger = logging.getLogger(__name__)
-
-# Vaccine-related item name keywords (case-insensitive) for batching.
-# Include kennel-cough and canine-coronavirus aliases used in preventive_master.
-VACCINE_KEYWORDS = (
-    "vaccine",
-    "vaccin",
-    "dhpp",
-    "rabies",
-    "nobivac",
-    "kennel cough",
-    "bordetella",
-    "coronavirus",
-    "ccov",
-    "fvrcp",
-    "felv",
-    "fiv",
-)
-
-# Item name keywords for category classification
-DEWORMING_KEYWORDS = ("deworm", "worm")
-FLEA_KEYWORDS = ("flea", "tick", "parasite")
-BLOOD_KEYWORDS = ("blood", "cbc", "haematology")
-DIAGNOSTICS_KEYWORDS = ("diagnostic", "x-ray", "ultrasound", "biopsy", "pcr", "urinalysis")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -165,23 +134,26 @@ def run_reminder_engine(db: Session) -> dict:
         "errors": 0,
     }
 
+    # Load DB-configurable settings (falls back to constants if table absent).
+    cfg = ReminderConfigLoader(db).load()
+
     # Phase 1: detect ignores from sent reminders with no reply within 24h
-    ignores = _detect_ignores(db, today)
+    ignores = _detect_ignores(db, today, cfg)
     results["ignores_detected"] = ignores
     db.commit()
 
     # Phase 2: collect candidates from all sources
-    candidates = _collect_candidates(db, today)
+    candidates = _collect_candidates(db, today, cfg)
     results["records_checked"] = len(candidates)
 
     # Phase 3: apply send rules (per-pet max, min gap, precedence)
-    filtered = _apply_send_rules(db, candidates, today)
+    filtered = _apply_send_rules(db, candidates, today, cfg)
     results["reminders_skipped"] = len(candidates) - len(filtered)
 
     # Phase 4: create & send
     now_ist = datetime.now(IST).time()
     for cand in filtered:
-        send_time = get_send_time(cand.category, cand.stage)
+        send_time = cfg.send_time_for(cand.category, cand.stage)
         if now_ist < send_time:
             results["reminders_skipped"] += 1
             logger.info(
@@ -219,11 +191,13 @@ def run_reminder_engine(db: Session) -> dict:
 #  Phase 1: Ignore Detection
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _detect_ignores(db: Session, today: date) -> int:
+def _detect_ignores(db: Session, today: date, cfg: ReminderSettings | None = None) -> int:
     """
     Find sent reminders older than 24h with no inbound reply from the user.
     Increment ignore_count; set monthly_fallback when threshold reached.
     """
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     cutoff = datetime.now(IST) - timedelta(hours=24)
     reminder_repo = ReminderRepository(db)
     doc_repo = DocumentRepository(db)
@@ -244,7 +218,7 @@ def _detect_ignores(db: Session, today: date) -> int:
                 reminder.ignore_count += 1
                 reminder.last_ignored_at = datetime.now(IST)
 
-                if reminder.ignore_count >= REMINDER_IGNORE_THRESHOLD:
+                if reminder.ignore_count >= cfg.ignore_threshold:
                     reminder.monthly_fallback = True
 
                 db.flush()
@@ -267,33 +241,38 @@ def _detect_ignores(db: Session, today: date) -> int:
 #  Phase 2: Collect Candidates
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _collect_candidates(db: Session, today: date) -> list[ReminderCandidate]:
+def _collect_candidates(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """
     Collect all reminder candidates for today from all 5 source types.
     Returns a flat list of ReminderCandidate objects.
     """
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
+
     candidates: list[ReminderCandidate] = []
 
     # -- 2a. Standard preventive records (vaccine, deworming, flea, blood, diagnostics) --
-    candidates.extend(_candidates_from_preventive_records(db, today))
+    candidates.extend(_candidates_from_preventive_records(db, today, cfg))
 
     # -- 2b. Food & Supplement Order reminders --
-    candidates.extend(_candidates_from_diet_items(db, today))
+    candidates.extend(_candidates_from_diet_items(db, today, cfg))
 
     # -- 2c. Chronic Medicine reminders --
-    candidates.extend(_candidates_from_chronic_medicine(db, today))
+    candidates.extend(_candidates_from_chronic_medicine(db, today, cfg))
 
     # -- 2d. Vet Follow-up reminders --
-    candidates.extend(_candidates_from_vet_followup(db, today))
+    candidates.extend(_candidates_from_vet_followup(db, today, cfg))
 
     # -- 2e. Hygiene reminders (due-only) --
-    candidates.extend(_candidates_from_hygiene(db, today))
+    candidates.extend(_candidates_from_hygiene(db, today, cfg))
 
     return candidates
 
 
-def _candidates_from_preventive_records(db: Session, today: date) -> list[ReminderCandidate]:
+def _candidates_from_preventive_records(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """Build candidates from preventive_records with status upcoming/overdue."""
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     rows = PreventiveRepository(db).find_all_upcoming_overdue_with_pets()
 
     # Group vaccines by (pet_id, stage) for batching
@@ -317,7 +296,7 @@ def _candidates_from_preventive_records(db: Session, today: date) -> list[Remind
         if category == "vaccine" and master and not master.is_mandatory and not record.last_done_date:
             continue
 
-        snooze = _snooze_for_category(category)
+        snooze = cfg.snooze_for(category)
 
         stage = _determine_stage(db, record.id, due, today, source_type="preventive_record")
         if stage is None:
@@ -371,21 +350,23 @@ def _candidates_from_preventive_records(db: Session, today: date) -> list[Remind
             source_type="preventive_record",
             source_id=first_id,
             preventive_record_id=first_id,
-            snooze_days=SNOOZE_DAYS_VACCINE,
+            snooze_days=cfg.snooze_for("vaccine"),
         ))
 
     return candidates
 
 
-def _candidates_from_diet_items(db: Session, today: date) -> list[ReminderCandidate]:
+def _candidates_from_diet_items(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """Build food order and supplement order candidates from diet_items."""
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     rows = DietRepository(db).find_packaged_and_supplements_with_pets()
 
     candidates: list[ReminderCandidate] = []
 
     for item, pet, user in rows:
         category = "food" if item.type == "packaged" else "supplement"
-        snooze = SNOOZE_DAYS_FOOD if category == "food" else SNOOZE_DAYS_SUPPLEMENT
+        snooze = cfg.snooze_for(category)
 
         reorder_date = _calculate_reorder_date(item)
         sub_type = "supply_led"
@@ -424,8 +405,10 @@ def _candidates_from_diet_items(db: Session, today: date) -> list[ReminderCandid
     return candidates
 
 
-def _candidates_from_chronic_medicine(db: Session, today: date) -> list[ReminderCandidate]:
+def _candidates_from_chronic_medicine(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """Build chronic medicine candidates from condition_medications.refill_due_date."""
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     rows = CareRepository(db).find_active_medications_with_pets()
 
     candidates: list[ReminderCandidate] = []
@@ -468,15 +451,17 @@ def _candidates_from_chronic_medicine(db: Session, today: date) -> list[Reminder
             due_date=due, stage=stage,
             source_type="condition_medication",
             source_id=med.id,
-            snooze_days=SNOOZE_DAYS_MEDICINE,
+            snooze_days=cfg.snooze_for("medicine"),
             sub_type=sub_type,
         ))
 
     return candidates
 
 
-def _candidates_from_vet_followup(db: Session, today: date) -> list[ReminderCandidate]:
+def _candidates_from_vet_followup(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """Build vet follow-up candidates from condition_monitoring.next_due_date."""
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     rows = CareRepository(db).find_monitoring_with_due_date_and_pets()
     contact_repo = ContactRepository(db)
 
@@ -499,18 +484,20 @@ def _candidates_from_vet_followup(db: Session, today: date) -> list[ReminderCand
             due_date=due, stage=stage,
             source_type="condition_monitoring",
             source_id=monitoring.id,
-            snooze_days=SNOOZE_DAYS_VET_FOLLOWUP,
+            snooze_days=cfg.snooze_for("vet_followup"),
         ))
 
     return candidates
 
 
-def _candidates_from_hygiene(db: Session, today: date) -> list[ReminderCandidate]:
+def _candidates_from_hygiene(db: Session, today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """
     Build hygiene candidates from hygiene_preferences where reminder=True.
     Groups all due hygiene items per pet into a single combined candidate.
     Hygiene: due-only stage (no T-7 or D+3 per spec).
     """
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     rows = CareRepository(db).find_hygiene_prefs_with_reminder_and_pets()
 
     # Group by pet_id — one combined reminder per pet
@@ -555,7 +542,7 @@ def _candidates_from_hygiene(db: Session, today: date) -> list[ReminderCandidate
             due_date=due, stage=STAGE_DUE,
             source_type="hygiene_preference",
             source_id=pet.id,  # pet-level aggregation
-            snooze_days=SNOOZE_DAYS_HYGIENE,
+            snooze_days=cfg.snooze_for("hygiene"),
         ))
 
     return candidates
@@ -565,13 +552,15 @@ def _candidates_from_hygiene(db: Session, today: date) -> list[ReminderCandidate
 #  Phase 3: Apply Send Rules
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: date) -> list[ReminderCandidate]:
+def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: date, cfg: ReminderSettings | None = None) -> list[ReminderCandidate]:
     """
     Apply communication limits:
     - Max one reminder per pet per day
-    - Min 3-day gap between sends for the same source item
+    - Min gap between sends for the same source item
     - Dedup exact source_id + stage combinations sent today
     """
+    if cfg is None:
+        cfg = ReminderConfigLoader(db).load()
     day_start = datetime.combine(today, time.min)
     reminder_repo = ReminderRepository(db)
 
@@ -589,7 +578,7 @@ def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: d
             pets_sent_today_count[pet_key] = pets_sent_today_count.get(pet_key, 0) + 1
 
     candidate_source_ids = {cand.source_id for cand in candidates}
-    min_gap_cutoff = datetime.combine(today - timedelta(days=MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS - 1), time.min)
+    min_gap_cutoff = datetime.combine(today - timedelta(days=cfg.min_days_between_same_item - 1), time.min)
 
     recent_sent_rows = reminder_repo.find_recently_sent_for_sources(candidate_source_ids, min_gap_cutoff)
 
@@ -608,14 +597,14 @@ def _apply_send_rules(db: Session, candidates: list[ReminderCandidate], today: d
         pet_key = str(cand.pet.id)
 
         # Max one reminder per pet per day.
-        if pets_sent_today_count.get(pet_key, 0) >= MAX_REMINDERS_PER_PET_PER_DAY:
+        if pets_sent_today_count.get(pet_key, 0) >= cfg.max_reminders_per_pet_per_day:
             continue
 
         # Per-item minimum spacing guard.
         last_sent = last_sent_by_source.get(str(cand.source_id))
         if last_sent:
             days_since_last = (today - last_sent.date()).days
-            if days_since_last < MIN_DAYS_BETWEEN_SAME_ITEM_REMINDERS:
+            if days_since_last < cfg.min_days_between_same_item:
                 continue
 
         key = (str(cand.source_id), cand.stage)
@@ -983,37 +972,10 @@ def _get_breed_consequence(db: Session, breed: str | None, category: str) -> str
 
 def _classify_item(item_name: str) -> str:
     """Classify a preventive master item name into a reminder category."""
-    name_lower = item_name.lower()
-    if re.search(r"\b\d+\s*[- ]?in\s*[- ]?1\b", name_lower):
-        return "vaccine"
-    if any(k in name_lower for k in VACCINE_KEYWORDS):
-        return "vaccine"
-    if any(k in name_lower for k in DEWORMING_KEYWORDS):
-        return "deworming"
-    if any(k in name_lower for k in FLEA_KEYWORDS):
-        return "flea_tick"
-    if any(k in name_lower for k in BLOOD_KEYWORDS):
-        return "blood_checkup"
-    if any(k in name_lower for k in DIAGNOSTICS_KEYWORDS):
-        return "vet_diagnostics"
-    if "birthday" in name_lower:
+    if "birthday" in item_name.lower():
         return "birthday"
-    return "checkup"
+    return _classify_item_category(item_name) or "checkup"
 
-
-def _snooze_for_category(category: str) -> int:
-    """Return the snooze duration in days for a given category."""
-    mapping = {
-        "vaccine": SNOOZE_DAYS_VACCINE,
-        "deworming": SNOOZE_DAYS_DEWORMING,
-        "flea_tick": SNOOZE_DAYS_FLEA,
-        "food": SNOOZE_DAYS_FOOD,
-        "supplement": SNOOZE_DAYS_SUPPLEMENT,
-        "chronic_medicine": SNOOZE_DAYS_MEDICINE,
-        "vet_followup": SNOOZE_DAYS_VET_FOLLOWUP,
-        "hygiene": SNOOZE_DAYS_HYGIENE,
-    }
-    return mapping.get(category, 7)
 
 
 def _parse_hygiene_date(date_str: str) -> date | None:
@@ -1041,10 +1003,4 @@ def _freq_to_days(freq: int, unit: str) -> int | None:
 
 def _hygiene_category_label(item_id: str, name: str | None) -> str:
     """Return a display label for a hygiene item."""
-    label_map = {
-        "bath-nail": "Bath, Brush & Nail Trim",
-        "ear-clean": "Ear Cleaning",
-        "teeth-brush": "Dental / Teeth Brushing",
-        "coat-brush": "Coat Brushing",
-    }
-    return label_map.get(item_id, name or item_id)
+    return HYGIENE_ITEM_LABELS.get(item_id, name or item_id)

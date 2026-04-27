@@ -33,6 +33,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.constants import WHATSAPP_API_VERSION
 from app.core.log_sanitizer import mask_phone, sanitize_payload
 from app.core.rate_limiter import rate_limiter
 from app.models.messaging.message_log import MessageLog
@@ -202,7 +203,7 @@ def render_template_body(body_text: str, params: list[str]) -> str:
 
 # WhatsApp Cloud API base URL
 WHATSAPP_API_URL = (
-    f"https://graph.facebook.com/v21.0/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
 )
 
 # Headers for all WhatsApp API calls
@@ -629,7 +630,7 @@ async def download_whatsapp_media(media_id: str) -> tuple[bytes, str] | None:
             # Step 1: Get media URL
             # Meta's API can be slow; 20s timeout provides headroom for CDN latency.
             media_url_response = await client.get(
-                f"https://graph.facebook.com/v21.0/{media_id}",
+                f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{media_id}",
                 headers={"Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"},
                 timeout=20.0,
             )

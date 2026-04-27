@@ -12,6 +12,7 @@ from app.models.lookup.preventive_master import PreventiveMaster
 from app.models.lookup.product_food import ProductFood
 from app.models.lookup.product_medicines import ProductMedicines
 from app.models.lookup.product_supplement import ProductSupplement
+from app.models.lookup.reminder_config import ReminderConfig
 from app.models.lookup.whatsapp_template_config import WhatsappTemplateConfig
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "ProductFood",
     "ProductMedicines",
     "ProductSupplement",
+    "ReminderConfig",
     "WhatsappTemplateConfig",
 ]

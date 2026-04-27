@@ -46,26 +46,10 @@ REMINDER_CATEGORIES = frozenset({
     "hygiene",
 })
 
-# Vaccine-related keywords for batching reminders
-VACCINE_KEYWORDS = (
-    "vaccine",
-    "vaccin",
-    "dhpp",
-    "rabies",
-    "nobivac",
-    "kennel cough",
-    "bordetella",
-    "coronavirus",
-    "ccov",
-    "fvrcp",
-    "felv",
-    "fiv",
-)
+import logging
 
-DEWORMING_KEYWORDS = ("deworm", "worm")
-FLEA_KEYWORDS = ("flea", "tick", "parasite")
-BLOOD_KEYWORDS = ("blood", "cbc", "haematology")
-DIAGNOSTICS_KEYWORDS = ("diagnostic", "x-ray", "ultrasound", "biopsy", "pcr", "urinalysis")
+_logger = logging.getLogger(__name__)
+_CLASSIFY_CACHE: dict[str, str | None] = {}
 
 
 def determine_reminder_stage(due_date: date, today: date) -> ReminderStage:
@@ -140,7 +124,7 @@ def is_valid_category(category: str) -> bool:
 
 def classify_item_category(item_name: str) -> str | None:
     """
-    Classify a preventive item into a reminder category based on keywords.
+    Classify a preventive item into a reminder category using the LLM.
 
     Args:
         item_name: Name of the preventive item
@@ -148,21 +132,37 @@ def classify_item_category(item_name: str) -> str | None:
     Returns:
         Category string or None if no match
     """
-    name_lower = (item_name or "").lower()
+    if not item_name:
+        return None
 
-    # Check in order of specificity
-    if any(kw in name_lower for kw in VACCINE_KEYWORDS):
-        return "vaccine"
-    if any(kw in name_lower for kw in DEWORMING_KEYWORDS):
-        return "deworming"
-    if any(kw in name_lower for kw in FLEA_KEYWORDS):
-        return "flea_tick"
-    if any(kw in name_lower for kw in BLOOD_KEYWORDS):
-        return "blood_checkup"
-    if any(kw in name_lower for kw in DIAGNOSTICS_KEYWORDS):
-        return "vet_diagnostics"
+    if item_name in _CLASSIFY_CACHE:
+        return _CLASSIFY_CACHE[item_name]
 
-    return None
+    from app.core.constants import OPENAI_QUERY_MODEL
+    from app.utils.ai_client import get_sync_ai_client
+
+    valid_categories = {"vaccine", "deworming", "flea_tick", "blood_checkup", "vet_diagnostics"}
+    client = get_sync_ai_client()
+    try:
+        response = client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            temperature=0.0,
+            max_tokens=15,
+            system=(
+                "Classify the pet preventive care item into one of: "
+                "vaccine, deworming, flea_tick, blood_checkup, vet_diagnostics, or none. "
+                "Return only the category word."
+            ),
+            messages=[{"role": "user", "content": item_name}],
+        )
+        result = response.content[0].text.strip().lower()
+        category = result if result in valid_categories else None
+    except Exception as e:
+        _logger.warning("LLM classify_item_category failed for '%s': %s", item_name, e)
+        category = None
+
+    _CLASSIFY_CACHE[item_name] = category
+    return category
 
 
 def should_batch_reminders(category: str) -> bool:

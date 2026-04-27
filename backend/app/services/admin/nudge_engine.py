@@ -9,7 +9,6 @@ Two entry points:
     - run_nudge_engine(db): For daily cron — regenerates nudges for all active pets
 """
 import logging
-import re
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session, selectinload
@@ -34,44 +33,38 @@ from app.services.admin.nudge_config_service import get_nudge_config_int
 
 logger = logging.getLogger(__name__)
 
-# Keyword sets for matching preventive_master items to nudge categories.
-# Keep this in sync with reminder and trends classifiers so generic
-# "vaccines done" updates include all dog/cat vaccine variants.
-VACCINE_KEYWORDS = {
-    "vaccine",
-    "rabies",
-    "dhpp",
-    "core vaccine",
-    "feline core",
-    "bordetella",
-    "kennel cough",
-    "nobivac",
-    "coronavirus",
-    "ccov",
-}
-DEWORMING_KEYWORDS = {"deworming", "deworm"}
-FLEA_KEYWORDS = {"tick", "flea"}
-CHECKUP_KEYWORDS = {"checkup", "annual", "wellness", "blood test", "preventive blood"}
+_ITEM_CATEGORY_CACHE: dict[str, str | None] = {}
 
 
 def _classify_item(item_name: str) -> str | None:
-    """Classify a preventive_master item_name into a nudge category."""
-    name_lower = item_name.lower()
-    if re.search(r"\b\d+\s*[- ]?in\s*[- ]?1\b", name_lower):
-        return "vaccine"
-    for kw in VACCINE_KEYWORDS:
-        if kw in name_lower:
-            return "vaccine"
-    for kw in DEWORMING_KEYWORDS:
-        if kw in name_lower:
-            return "deworming"
-    for kw in FLEA_KEYWORDS:
-        if kw in name_lower:
-            return "flea"
-    for kw in CHECKUP_KEYWORDS:
-        if kw in name_lower:
-            return "checkup"
-    return None
+    """Classify a preventive_master item_name into a nudge category using the LLM."""
+    if item_name in _ITEM_CATEGORY_CACHE:
+        return _ITEM_CATEGORY_CACHE[item_name]
+
+    from app.core.constants import OPENAI_QUERY_MODEL
+    from app.utils.ai_client import get_sync_ai_client
+
+    client = get_sync_ai_client()
+    try:
+        response = client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            temperature=0.0,
+            max_tokens=10,
+            system=(
+                "Classify the pet preventive care item into exactly one of these categories: "
+                "vaccine, deworming, flea, checkup, or none. "
+                "Return only the category word."
+            ),
+            messages=[{"role": "user", "content": item_name}],
+        )
+        result = response.content[0].text.strip().lower()
+        category = result if result in {"vaccine", "deworming", "flea", "checkup"} else None
+    except Exception:
+        logger.warning("LLM item classification failed for '%s', defaulting None", item_name)
+        category = None
+
+    _ITEM_CATEGORY_CACHE[item_name] = category
+    return category
 
 
 def _record_item_name(record: PreventiveRecord) -> str:

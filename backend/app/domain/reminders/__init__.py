@@ -1,4 +1,4 @@
-﻿"""Reminders domain â€” reminder logic, calculations, and orchestration."""
+"""Reminders domain — reminder logic, calculations, and orchestration."""
 
 from app.domain.reminders.reminder_logic import (
     ReminderStage,
@@ -13,16 +13,10 @@ from app.domain.reminders.reminder_logic import (
     ignored_threshold,
     SNOOZE_INTERVALS,
     REMINDER_CATEGORIES,
-    VACCINE_KEYWORDS,
-    DEWORMING_KEYWORDS,
-    FLEA_KEYWORDS,
-    BLOOD_KEYWORDS,
-    DIAGNOSTICS_KEYWORDS,
 )
 from app.domain.reminders.reminder_service import ReminderService
 
 __all__ = [
-    # Reminder logic
     "ReminderStage",
     "determine_reminder_stage",
     "get_snooze_days",
@@ -35,12 +29,5 @@ __all__ = [
     "ignored_threshold",
     "SNOOZE_INTERVALS",
     "REMINDER_CATEGORIES",
-    "VACCINE_KEYWORDS",
-    "DEWORMING_KEYWORDS",
-    "FLEA_KEYWORDS",
-    "BLOOD_KEYWORDS",
-    "DIAGNOSTICS_KEYWORDS",
-    # Service
     "ReminderService",
 ]
-
