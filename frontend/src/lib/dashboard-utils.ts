@@ -118,18 +118,6 @@ export function ageInDaysFromDob(dob: string | null): number | null {
   return Math.max(diffDays, 0);
 }
 
-const CARE_PLAN_DUE_SOON_DAYS = 7;
-
-export function deriveStatus(lastDone: string | null, nextDue: string | null): string {
-  if (!lastDone && !nextDue) return 'missing';
-  if (!nextDue) return 'done';
-  const days = diffDaysFromToday(nextDue);
-  if (days === null) return 'missing';
-  if (days < 0) return 'overdue';
-  if (days <= CARE_PLAN_DUE_SOON_DAYS) return 'upcoming';
-  return 'done';
-}
-
 export function freqLabel(freq: number, unit: string): string {
   if (freq === 1 && unit === 'day') return 'Daily';
   if (freq === 1 && unit === 'week') return 'Weekly';
@@ -155,33 +143,13 @@ export function ageFromDob(dob: string | null): string {
 // ─── Pet Age Helpers ─────────────────────────────────────────────
 
 /**
- * Puppy vaccine names and the minimum dog age (in days) at which they become relevant.
- * Dogs older than 365 days (1 year) should not see any of these.
+ * Filter preventives by eligibility.
+ * IMPORTANT: The backend (preventive_logic.is_vaccine_eligible_for_age) computes the
+ * 'eligible' flag based on pet age and vaccine type. Frontend only filters on display.
+ *
+ * This is DISPLAY LOGIC, not business logic. Do NOT recompute eligibility here.
  */
-const PUPPY_VAX_MIN_AGE_DAYS: Record<string, number> = {
-  'dhppi 1st dose': 42,   // 6 weeks
-  'dhppi 2nd dose': 63,   // 9 weeks
-  'dhppi 3rd dose': 84,   // 12 weeks
-  'puppy booster':  90,   // show from 3 months as an upcoming item
-};
-
-/**
- * Filter vaccines by the dog's age.
- * - For non-dogs: no filtering.
- * - For dogs ≥ 1 year: hide all puppy-dose vaccines.
- * - For dogs < 1 year: show only doses the dog is old enough to receive.
- */
-export function filterVaccinesByAge(vaccines: PreventiveRecord[], dob: string | null, species: string): PreventiveRecord[] {
-  if (species?.toLowerCase() !== 'dog') return vaccines;
-  const ageDays = ageInDaysFromDob(dob);
-  if (ageDays === null) return vaccines;
-  return vaccines.filter(v => {
-    const name = v.item_name.toLowerCase();
-    const minAge = PUPPY_VAX_MIN_AGE_DAYS[name];
-    if (minAge === undefined) return true;   // not a puppy-specific vaccine — always show
-    if (ageDays >= 365) return false;         // dog is over 1 year — hide all puppy doses
-    return ageDays >= minAge;                 // show only if dog is old enough for this dose
-  });
+export function filterPreventivesByEligibility(records: PreventiveRecord[]): PreventiveRecord[] {
+  return records.filter(r => r.eligible !== false);
 }
-
 
