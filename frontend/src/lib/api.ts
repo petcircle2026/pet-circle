@@ -45,6 +45,7 @@ export interface PreventiveRecord {
   medicine_name?: string | null;
   created_at?: string | null;
   is_core?: boolean;
+  eligible?: boolean; // Backend computes based on pet age; frontend never filters business logic
 }
 
 export interface WeightEntry {
@@ -1895,9 +1896,18 @@ export interface CartItemData {
   quantity: number;
 }
 
+export interface CartSummary {
+  count: number;
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  free_delivery: boolean;
+  amount_for_free_delivery: number;
+}
+
 export interface CartResponse {
   items: CartItemData[];
-  summary: { count: number; subtotal: number };
+  summary: CartSummary;
 }
 
 export interface CartRecommendation {

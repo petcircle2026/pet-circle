@@ -7,6 +7,8 @@ import ErrorBoundary from "./ErrorBoundary";
 import CartView, { type CartItem } from "./CartView";
 import CheckoutView from "./cart/CheckoutView";
 import type { CheckoutDetails } from "./cart/CheckoutView";
+import { DELIVERY_FEE, FREE_THRESHOLD } from "@/utils/cart-utils";
+import { useCartCalculations } from "@/hooks/useCartCalculations";
 import ConfirmView from "./cart/ConfirmView";
 import DashboardView from "./dashboard/DashboardView";
 import ReturningDashboardView from "./dashboard/ReturningDashboardView";
@@ -29,9 +31,6 @@ function loadRazorpayScript(): Promise<void> {
     document.body.appendChild(script);
   });
 }
-
-const DELIVERY_FEE = 49;
-const FREE_THRESHOLD = 599;
 
 function toCartItemId(item: CarePlanItem, sectionTitle: string): string {
   return `${sectionTitle}:${item.test_type}:${item.name}`.toLowerCase();
@@ -186,24 +185,11 @@ function DashboardInner({ token }: { token: string }) {
     setCart([]);
   }, []);
 
+  const { inCart: cartInCart, subtotal: cartSubtotal, deliveryFee: cartDeliveryFee, total: cartTotal, amountForFreeDelivery: cartAmountForFree } = useCartCalculations(cart);
+
   const cartCount = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantity, 0),
-    [cart]
-  );
-
-  const cartSubtotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
-    [cart]
-  );
-
-  const cartDeliveryFee = useMemo(
-    () => (cartSubtotal >= FREE_THRESHOLD ? 0 : DELIVERY_FEE),
-    [cartSubtotal]
-  );
-
-  const cartTotal = useMemo(
-    () => cartSubtotal + cartDeliveryFee,
-    [cartSubtotal, cartDeliveryFee]
+    () => cartInCart.reduce((sum, item) => sum + item.quantity, 0),
+    [cartInCart]
   );
 
   const getCartQty = useCallback(

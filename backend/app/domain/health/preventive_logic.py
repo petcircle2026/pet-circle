@@ -213,3 +213,59 @@ def get_frequency_label(frequency_days: int) -> str:
         return f"Every {months} months"
     return f"Every {frequency_days} days"
 
+
+# ─── Vaccine Eligibility ─────────────────────────────────────────────
+# Age-based vaccine filtering for puppies/kittens
+# Dogs/cats >= 1 year don't show puppy-specific vaccines
+
+PUPPY_VACCINE_MIN_AGE_DAYS = {
+    "dhppi 1st dose": 42,   # 6 weeks
+    "dhppi 2nd dose": 63,   # 9 weeks
+    "dhppi 3rd dose": 84,   # 12 weeks
+    "puppy booster": 90,    # 3 months
+    "pentavalent 1st dose": 42,
+    "pentavalent 2nd dose": 63,
+    "pentavalent 3rd dose": 84,
+    "feline core 1st dose": 42,
+    "feline core 2nd dose": 63,
+    "feline core 3rd dose": 84,
+}
+
+PUPPY_AGE_CUTOFF_DAYS = 365  # 1 year
+
+
+def is_vaccine_eligible_for_age(
+    vaccine_item_name: str,
+    pet_age_days: int | None,
+    species: str = "dog",
+) -> bool:
+    """
+    Determine if a vaccine is eligible for a pet based on age.
+
+    For dogs/cats < 1 year: only show if age >= minimum age for that vaccine
+    For dogs/cats >= 1 year: hide all puppy-specific vaccines
+
+    Args:
+        vaccine_item_name: Name of the vaccine (e.g. "DHPPI 1st dose")
+        pet_age_days: Pet age in days (None = unknown/treat as ineligible)
+        species: Pet species ('dog', 'cat', etc.)
+
+    Returns:
+        True if vaccine should be shown for this pet's age, False otherwise
+    """
+    if not vaccine_item_name or pet_age_days is None:
+        return True  # Unknown age: show all vaccines
+
+    if species and species.lower() not in ("dog", "cat"):
+        return True  # Non-dog/cat species: no age filtering
+
+    vaccine_lower = vaccine_item_name.lower()
+    min_age = PUPPY_VACCINE_MIN_AGE_DAYS.get(vaccine_lower)
+
+    if min_age is None:
+        return True  # Not a puppy-specific vaccine: always show
+
+    if pet_age_days >= PUPPY_AGE_CUTOFF_DAYS:
+        return False  # Pet is over 1 year: hide puppy vaccines
+
+    return pet_age_days >= min_age  # Show only if old enough

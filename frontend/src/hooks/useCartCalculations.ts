@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import type { CartItem } from "@/components/CartView";
-
-const DELIVERY_FEE = 49;
-const FREE_THRESHOLD = 599;
+import { DELIVERY_FEE, FREE_THRESHOLD } from "@/utils/cart-utils";
 
 export interface CartCalculations {
   inCart: CartItem[];
