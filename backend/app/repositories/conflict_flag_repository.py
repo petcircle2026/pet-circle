@@ -18,6 +18,14 @@ class ConflictFlagRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def find_by_id(self, conflict_id: UUID) -> ConflictFlag | None:
+        """Find a conflict flag by ID."""
+        return (
+            self.db.query(ConflictFlag)
+            .filter(ConflictFlag.id == conflict_id)
+            .first()
+        )
+
     def find_pending_by_record(self, preventive_record_id: UUID) -> ConflictFlag | None:
         """Find pending conflict for a preventive record."""
         return (

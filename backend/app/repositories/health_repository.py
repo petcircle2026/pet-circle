@@ -460,3 +460,65 @@ class HealthRepository:
             .all()
         )
 
+    def find_active_conditions_with_relations(self, pet_id: UUID, document_ids: list[UUID]) -> list[Condition]:
+        """
+        Find active conditions for a pet with medications and monitoring eagerly loaded,
+        filtered by document IDs. Used by records_service.
+        """
+        return (
+            self.db.query(Condition)
+            .options(
+                selectinload(Condition.medications),
+                selectinload(Condition.monitoring),
+            )
+            .filter(
+                Condition.pet_id == pet_id,
+                Condition.is_active == True,
+                Condition.document_id.in_(document_ids),
+            )
+            .all()
+        )
+
+    def get_latest_blood_results_by_date(self, pet_id: UUID) -> list[DiagnosticTestResult]:
+        """
+        Get all blood test markers from the most recent observed date for a pet.
+        Used by health_trends_service for blood panel building.
+        """
+        latest = (
+            self.db.query(DiagnosticTestResult)
+            .filter(
+                DiagnosticTestResult.pet_id == pet_id,
+                DiagnosticTestResult.test_type == "blood",
+                DiagnosticTestResult.observed_at != None,
+            )
+            .order_by(desc(DiagnosticTestResult.observed_at))
+            .first()
+        )
+        if not latest or not latest.observed_at:
+            return []
+
+        return (
+            self.db.query(DiagnosticTestResult)
+            .filter(
+                DiagnosticTestResult.pet_id == pet_id,
+                DiagnosticTestResult.test_type == "blood",
+                DiagnosticTestResult.observed_at == latest.observed_at,
+            )
+            .all()
+        )
+
+    def find_all_diagnostics_desc(self, pet_id: UUID) -> list[DiagnosticTestResult]:
+        """
+        Fetch all diagnostic test results for a pet, ordered by observed_at descending.
+        Used by health_trends_service for condition chart data.
+        """
+        return (
+            self.db.query(DiagnosticTestResult)
+            .filter(
+                DiagnosticTestResult.pet_id == pet_id,
+                DiagnosticTestResult.observed_at != None,
+            )
+            .order_by(desc(DiagnosticTestResult.observed_at))
+            .all()
+        )
+

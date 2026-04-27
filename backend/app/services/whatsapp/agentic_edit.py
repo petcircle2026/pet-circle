@@ -28,6 +28,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.constants import AI_QUERY_MODEL
+from app.repositories.pet_repository import PetRepository
+from app.repositories.diet_item_repository import DietItemRepository
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.contact_repository import ContactRepository
+from app.repositories.custom_preventive_item_repository import CustomPreventiveItemRepository
+from app.repositories.reminder_repository import ReminderRepository
 
 logger = logging.getLogger(__name__)
 
@@ -417,12 +423,8 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
         lines.append(f"Other pets: {', '.join(others)}")
 
     # --- Diet items ---
-    diet_items = (
-        db.query(DietItem)
-        .filter(DietItem.pet_id == pet.id)
-        .order_by(DietItem.created_at.asc())
-        .all()
-    )
+    diet_repo = DietItemRepository(db)
+    diet_items = diet_repo.find_by_pet(pet.id)
     if diet_items:
         lines.append("\nDiet items:")
         for item in diet_items:
@@ -432,17 +434,8 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
         lines.append("\nNo diet items recorded.")
 
     # --- Preventive records ---
-    records = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .outerjoin(
-            PreventiveMaster,
-            PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-        )
-        .filter(PreventiveRecord.pet_id == pet.id)
-        .order_by(PreventiveRecord.last_done_date.desc().nullslast())
-        .limit(25)
-        .all()
-    )
+    preventive_repo = PreventiveRepository(db)
+    records = preventive_repo.find_with_master_ordered_by_last_done(pet.id, limit=25)
     if records:
         lines.append("\nPreventive records:")
         for record, master in records:
@@ -453,14 +446,8 @@ def _build_pet_data_context(db: Session, user, pets: list, primary_pet) -> str:
         lines.append("\nNo preventive records.")
 
     # --- Contacts ---
-    from app.models.core.contact import Contact
-
-    contacts = (
-        db.query(Contact)
-        .filter(Contact.pet_id == pet.id)
-        .order_by(Contact.created_at.asc())
-        .all()
-    )
+    contact_repo = ContactRepository(db)
+    contacts = contact_repo.find_by_pet(pet.id)
     if contacts:
         lines.append("\nContacts:")
         for c in contacts:
@@ -728,12 +715,8 @@ def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
         # For custom items (master is None), look up the CustomPreventiveItem
         # to get the correct recurrence_days rather than falling back to 365.
         if master is None and record.custom_preventive_item_id:
-            from app.models.preventive.custom_preventive_item import CustomPreventiveItem
-            custom_item = (
-                db.query(CustomPreventiveItem)
-                .filter(CustomPreventiveItem.id == record.custom_preventive_item_id)
-                .first()
-            )
+            custom_item_repo = CustomPreventiveItemRepository(db)
+            custom_item = custom_item_repo.find_by_id(record.custom_preventive_item_id)
             recurrence = record.custom_recurrence_days or (custom_item.recurrence_days if custom_item else 365)
             reminder_before = custom_item.reminder_before_days if custom_item else 7
         else:
@@ -745,15 +728,8 @@ def _tool_update_preventive_record(db: Session, pet, tool_input: dict) -> str:
 
         # Invalidate stale reminders that targeted the old next_due_date
         if old_next_due and old_next_due != record.next_due_date:
-            stale = (
-                db.query(Reminder)
-                .filter(
-                    Reminder.preventive_record_id == record.id,
-                    Reminder.next_due_date == old_next_due,
-                    Reminder.status.in_(["pending", "sent"]),
-                )
-                .all()
-            )
+            reminder_repo = ReminderRepository(db)
+            stale = reminder_repo.find_stale_by_record_and_date(record.id, old_next_due)
             for r in stale:
                 r.status = "completed"
 
@@ -781,14 +757,8 @@ def _tool_add_preventive_record(db: Session, user, pet, tool_input: dict) -> str
 
     # Get or create the CustomPreventiveItem for this user
     species = pet.species or "both"
-    custom_item = (
-        db.query(CustomPreventiveItem)
-        .filter(
-            CustomPreventiveItem.user_id == user.id,
-            CustomPreventiveItem.item_name == item_name,
-        )
-        .first()
-    )
+    custom_item_repo = CustomPreventiveItemRepository(db)
+    custom_item = custom_item_repo.find_by_user_and_name(user.id, item_name)
     if not custom_item:
         custom_item = CustomPreventiveItem(
             user_id=user.id,
@@ -866,7 +836,8 @@ def _tool_update_contact(db: Session, pet, tool_input: dict) -> str:
 
     # Find by partial case-insensitive match
     name_lower = current_name.lower()
-    contacts = db.query(Contact).filter(Contact.pet_id == pet.id).all()
+    contact_repo = ContactRepository(db)
+    contacts = contact_repo.find_by_pet(pet.id)
     contact = None
     for c in contacts:
         if c.name.lower() == name_lower:
@@ -1015,10 +986,9 @@ def _serialize_block(block) -> dict:
 
 def _find_diet_item(db: Session, pet_id, label: str):
     """Find a diet item by case-insensitive partial label match."""
-    from app.models.nutrition.diet_item import DietItem
-
     label_lower = label.lower()
-    items = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+    diet_repo = DietItemRepository(db)
+    items = diet_repo.find_by_pet(pet_id)
     # Exact match first
     for item in items:
         if item.label.lower() == label_lower:
@@ -1041,13 +1011,8 @@ def _find_preventive_record(db: Session, pet_id, item_name: str):
     name_lower = item_name.lower()
 
     # 1. Try master items
-    rows = (
-        db.query(PreventiveRecord, PreventiveMaster)
-        .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-        .filter(PreventiveRecord.pet_id == pet_id)
-        .order_by(PreventiveRecord.last_done_date.desc().nullslast())
-        .all()
-    )
+    preventive_repo = PreventiveRepository(db)
+    rows = preventive_repo.find_with_master_by_pet(pet_id)
     # Exact match
     for rec, master in rows:
         if master.item_name.lower() == name_lower:
@@ -1058,16 +1023,7 @@ def _find_preventive_record(db: Session, pet_id, item_name: str):
             return rec, master
 
     # 2. Try custom items
-    custom_rows = (
-        db.query(PreventiveRecord, CustomPreventiveItem)
-        .join(
-            CustomPreventiveItem,
-            PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
-        )
-        .filter(PreventiveRecord.pet_id == pet_id)
-        .order_by(PreventiveRecord.last_done_date.desc().nullslast())
-        .all()
-    )
+    custom_rows = preventive_repo.find_with_custom_by_pet(pet_id)
     for rec, custom in custom_rows:
         if name_lower in custom.item_name.lower() or custom.item_name.lower() in name_lower:
             return rec, None
@@ -1214,8 +1170,6 @@ async def handle_agentic_edit_intent(db: Session, user, message_data: dict, send
 
     Initialises the edit session and hands off to handle_agentic_edit_step.
     """
-    from app.models.core.pet import Pet
-
     mobile = _get_mobile(user)
 
     # Guard: re-entry (shouldn't happen but be safe)
@@ -1224,12 +1178,8 @@ async def handle_agentic_edit_intent(db: Session, user, message_data: dict, send
         return
 
     # Load pets
-    pets = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)  # noqa: E712
-        .order_by(Pet.created_at.asc())
-        .all()
-    )
+    pet_repo = PetRepository(db)
+    pets = pet_repo.find_by_user_not_deleted(user.id)
     if not pets:
         await send_text_message(
             db, mobile,
@@ -1261,8 +1211,6 @@ async def handle_agentic_edit_step(db: Session, user, message_data: dict, send_t
 
     Called for every incoming message while user.edit_state == "agentic_edit".
     """
-    from app.models.core.pet import Pet
-
     mobile = _get_mobile(user)
     text = (message_data.get("text") or "").strip()
 
@@ -1280,12 +1228,8 @@ async def handle_agentic_edit_step(db: Session, user, message_data: dict, send_t
     selected_pet_id: str | None = edit_data.get("selected_pet_id")
 
     # Load pets
-    pets = (
-        db.query(Pet)
-        .filter(Pet.user_id == user.id, Pet.is_deleted == False)  # noqa: E712
-        .order_by(Pet.created_at.asc())
-        .all()
-    )
+    pet_repo = PetRepository(db)
+    pets = pet_repo.find_by_user_not_deleted(user.id)
     if not pets:
         _clear_edit_state(user, db)
         await send_text_message(db, mobile, "No active pets found.")

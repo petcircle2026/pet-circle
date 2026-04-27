@@ -7,7 +7,7 @@ Provides access to pet conditions (illnesses, chronic diseases, etc.).
 from uuid import UUID
 from typing import List
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.health.condition import Condition
 
@@ -53,6 +53,23 @@ class ConditionRepository:
             .order_by(Condition.created_at.asc())
             .all()
         )
+
+    def find_by_pet_and_active_with_relations(self, pet_id: UUID, condition_types: set[str] | None = None) -> List[Condition]:
+        """
+        Find active conditions for a pet with medications and monitoring eagerly loaded.
+        Optionally filter by condition types. Used by health_trends_service.
+        """
+        query = (
+            self.db.query(Condition)
+            .options(
+                selectinload(Condition.medications),
+                selectinload(Condition.monitoring),
+            )
+            .filter(Condition.pet_id == pet_id, Condition.is_active == True)
+        )
+        if condition_types:
+            query = query.filter(Condition.condition_type.in_(condition_types))
+        return query.order_by(Condition.created_at.desc()).all()
 
     def create(
         self,

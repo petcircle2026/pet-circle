@@ -1,5 +1,4 @@
 """
-from app.repositories.pet_repository import PetRepository
 PetCircle — Agentic Order Service
 
 An LLM-driven alternative to the deterministic order state machine.
@@ -35,10 +34,10 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.constants import AI_QUERY_MODEL
 from app.core.encryption import decrypt_field
-from app.models.commerce.agent_order_session import AgentOrderSession
+from app.repositories.pet_repository import PetRepository
+from app.repositories.order_repository import OrderRepository
+from app.repositories.agent_order_session_repository import AgentOrderSessionRepository
 from app.models.commerce.order import Order
-from app.models.core.pet import Pet
-from app.models.core.user import User
 from app.utils.retry import retry_openai_call
 
 logger = logging.getLogger(__name__)
@@ -222,14 +221,8 @@ def _get_or_create_session(db: Session, user: User) -> AgentOrderSession:
     to admin tooling and external checks throughout the conversation.
     """
 
-    session = (
-        db.query(AgentOrderSession)
-        .filter(
-            AgentOrderSession.user_id == user.id,
-            AgentOrderSession.is_complete == False,  # noqa: E712
-        )
-        .first()
-    )
+    session_repo = AgentOrderSessionRepository(db)
+    session = session_repo.find_active_by_user(user.id)
 
     # Expire sessions older than TTL so abandoned conversations don't persist.
     if session is not None:
@@ -246,9 +239,8 @@ def _get_or_create_session(db: Session, user: User) -> AgentOrderSession:
             session.is_complete = True
             # Delete the associated draft Order (no items, never confirmed).
             if user.active_order_id:
-                stale_order = (
-                    db.query(Order).filter(Order.id == user.active_order_id).first()
-                )
+                order_repo = OrderRepository(db)
+                stale_order = order_repo.find_by_id(user.active_order_id)
                 if stale_order and not stale_order.items_description:
                     db.delete(stale_order)
             user.order_state = None
@@ -424,11 +416,8 @@ async def _finalize_agentic_order(
     # --- Auto-detect single pet ---
     pet = None
     if not pet_id:
-        pets = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id, Pet.is_deleted == False)  # noqa: E712
-            .all()
-        )
+        pet_repo = PetRepository(db)
+        pets = pet_repo.find_by_user_not_deleted(user.id)
         if len(pets) == 1:
             pet_id = str(pets[0].id)
             pet = pets[0]
@@ -439,7 +428,8 @@ async def _finalize_agentic_order(
     else:
         try:
             from uuid import UUID as _UUID
-            pet = db.query(Pet).filter(Pet.id == _UUID(pet_id)).first()
+            pet_repo = PetRepository(db)
+            pet = pet_repo.get_by_id(_UUID(pet_id))
         except Exception:
             pet = None
 
@@ -457,13 +447,14 @@ async def _finalize_agentic_order(
         from uuid import UUID as _UUID
         draft_order_id_str = cd.get("draft_order_id")
         order = None
+        order_repo = OrderRepository(db)
         if draft_order_id_str:
             try:
-                order = db.query(Order).filter(Order.id == _UUID(draft_order_id_str)).first()
+                order = order_repo.find_by_id(_UUID(draft_order_id_str))
             except Exception:
                 order = None
         if order is None and user.active_order_id:
-            order = db.query(Order).filter(Order.id == user.active_order_id).first()
+            order = order_repo.find_by_id(user.active_order_id)
 
         if order is not None:
             # Update the draft in place.
@@ -593,12 +584,8 @@ async def _dispatch_tool_call(
         return f"Pet set to '{pet_id}'."
 
     elif tool_name == "get_pet_list":
-        pets = (
-            db.query(Pet)
-            .filter(Pet.user_id == user.id, Pet.is_deleted == False)  # noqa: E712
-            .order_by(Pet.name)
-            .all()
-        )
+        pet_repo = PetRepository(db)
+        pets = pet_repo.find_by_user_not_deleted(user.id)
         if not pets:
             return "[]"
         result = [{"pet_id": str(p.id), "name": p.name} for p in pets]
@@ -668,16 +655,17 @@ async def _dispatch_tool_call(
         # Delete the draft Order row (no items were confirmed — nothing to keep).
         from uuid import UUID as _UUID
         draft_order_id_str = session.collected_data.get("draft_order_id")
+        order_repo = OrderRepository(db)
         if draft_order_id_str:
             try:
-                draft = db.query(Order).filter(Order.id == _UUID(draft_order_id_str)).first()
+                draft = order_repo.find_by_id(_UUID(draft_order_id_str))
                 if draft and not draft.items_description:
                     db.delete(draft)
             except Exception as e:
                 logger.warning("Cancel: could not delete draft order: %s", str(e))
         elif user.active_order_id:
             try:
-                draft = db.query(Order).filter(Order.id == user.active_order_id).first()
+                draft = order_repo.find_by_id(user.active_order_id)
                 if draft and not draft.items_description:
                     db.delete(draft)
             except Exception as e:
