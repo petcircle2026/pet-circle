@@ -1,5 +1,5 @@
-﻿"""
-PetCircle Phase 1 â€” File Reader Utility
+"""
+PetCircle Phase 1 - File Reader Utility
 
 Reads uploaded file content for GPT extraction:
     - Images (JPEG/PNG): Base64-encodes for GPT vision API.
@@ -7,17 +7,42 @@ Reads uploaded file content for GPT extraction:
 
 Rules:
     - No file content is stored in memory beyond the extraction call.
-    - PDF text extraction is best-effort â€” scanned PDFs yield empty text.
+    - PDF text extraction is best-effort - scanned PDFs yield empty text.
     - Scanned PDFs are rendered to JPEG images for GPT vision fallback.
     - All errors are logged but never crash the caller.
+
+Bulkhead:
+    - CPU-bound rendering (PyMuPDF page rasterisation, Pillow resize/compress)
+      runs in a dedicated ThreadPoolExecutor (_RENDER_POOL) so it cannot block
+      the asyncio event loop used by webhook handlers.
+    - Pool size is capped at FILE_READER_MAX_WORKERS (default 4) to bound
+      memory and CPU usage under concurrent extraction bursts.
+    - Async wrappers (async_encode_image_base64, async_render_pdf_pages_as_images,
+      async_extract_pdf_text) let callers await without blocking.
 """
 
+import asyncio
 import base64
+import concurrent.futures
 import io
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
+# Max threads for CPU-bound PDF/image work. Defaults to min(4, cpu_count).
+# Keeps extraction bursts from starving the event loop while still allowing
+# parallelism across multiple concurrent documents.
+FILE_READER_MAX_WORKERS: int = min(4, (os.cpu_count() or 2))
+
+# Module-level pool - created once, shared across all extraction tasks.
+# Shutdown is handled by the Python interpreter at process exit.
+_RENDER_POOL: concurrent.futures.ThreadPoolExecutor = (
+    concurrent.futures.ThreadPoolExecutor(
+        max_workers=FILE_READER_MAX_WORKERS,
+        thread_name_prefix="file_reader",
+    )
+)
 
 _MAX_IMAGE_DIMENSION = 7900  # Anthropic API hard limit is 8000px per dimension
 _MAX_BASE64_BYTES = 4_800_000  # Anthropic API hard limit is 5MB base64; use 4.8MB headroom
@@ -28,8 +53,8 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
     Base64-encode image bytes for the Anthropic vision API.
 
     Enforces two Anthropic API limits:
-      1. Max 8000px per dimension  â†’ resizes down proportionally.
-      2. Max 5MB base64 payload    â†’ reduces JPEG quality in steps until within limit.
+      1. Max 8000px per dimension  -> resizes down proportionally.
+      2. Max 5MB base64 payload    -> reduces JPEG quality in steps until within limit.
 
     Args:
         file_bytes: Raw image bytes.
@@ -53,7 +78,7 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
                 orig_w, orig_h, img.width, img.height,
             )
 
-        # Step 2: base64 size cap â€” reduce JPEG quality until under limit.
+        # Step 2: base64 size cap - reduce JPEG quality until under limit.
         fmt = "JPEG" if mime_type == "image/jpeg" else "PNG"
         quality = 92
         while True:
@@ -67,7 +92,7 @@ def encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
             if quality > 60:
                 quality -= 10
             else:
-                # Quality reduction alone isn't enough â€” halve dimensions.
+                # Quality reduction alone isn't enough - halve dimensions.
                 img = img.resize((img.width // 2, img.height // 2), Image.LANCZOS)
                 quality = 85
                 logger.debug(
@@ -138,7 +163,7 @@ def render_pdf_pages_as_images(file_bytes: bytes, max_pages: int = 3) -> list[st
         import fitz  # PyMuPDF
     except ImportError:
         logger.error(
-            "PyMuPDF (fitz) is not installed â€” cannot render scanned PDF pages. "
+            "PyMuPDF (fitz) is not installed - cannot render scanned PDF pages. "
             "Install with: pip install PyMuPDF"
         )
         return []
@@ -172,3 +197,28 @@ def render_pdf_pages_as_images(file_bytes: bytes, max_pages: int = 3) -> list[st
 
     return data_uris
 
+
+# ---------------------------------------------------------------------------
+# Async bulkhead wrappers
+# ---------------------------------------------------------------------------
+
+async def async_encode_image_base64(file_bytes: bytes, mime_type: str) -> str:
+    """Non-blocking wrapper - runs Pillow resize/compress in _RENDER_POOL."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_RENDER_POOL, encode_image_base64, file_bytes, mime_type)
+
+
+async def async_extract_pdf_text(file_bytes: bytes) -> str:
+    """Non-blocking wrapper - runs PyPDF2 parsing in _RENDER_POOL."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_RENDER_POOL, extract_pdf_text, file_bytes)
+
+
+async def async_render_pdf_pages_as_images(
+    file_bytes: bytes, max_pages: int = 3
+) -> list[str]:
+    """Non-blocking wrapper - runs PyMuPDF rasterisation in _RENDER_POOL."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _RENDER_POOL, render_pdf_pages_as_images, file_bytes, max_pages
+    )

@@ -116,17 +116,9 @@ def _initialize_medicine_mapping(db=None) -> None:
                 db = SessionLocal()
                 _db_created_here = True
             except Exception:
-                # If we can't get a DB session, use minimal fallback mapping
-                _MEDICATION_TO_PREVENTIVE_CATEGORIES = {
-                    "simparica": frozenset({"flea_tick", "deworming"}),
-                    "nexgard spectra": frozenset({"flea_tick", "deworming"}),
-                    "advocate": frozenset({"flea_tick", "deworming"}),
-                    "drontal": frozenset({"deworming"}),
-                    "nexgard": frozenset({"flea_tick"}),
-                    "bravecto": frozenset({"flea_tick"}),
-                    "frontline": frozenset({"flea_tick"}),
-                }
-                _KNOWN_MEDICATION_BRANDS = set(_MEDICATION_TO_PREVENTIVE_CATEGORIES.keys())
+                # DB unavailable — proceed without a medicine mapping
+                _MEDICATION_TO_PREVENTIVE_CATEGORIES = {}
+                _KNOWN_MEDICATION_BRANDS = set()
                 _MEDICINE_MAPPING_INITIALIZED = True
                 return
 
@@ -168,16 +160,9 @@ def _initialize_medicine_mapping(db=None) -> None:
             _MEDICINE_MAPPING_INITIALIZED = True
 
         except Exception as e:
-            # If mapping fails, use minimal fallback
             logger.warning("Failed to initialize medicine mapping from product_medicines: %s", str(e))
-            _MEDICATION_TO_PREVENTIVE_CATEGORIES = {
-                "simparica": frozenset({"flea_tick", "deworming"}),
-                "nexgard spectra": frozenset({"flea_tick", "deworming"}),
-                "drontal": frozenset({"deworming"}),
-                "nexgard": frozenset({"flea_tick"}),
-                "bravecto": frozenset({"flea_tick"}),
-            }
-            _KNOWN_MEDICATION_BRANDS = set(_MEDICATION_TO_PREVENTIVE_CATEGORIES.keys())
+            _MEDICATION_TO_PREVENTIVE_CATEGORIES = {}
+            _KNOWN_MEDICATION_BRANDS = set()
             _MEDICINE_MAPPING_INITIALIZED = True
         finally:
             # Only close the session if we created it internally
@@ -2676,13 +2661,16 @@ async def extract_and_process_document(
 
         if file_bytes and document.mime_type in ("image/jpeg", "image/png"):
             # Images: use GPT vision API with base64-encoded image.
-            from app.utils.file_reader import encode_image_base64
-            _vision_data_uri = encode_image_base64(file_bytes, document.mime_type)
+            # Run Pillow resize/compress in the dedicated render pool so it
+            # doesn't block the event loop during concurrent extractions.
+            from app.utils.file_reader import async_encode_image_base64
+            _vision_data_uri = await async_encode_image_base64(file_bytes, document.mime_type)
             extraction_result = await _call_openai_extraction_vision(_vision_data_uri)
         elif file_bytes and document.mime_type == "application/pdf":
             # PDFs: extract text first, then send to GPT.
-            from app.utils.file_reader import extract_pdf_text
-            pdf_text = extract_pdf_text(file_bytes)
+            # Run PyPDF2 and PyMuPDF in the render pool (CPU-bound I/O).
+            from app.utils.file_reader import async_extract_pdf_text, async_render_pdf_pages_as_images
+            pdf_text = await async_extract_pdf_text(file_bytes)
             if pdf_text and len(pdf_text.strip()) > 20:
                 _pdf_text_payload = f"Veterinary document text:\n\n{pdf_text}"
                 extraction_result = await _call_openai_extraction(_pdf_text_payload)
@@ -2693,7 +2681,6 @@ async def extract_and_process_document(
                     "falling back to vision API: document_id=%s",
                     str(document_id),
                 )
-                from app.utils.file_reader import render_pdf_pages_as_images
                 # Imaging documents (USG, X-ray) may spread findings across
                 # multiple pages, so render up to 5 pages and send them all.
                 # Text-only reports (CBC, urine) are reliably single-page, so
@@ -2708,7 +2695,7 @@ async def extract_and_process_document(
                     kw in _file_name_lower for kw in _imaging_keywords
                 )
                 _max_pages = 5 if _is_imaging else 3
-                page_images = render_pdf_pages_as_images(file_bytes, max_pages=_max_pages)
+                page_images = await async_render_pdf_pages_as_images(file_bytes, max_pages=_max_pages)
                 if page_images:
                     # For imaging: send all rendered pages so multi-page findings
                     # are captured. For other scanned docs: send page 0 only.

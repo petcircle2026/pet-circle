@@ -74,9 +74,9 @@ from app.models.core.pet import Pet
 from app.models.preventive.preventive_record import PreventiveRecord
 from app.models.preventive.reminder import Reminder
 from app.models.core.user import User
-from app.services.shared.diet_service import HOMEMADE_KW, add_diet_item
+from app.services.shared.diet_service import add_diet_item, _classify_food_type_llm
 from app.services.admin.preventive_seeder import seed_preventive_master
-from app.utils.breed_normalizer import normalize_breed, normalize_breed_with_ai
+from app.utils.breed_normalizer import normalize_breed
 from app.utils.date_utils import (
     get_today_ist,
     parse_date,
@@ -153,39 +153,6 @@ _NO_INPUTS = frozenset({
 })
 # Accepted variations for skip across all onboarding steps.
 _SKIP_INPUTS = frozenset({"skip", "s"})
-_DOC_SKIP_PHRASES = (
-    "not uploading",
-    "not uploading now",
-    "no documents",
-    "no document",
-    "no docs",
-    "no records",
-    "no health records",
-    "nothing to upload",
-    "don't have",
-    "dont have",
-    "not right now",
-    "not now",
-    "later",
-    "maybe later",
-    "do it later",
-    "upload later",
-    "ill upload later",
-    "i'll upload later",
-    "move on",
-    "moving on",
-    "lets move on",
-    "let's move on",
-    "continue",
-    "next",
-    "what next",
-    "what's next",
-    "whats next",
-    "proceed",
-    "go ahead",
-    "carry on",
-)
-_DOC_UPLOAD_INTENT_WORDS = ("upload", "sending", "send", "attach", "attached")
 
 _SPECIES_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
     "dog": (r"\bdog\b", r"\bdogs\b", r"\bpuppy\b", r"\bcanine\b"),
@@ -199,26 +166,34 @@ _SPECIES_INTENT_PATTERNS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _is_doc_skip_intent(text_lower: str) -> bool:
+async def _is_doc_skip_intent(text_lower: str) -> bool:
     """Return True when the user indicates they are skipping document upload."""
-    normalized = (text_lower or "").strip()
-    if normalized in _SKIP_INPUTS:
-        return True
-    # Treat explicit "no" / "nahi" / "nope" etc. as skip intent.
-    if normalized in _NO_INPUTS:
-        return True
-    # Avoid false positives such as: "I don't have card, uploading report now".
-    if any(word in normalized for word in _DOC_UPLOAD_INTENT_WORDS):
-        return False
+    from app.domain.onboarding.validators import is_doc_skip_intent_async
+    return await is_doc_skip_intent_async(text_lower)
 
-    collapsed = re.sub(r"\s+", " ", normalized)
-    # Strip trailing punctuation (and whitespace around it) so "what next ?" → "what next".
-    stripped = re.sub(r"[\s.!?]+$", "", collapsed)
-    for phrase in _DOC_SKIP_PHRASES:
-        if stripped == phrase:
-            return True
 
-    return False
+async def _detect_food_type(text: str) -> str | None:
+    """Detect food type from free-text user input: 'home', 'packaged', 'mix', or None."""
+    client = get_ai_client()
+    try:
+        response = await client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            temperature=0.0,
+            max_tokens=10,
+            system=(
+                "Classify the user's pet food type into one of: home, packaged, mix, or none. "
+                "'home' = home-cooked / homemade / raw ingredients. "
+                "'packaged' = commercial brand, kibble, canned, dry/wet food. "
+                "'mix' = both home and packaged. "
+                "'none' = user has no food/skipping. "
+                "Return only the word."
+            ),
+            messages=[{"role": "user", "content": text}],
+        )
+        result = response.content[0].text.strip().lower()
+        return result if result in {"home", "packaged", "mix", "none"} else None
+    except Exception:
+        return None
 
 
 def _detect_species_intent(text_lower: str) -> str | None:
@@ -538,18 +513,6 @@ def _is_greeting(text_lower: str) -> bool:
     return text_lower in GREETINGS
 
 
-# --- Food type keyword sets for deterministic matching ---
-_HOME_FOOD_KEYWORDS = frozenset({
-    "home", "homemade", "home food", "ghar ka", "ghar ka khana", "home cooked",
-    "homecooked", "home made",
-})
-_PACKAGED_FOOD_KEYWORDS = frozenset({
-    "packaged", "kibble", "branded", "dry food", "wet food", "canned",
-    "commercial", "store bought",
-})
-_MIX_FOOD_KEYWORDS = frozenset({
-    "mix", "both", "mixed", "combination", "dono",
-})
 _NONE_KEYWORDS = frozenset({
     "none", "no", "nope", "nothing", "na", "nahi", "nil", "n/a",
 })
@@ -1093,13 +1056,7 @@ async def _step_breed_age(db, user, text, send_fn):
 
     # Normalize and save breed if provided.
     if breed_raw:
-        normalized = normalize_breed(breed_raw, species=species_gpt)
-        if normalized == breed_raw.strip().title():
-            try:
-                normalized = await normalize_breed_with_ai(breed_raw, species=species_gpt)
-            except Exception:
-                pass
-        pet.breed = normalized
+        pet.breed = await normalize_breed(breed_raw, species=species_gpt)
 
         # Infer species from breed dictionaries if GPT didn't provide it.
         if not species_gpt:
@@ -1375,16 +1332,12 @@ async def _step_food_type(db, user, text, send_fn):
     od = _get_onboarding_data(user)
     attempts = od.get("food_type_attempts", 0)
 
-    # Match food type.
+    # Match food type via LLM.
     food_type = None
-    if text_lower in _HOME_FOOD_KEYWORDS:
-        food_type = "home"
-    elif text_lower in _PACKAGED_FOOD_KEYWORDS:
-        food_type = "packaged"
-    elif text_lower in _MIX_FOOD_KEYWORDS:
-        food_type = "mix"
-    elif text_lower in _SKIP_INPUTS:
+    if text_lower in _SKIP_INPUTS:
         food_type = "mix"  # Default to mix on skip.
+    else:
+        food_type = await _detect_food_type(text_lower)
 
     if not food_type:
         # Try AI parsing for ambiguous input (e.g., "same", "sampe", "like before").
@@ -3631,7 +3584,7 @@ async def _store_meal_items(db, pet, items: list, food_type: str):
         label_lower = label.lower()
 
         # Determine item type: packaged or homemade
-        is_homemade_keyword = any(kw in label_lower for kw in HOMEMADE_KW)
+        is_homemade_keyword = _classify_food_type_llm(label) == "homemade"
         item_type = food_type if food_type != "mix" else "packaged"
         if is_homemade_keyword or food_type == "home":
             item_type = "homemade"
@@ -4835,23 +4788,25 @@ def _normalize_preventive_medicine_categories(parsed: dict) -> dict:
     return normalized
 
 
+_DOG_BREED_SIGNALS = frozenset({
+    "retriever", "shepherd", "husky", "rottweiler", "doberman", "dachshund",
+    "pomeranian", "chihuahua", "terrier", "labrador", "collie", "corgi",
+    "bulldog", "poodle", "beagle", "boxer", "mastiff", "dalmatian",
+    "pinscher", "pariah", "indie", "mutt", "corso",
+})
+_CAT_BREED_SIGNALS = frozenset({
+    "persian", "siamese", "maine coon", "ragdoll", "bengal", "sphynx",
+    "abyssinian", "tabby", "rex", "scottish fold", "russian blue",
+    "shorthair", "longhair",
+})
+
+
 def _infer_species_from_breed(breed_key: str) -> str | None:
-    """
-    Infer species from a breed name using the breed_normalizer dictionaries.
-
-    Args:
-        breed_key: Lowercased, stripped breed name.
-
-    Returns:
-        "dog", "cat", or None if breed is not in either dictionary.
-    """
-    import re as _re
-
-    from app.utils.breed_normalizer import _CAT_BREEDS, _DOG_BREEDS
-    key = _re.sub(r"[^a-z\s]", "", breed_key.lower().strip()).strip()
-    if key in _DOG_BREEDS:
+    """Infer species from a breed name using signal keyword sets."""
+    lower = breed_key.lower().strip()
+    if any(sig in lower for sig in _DOG_BREED_SIGNALS):
         return "dog"
-    if key in _CAT_BREEDS:
+    if any(sig in lower for sig in _CAT_BREED_SIGNALS):
         return "cat"
     return None
 
@@ -5061,7 +5016,7 @@ async def _step_awaiting_documents(db, user, text_lower, send_fn):
         return
 
     # "skip" exits the upload window immediately.
-    if _is_doc_skip_intent(text_lower):
+    if await _is_doc_skip_intent(text_lower):
         try:
             from app.services.whatsapp.message_router import clear_upload_window_extended
             await clear_upload_window_extended(user.id)

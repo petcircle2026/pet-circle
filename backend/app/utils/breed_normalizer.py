@@ -1,301 +1,55 @@
-﻿"""
-PetCircle Phase 1 â€” Breed Normalizer
+"""
+PetCircle — Breed Normalizer
 
-Maps common abbreviations, nicknames, and misspellings of dog and cat
-breeds to their standardized names. Applied during onboarding when
-the user enters a breed.
-
-Rules:
-    - Matching is case-insensitive.
-    - If no match is found, the original input is title-cased and returned.
-    - Covers the most popular breeds in India plus common global breeds.
+Uses an LLM to identify pet breeds from user-supplied text (abbreviations,
+misspellings, regional names). The LLM is the primary path; a title-case
+fallback is used only when the LLM is unavailable.
 """
 
+import logging
 
-import re
-from difflib import get_close_matches
+logger = logging.getLogger(__name__)
 
-# ----------------------------------
-# Runtime learning layer
-# ----------------------------------
-
+# In-process alias cache so repeated inputs skip API calls.
 _LEARNED_ALIASES: dict[str, str] = {}
 
 
-# ----------------------------------
-# DOG BREEDS (full dataset)
-# ----------------------------------
+async def normalize_breed(breed: str, species: str | None = None) -> str:
+    """
+    Normalise a breed string using the LLM.
 
-_DOG_BREEDS: dict[str, str] = {
+    Args:
+        breed:   Raw breed text from the user.
+        species: "dog", "cat", etc. for context.
 
-    # Labrador Retriever
-    "lab": "Labrador Retriever",
-    "labrador": "Labrador Retriever",
-    "labrador retriever": "Labrador Retriever",
-    "labra": "Labrador Retriever",
-    "black lab": "Labrador Retriever",
-    "yellow lab": "Labrador Retriever",
-    "chocolate lab": "Labrador Retriever",
-
-    # Golden Retriever
-    "golden": "Golden Retriever",
-    "golden retriever": "Golden Retriever",
-    "goldie": "Golden Retriever",
-
-    # German Shepherd
-    "gsd": "German Shepherd",
-    "german shepherd": "German Shepherd",
-    "german shepard": "German Shepherd",
-    "germanshepherd": "German Shepherd",
-    "g shepherd": "German Shepherd",
-    "alsatian": "German Shepherd",
-
-    # Husky
-    "husky": "Siberian Husky",
-    "siberian husky": "Siberian Husky",
-    "sibe": "Siberian Husky",
-
-    # Rottweiler
-    "rottweiler": "Rottweiler",
-    "rottie": "Rottweiler",
-    "rotweiler": "Rottweiler",
-    "rotweiller": "Rottweiler",
-
-    # Doberman
-    "doberman": "Doberman Pinscher",
-    "doberman pinscher": "Doberman Pinscher",
-    "dobie": "Doberman Pinscher",
-
-    # Dachshund
-    "dachshund": "Dachshund",
-    "dashund": "Dachshund",
-    "dachund": "Dachshund",
-    "doxie": "Dachshund",
-    "wiener dog": "Dachshund",
-    "sausage dog": "Dachshund",
-
-    # Shih Tzu
-    "shih tzu": "Shih Tzu",
-    "shihtzu": "Shih Tzu",
-    "shitzu": "Shih Tzu",
-
-    # Pomeranian
-    "pomeranian": "Pomeranian",
-    "pom": "Pomeranian",
-    "pomarian": "Pomeranian",
-    "pomernian": "Pomeranian",
-
-    # Chihuahua
-    "chihuahua": "Chihuahua",
-    "chi": "Chihuahua",
-
-    # Yorkshire Terrier
-    "yorkshire terrier": "Yorkshire Terrier",
-    "yorkie": "Yorkshire Terrier",
-
-    # Maltese
-    "maltese": "Maltese",
-
-    # Border Collie
-    "border collie": "Border Collie",
-    "collie": "Border Collie",
-
-    # Jack Russell
-    "jack russell": "Jack Russell Terrier",
-    "jack russell terrier": "Jack Russell Terrier",
-    "jrt": "Jack Russell Terrier",
-
-    # Cane Corso
-    "cane corso": "Cane Corso",
-    "corso": "Cane Corso",
-
-    # Pit Bull
-    "pitbull": "American Pit Bull Terrier",
-    "pit bull": "American Pit Bull Terrier",
-    "pittie": "American Pit Bull Terrier",
-
-    # Mixed
-    "mixed": "Mixed Breed",
-    "mixed breed": "Mixed Breed",
-    "mutt": "Mixed Breed",
-    "lab mix": "Mixed Breed",
-    "husky mix": "Mixed Breed",
-
-    # Indian dogs
-    "indie": "Indian Pariah Dog",
-    "indian pariah": "Indian Pariah Dog",
-    "desi": "Indian Pariah Dog",
-    "street dog": "Indian Pariah Dog",
-}
-
-
-# ----------------------------------
-# CAT BREEDS
-# ----------------------------------
-
-_CAT_BREEDS: dict[str, str] = {
-
-    # Persian
-    "persian": "Persian",
-    "persian cat": "Persian",
-    "persi": "Persian",
-    "persain": "Persian",
-
-    # Siamese
-    "siamese": "Siamese",
-    "siamise": "Siamese",
-
-    # Maine Coon
-    "maine coon": "Maine Coon",
-    "mainecoon": "Maine Coon",
-    "coon": "Maine Coon",
-
-    # Ragdoll
-    "ragdoll": "Ragdoll",
-    "rag doll": "Ragdoll",
-    "raggie": "Ragdoll",
-
-    # British Shorthair
-    "british shorthair": "British Shorthair",
-    "british short hair": "British Shorthair",
-    "brit": "British Shorthair",
-    "british": "British Shorthair",
-    "bsh": "British Shorthair",
-
-    # Bengal
-    "bengal": "Bengal",
-
-    # Abyssinian
-    "abyssinian": "Abyssinian",
-    "aby": "Abyssinian",
-
-    # Sphynx
-    "sphynx": "Sphynx",
-    "sphinx": "Sphynx",
-    "hairless": "Sphynx",
-
-    # Scottish Fold
-    "scottish fold": "Scottish Fold",
-
-    # Russian Blue
-    "russian blue": "Russian Blue",
-    "russian": "Russian Blue",
-
-    # Exotic
-    "exotic": "Exotic Shorthair",
-    "exotic shorthair": "Exotic Shorthair",
-    "exotic short hair": "Exotic Shorthair",
-
-    # Rex
-    "cornish rex": "Cornish Rex",
-    "rex": "Cornish Rex",
-    "devon rex": "Devon Rex",
-    "devon": "Devon Rex",
-
-    # Norwegian Forest
-    "norwegian forest cat": "Norwegian Forest Cat",
-    "wegie": "Norwegian Forest Cat",
-
-    # Domestic
-    "domestic shorthair": "Domestic Shorthair",
-    "domestic short hair": "Domestic Shorthair",
-    "dsh": "Domestic Shorthair",
-    "domestic longhair": "Domestic Longhair",
-    "domestic long hair": "Domestic Longhair",
-    "dlh": "Domestic Longhair",
-
-    # Tabby
-    "tabby": "Tabby",
-    "orange tabby": "Tabby",
-    "ginger tabby": "Tabby",
-    "gray tabby": "Tabby",
-
-    # Indian
-    "indie": "Indian Domestic Cat",
-    "desi": "Indian Domestic Cat",
-    "street cat": "Indian Domestic Cat",
-}
-
-
-_ALL_BREEDS = {**_DOG_BREEDS, **_CAT_BREEDS}
-
-
-# ----------------------------------
-# NORMALIZER
-# ----------------------------------
-
-def normalize_breed(breed: str, species: str | None = None) -> str:
-
+    Returns:
+        Standardised breed name, or title-cased original if LLM unavailable.
+    """
     if not breed:
         return breed
 
-    original = breed
-    key = breed.lower().strip()
+    cache_key = f"{species or ''}:{breed.lower().strip()}"
+    if cache_key in _LEARNED_ALIASES:
+        return _LEARNED_ALIASES[cache_key]
 
-    # remove punctuation
-    key = re.sub(r"[^a-z\s]", "", key)
-
-    # remove noise words
-    for word in ["dog", "cat", "puppy", "kitten", "breed"]:
-        key = key.replace(word, "")
-
-    key = key.strip()
-
-    # detect mix
-    if "mix" in original.lower():
-        return "Mixed Breed"
-
-    # learned aliases
-    if key in _LEARNED_ALIASES:
-        return _LEARNED_ALIASES[key]
-
-    # species specific
-    if species == "dog" and key in _DOG_BREEDS:
-        return _DOG_BREEDS[key]
-
-    if species == "cat" and key in _CAT_BREEDS:
-        return _CAT_BREEDS[key]
-
-    # global exact
-    if key in _ALL_BREEDS:
-        return _ALL_BREEDS[key]
-
-    # fuzzy
-    matches = get_close_matches(key, _ALL_BREEDS.keys(), n=1, cutoff=0.85)
-
-    if matches:
-        canonical = _ALL_BREEDS[matches[0]]
-
-        # learn new alias
-        _LEARNED_ALIASES[key] = canonical
-
-        return canonical
-
-    # No match found â€” return title-cased original for now.
-    # Caller can use normalize_breed_with_ai() as async fallback.
-    return original.strip().title()
+    result = await normalize_breed_with_ai(breed, species)
+    _LEARNED_ALIASES[cache_key] = result
+    return result
 
 
 async def normalize_breed_with_ai(breed: str, species: str | None = None) -> str:
     """
-    Use OpenAI to identify a breed when the local normalizer fails.
-
-    Called as an async fallback during onboarding when the user's input
-    doesn't match any known breed abbreviation or fuzzy match.
+    Use the LLM to identify a breed.
 
     Args:
-        breed: The raw breed text from the user.
+        breed:   Raw breed text from the user.
         species: "dog" or "cat" for context.
 
     Returns:
-        The standardized breed name, or "Mixed Breed" if unidentifiable.
+        Standardised breed name, or title-cased original if LLM fails.
     """
-    import logging
-
     from app.core.constants import OPENAI_QUERY_MODEL
     from app.utils.ai_client import get_ai_client
-
-    logger = logging.getLogger(__name__)
 
     animal = species or "pet"
     client = get_ai_client()
@@ -308,27 +62,18 @@ async def normalize_breed_with_ai(breed: str, species: str | None = None) -> str
             system=(
                 f"You are a {animal} breed identifier. The user will provide text "
                 f"that may be a breed name, abbreviation, misspelling, or local name. "
-                f"Identify the standardized {animal} breed name and return ONLY the "
-                f"breed name. If it's clearly a mixed breed, return 'Mixed Breed'. "
+                f"Identify the standardised {animal} breed name and return ONLY the "
+                f"breed name. If it is clearly a mixed breed, return 'Mixed Breed'. "
                 f"If you cannot identify any breed, return 'UNKNOWN'."
             ),
-            messages=[
-                {"role": "user", "content": breed},
-            ],
+            messages=[{"role": "user", "content": breed}],
         )
 
         result = response.content[0].text.strip()
-
         if result == "UNKNOWN":
             return breed.strip().title()
-
-        # Learn the alias for future lookups.
-        key = breed.lower().strip()
-        _LEARNED_ALIASES[key] = result
-
         return result
 
     except Exception as e:
         logger.error("AI breed identification failed for '%s': %s", breed, str(e))
         return breed.strip().title()
-

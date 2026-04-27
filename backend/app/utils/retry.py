@@ -1,5 +1,5 @@
-﻿"""
-PetCircle Phase 1 â€” Retry Utilities (Module 17)
+"""
+PetCircle Phase 1 - Retry Utilities (Module 17)
 
 Provides retry wrappers for external API calls (Claude/Anthropic, WhatsApp).
 Each wrapper has a specific retry policy tuned to the service's
@@ -13,8 +13,17 @@ Retry policies:
       The semaphore is released during sleep so other callers can proceed
       while a rate-limited slot is waiting to retry.
     - WhatsApp: 2 attempts (1 retry). Log failure, continue.
-    - Database: No retry â€” failures indicate constraint violations
+    - Database: No retry - failures indicate constraint violations
       or connection issues that should not be silently retried.
+
+Circuit breaker:
+    - LLM calls are guarded by a per-service CircuitBreaker instance.
+    - After CIRCUIT_BREAKER_FAILURE_THRESHOLD consecutive failures the
+      circuit opens and subsequent calls fail immediately for
+      CIRCUIT_BREAKER_RECOVERY_SECONDS, preventing retry storms.
+    - A single probe attempt is allowed once the recovery window elapses.
+      If the probe succeeds the circuit closes; if it fails the window
+      resets and the circuit stays open.
 
 These utilities ensure external API failures are isolated and
 do not crash the main application flow.
@@ -22,10 +31,13 @@ do not crash the main application flow.
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 from app.core.constants import (
+    CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+    CIRCUIT_BREAKER_RECOVERY_SECONDS,
     CLAUDE_API_CONCURRENCY,
     OPENAI_RATE_LIMIT_BACKOFFS,
     OPENAI_RETRY_BACKOFFS,
@@ -36,7 +48,140 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Global semaphore â€” limits concurrent in-flight Claude/Anthropic API calls
+
+# ---------------------------------------------------------------------------
+# Circuit Breaker
+# ---------------------------------------------------------------------------
+
+class CircuitBreakerOpen(Exception):
+    """Raised when a call is rejected because the circuit is open."""
+
+
+class CircuitBreaker:
+    """
+    Async-safe circuit breaker for external service calls.
+
+    States:
+        closed    - normal operation; failures are counted.
+        open      - calls fail immediately; entered after
+                    ``failure_threshold`` consecutive failures.
+        half-open - one probe call is allowed after ``recovery_seconds``
+                    to test whether the service has recovered.
+
+    Thread/coroutine safety: all state mutations are protected by an
+    asyncio.Lock so concurrent callers cannot race on state transitions.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        failure_threshold: int = CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        recovery_seconds: float = CIRCUIT_BREAKER_RECOVERY_SECONDS,
+    ) -> None:
+        self.name = name
+        self.failure_threshold = failure_threshold
+        self.recovery_seconds = recovery_seconds
+
+        self._failure_count: int = 0
+        self._state: str = "closed"   # "closed" | "open" | "half-open"
+        self._opened_at: float = 0.0
+        self._lock = asyncio.Lock()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """
+        Execute *func* through the circuit breaker.
+
+        Raises CircuitBreakerOpen if the circuit is open and the recovery
+        window has not elapsed yet. Otherwise delegates to *func* and
+        records success or failure accordingly.
+        """
+        async with self._lock:
+            await self._maybe_transition_to_half_open()
+            if self._state == "open":
+                raise CircuitBreakerOpen(
+                    f"Circuit '{self.name}' is open - service unavailable. "
+                    f"Retry after {self._recovery_remaining():.0f}s."
+                )
+
+        try:
+            result = await func(*args, **kwargs)
+        except Exception as exc:
+            async with self._lock:
+                self._on_failure()
+            raise exc from exc
+
+        async with self._lock:
+            self._on_success()
+
+        return result
+
+    def reset(self) -> None:
+        """Force-close the circuit (e.g. after manual intervention)."""
+        self._state = "closed"
+        self._failure_count = 0
+        self._opened_at = 0.0
+        logger.info("Circuit '%s' manually reset to closed", self.name)
+
+    # ------------------------------------------------------------------
+    # Internal helpers (must be called while holding _lock)
+    # ------------------------------------------------------------------
+
+    async def _maybe_transition_to_half_open(self) -> None:
+        if self._state == "open" and self._recovery_remaining() <= 0:
+            self._state = "half-open"
+            logger.info(
+                "Circuit '%s' -> half-open (probe allowed after %ss recovery)",
+                self.name, self.recovery_seconds,
+            )
+
+    def _on_success(self) -> None:
+        if self._state in ("half-open", "open"):
+            logger.info("Circuit '%s' -> closed (probe succeeded)", self.name)
+        self._state = "closed"
+        self._failure_count = 0
+
+    def _on_failure(self) -> None:
+        self._failure_count += 1
+        if self._state == "half-open":
+            # Probe failed - reopen and reset recovery window.
+            self._state = "open"
+            self._opened_at = time.monotonic()
+            logger.warning(
+                "Circuit '%s' -> open (probe failed; next probe in %ss)",
+                self.name, self.recovery_seconds,
+            )
+        elif self._failure_count >= self.failure_threshold:
+            self._state = "open"
+            self._opened_at = time.monotonic()
+            logger.error(
+                "Circuit '%s' -> open after %d consecutive failures; "
+                "fast-failing for %ss",
+                self.name, self._failure_count, self.recovery_seconds,
+            )
+
+    def _recovery_remaining(self) -> float:
+        return max(0.0, self.recovery_seconds - (time.monotonic() - self._opened_at))
+
+
+# Process-wide circuit breaker instance for the LLM service.
+# Shared across all coroutines so a storm of failures from any call site
+# trips the breaker for the whole process, not just a single caller.
+llm_circuit_breaker = CircuitBreaker(name="llm")
+
+
+# ---------------------------------------------------------------------------
+# Semaphore
+# ---------------------------------------------------------------------------
+
+# Global semaphore - limits concurrent in-flight Claude/Anthropic API calls
 # across the whole process. Prevents TPM quota exhaustion under request bursts.
 # Initialized eagerly at module load to avoid a lazy-init race where two coroutines
 # both see None and create duplicate semaphores during cold-start.
@@ -76,7 +221,7 @@ async def retry_openai_call(
     **kwargs: Any,
 ) -> Any:
     """
-    Retry wrapper for Claude/Anthropic API calls.
+    Retry wrapper for Claude/Anthropic API calls with circuit breaker protection.
 
     Default retry policy (background tasks):
         - Attempt 1: immediate (under semaphore)
@@ -86,8 +231,13 @@ async def retry_openai_call(
 
     Interactive policy (onboarding steps, set max_retries=1):
         - Attempt 1: immediate
-        - Attempt 2: after 1s backoff  (3s for 429) â€” fails fast to fallback
+        - Attempt 2: after 1s backoff  (3s for 429) - fails fast to fallback
         - Falls through to caller's fallback/default rather than hanging
+
+    Circuit breaker:
+        - If the circuit is open, CircuitBreakerOpen is raised immediately
+          without attempting the call. After CIRCUIT_BREAKER_RECOVERY_SECONDS
+          a single probe is allowed; on success the circuit closes.
 
     The semaphore is acquired per-attempt and released before sleeping so
     sleeping retriers do not starve other callers waiting for a slot.
@@ -111,6 +261,7 @@ async def retry_openai_call(
         The result of the successful API call.
 
     Raises:
+        CircuitBreakerOpen: If the circuit is open and recovery has not elapsed.
         Exception: The last exception if all retry attempts fail.
     """
     backoffs = OPENAI_RETRY_BACKOFFS
@@ -133,9 +284,17 @@ async def retry_openai_call(
 
         async with _get_claude_semaphore():
             try:
-                if call_timeout is not None:
-                    return await asyncio.wait_for(func(*args, **kwargs), timeout=call_timeout)
-                return await func(*args, **kwargs)
+                # Route through circuit breaker - raises CircuitBreakerOpen
+                # immediately if the circuit is open and recovery hasn't elapsed.
+                async def _invoke() -> Any:
+                    if call_timeout is not None:
+                        return await asyncio.wait_for(func(*args, **kwargs), timeout=call_timeout)
+                    return await func(*args, **kwargs)
+
+                return await llm_circuit_breaker.call(_invoke)
+            except CircuitBreakerOpen:
+                # Circuit is open - stop retrying immediately, surface to caller.
+                raise
             except asyncio.TimeoutError as e:
                 last_exception = e
                 logger.warning(
@@ -163,7 +322,7 @@ async def retry_openai_call(
                         attempt + 1, total_attempts, pending_backoff, str(e)
                     )
                 else:
-                    # Final attempt failed â€” log and raise.
+                    # Final attempt failed - log and raise.
                     logger.error(
                         "Claude/Anthropic call failed after %d attempts: %s",
                         total_attempts, str(e)
@@ -180,7 +339,7 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
         - Attempt 1: immediate
         - Attempt 2: immediate retry (no backoff)
         - If both fail, log the failure and return None
-        - Never raises â€” WhatsApp failures must not crash the flow
+        - Never raises - WhatsApp failures must not crash the flow
 
     WhatsApp message delivery is best-effort. If a template message
     fails to send after 1 retry, the failure is logged but the
@@ -206,11 +365,11 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
                     "WhatsApp call failed (attempt %d/%d), retrying: %s",
                     attempt + 1, total_attempts, str(e)
                 )
-                # Brief pause before retry â€” prevents simultaneous burst failures
+                # Brief pause before retry - prevents simultaneous burst failures
                 # from all retrying at the same instant and colliding again.
                 await asyncio.sleep(0.5)
             else:
-                # Final attempt failed â€” log error but do not raise.
+                # Final attempt failed - log error but do not raise.
                 # WhatsApp failures must never crash the processing flow.
                 logger.error(
                     "WhatsApp call failed after %d attempts. "
@@ -219,4 +378,3 @@ async def retry_whatsapp_call(func: Callable[..., Any], *args: Any, **kwargs: An
                 )
 
     return None
-
