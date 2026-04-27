@@ -36,6 +36,8 @@ from app.config import settings
 from app.core.log_sanitizer import mask_phone, sanitize_payload
 from app.core.rate_limiter import rate_limiter
 from app.models.messaging.message_log import MessageLog
+from app.repositories.message_log_repository import MessageLogRepository
+from app.repositories.whatsapp_template_config_repository import WhatsappTemplateConfigRepository
 from app.utils.retry import retry_whatsapp_call
 
 logger = logging.getLogger(__name__)
@@ -103,17 +105,9 @@ def _seen_recent_duplicate_in_db(
 ) -> bool:
     """Check recent outgoing logs for the same message fingerprint."""
     try:
-        cutoff = datetime.now(UTC) - timedelta(seconds=_OUTBOUND_DB_LOOKBACK_SECONDS)
-
-        recent_logs = (
-            db.query(MessageLog)
-            .filter(
-                MessageLog.direction == "outgoing",
-                MessageLog.message_type == message_type,
-                MessageLog.created_at >= cutoff,
-            )
-            .order_by(MessageLog.created_at.desc())
-            .all()
+        message_repo = MessageLogRepository(db)
+        recent_logs = message_repo.find_recent_outgoing_by_type(
+            message_type, _OUTBOUND_DB_LOOKBACK_SECONDS
         )
 
         for row in recent_logs:
@@ -186,13 +180,8 @@ def get_template_body(db: Session, template_name: str) -> str:
     Never raises — logging failures must not block the send flow.
     """
     try:
-        
-        row = (
-            db.query(WhatsappTemplateConfig)
-            .filter(WhatsappTemplateConfig.template_name == template_name)
-            .first()
-        )
-        return row.body_text if row and row.body_text else ""
+        template_repo = WhatsappTemplateConfigRepository(db)
+        return template_repo.get_body_text(template_name)
     except Exception:
         logger.debug("get_template_body failed for template '%s'", template_name)
         return ""

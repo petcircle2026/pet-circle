@@ -274,3 +274,30 @@ class ContactRepository:
         """Find all contacts for a pet."""
         return self.db.query(Contact).filter(Contact.pet_id == pet_id).all()
 
+    def find_vet_with_recent_visit(self, pet_id: UUID, role: str = "veterinarian"):
+        """
+        Find vet contact with most-recent visit date from linked document.
+        Used by vet_summary_service to get the latest vet visit information.
+
+        Returns tuple of (contact_name, last_visit_date) or None.
+        """
+        from app.models.documents.document import Document
+
+        row = (
+            self.db.query(
+                Contact.name,
+                Document.event_date.label("last_visit"),
+            )
+            .join(Document, Document.id == Contact.document_id)
+            .filter(
+                Contact.pet_id == pet_id,
+                Contact.role == role,
+            )
+            .order_by(
+                Document.event_date.desc().nullslast(),
+                Document.created_at.desc(),
+            )
+            .first()
+        )
+        return row
+

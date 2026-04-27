@@ -1,6 +1,7 @@
 from uuid import UUID
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import String, cast
+from sqlalchemy import String, cast, desc
 from app.models.messaging.message_log import MessageLog
 
 
@@ -21,4 +22,23 @@ class MessageLogRepository:
                 ),
             )
             .first()
+        )
+
+    def find_recent_outgoing_by_type(
+        self, message_type: str, lookback_seconds: int
+    ) -> list[MessageLog]:
+        """
+        Find recent outgoing messages of a specific type within the lookback window.
+        Used by whatsapp_sender to check for duplicate sends.
+        """
+        cutoff = datetime.now() - timedelta(seconds=lookback_seconds)
+        return (
+            self.db.query(MessageLog)
+            .filter(
+                MessageLog.direction == "outgoing",
+                MessageLog.message_type == message_type,
+                MessageLog.created_at >= cutoff,
+            )
+            .order_by(desc(MessageLog.created_at))
+            .all()
         )

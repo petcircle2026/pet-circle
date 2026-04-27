@@ -9,7 +9,7 @@ Entry points:
     - check_inactivity_nudges(db): Detect 30d inactive users, create re-engagement nudges
     - record_nudge_engagement(db, user_id, pet_id): On user action (button tap)
 """
-from app.models import NudgeEngagement
+from app.models.cache.nudge_engagement import NudgeEngagement
 
 import logging
 from datetime import datetime, timedelta, timezone
@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.core.constants import NUDGE_TRIGGER_INACTIVITY
 from app.models.messaging.nudge import Nudge
-from app.models.core.pet import Pet
-from app.models.core.user import User
+from app.repositories.pet_repository import PetRepository
+from app.repositories.nudge_repository import NudgeRepository
 from app.services.admin.nudge_config_service import get_nudge_config_int
 
 logger = logging.getLogger(__name__)
@@ -34,23 +34,14 @@ def check_inactivity_nudges(db: Session) -> dict:
     threshold_days = get_nudge_config_int(db, "inactivity_threshold_days", 30)
     cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
 
-    pets = (
-        db.query(Pet)
-        .join(User)
-        .filter(
-            Pet.is_deleted == False,
-            User.onboarding_state == "complete",
-        )
-        .all()
-    )
+    pet_repo = PetRepository(db)
+    nudge_repo = NudgeRepository(db)
+
+    pets = pet_repo.find_active_with_user_by_onboarding_state("complete")
 
     created = 0
     for pet in pets:
-        engagement = (
-            db.query(NudgeEngagement)
-            .filter(NudgeEngagement.user_id == pet.user_id, NudgeEngagement.pet_id == pet.id)
-            .first()
-        )
+        engagement = nudge_repo.find_engagement_by_user_and_pet(pet.user_id, pet.id)
 
         # Skip if recently engaged or paused
         if engagement:
@@ -60,17 +51,14 @@ def check_inactivity_nudges(db: Session) -> dict:
                 continue
 
         # Check if we already have a recent inactivity nudge
-        existing = (
-            db.query(Nudge)
-            .filter(
-                Nudge.pet_id == pet.id,
-                Nudge.trigger_type == NUDGE_TRIGGER_INACTIVITY,
-                Nudge.dismissed == False,
-                Nudge.created_at >= cutoff,
-            )
-            .first()
+        existing = nudge_repo.find_by_pet_id(pet.id)
+        has_recent_inactivity = any(
+            n.trigger_type == NUDGE_TRIGGER_INACTIVITY
+            and n.dismissed == False
+            and n.created_at >= cutoff
+            for n in existing
         )
-        if existing:
+        if has_recent_inactivity:
             continue
 
         nudge = Nudge(
@@ -83,7 +71,7 @@ def check_inactivity_nudges(db: Session) -> dict:
             trigger_type=NUDGE_TRIGGER_INACTIVITY,
             source="record",
         )
-        db.add(nudge)
+        nudge_repo.create(nudge)
         created += 1
 
     if created > 0:
@@ -102,16 +90,14 @@ def record_nudge_engagement(db: Session, user_id, pet_id):
     Record that a user acted on a nudge (button tap).
     Clears pause, updates counters.
     """
-    engagement = (
-        db.query(NudgeEngagement)
-        .filter(NudgeEngagement.user_id == user_id, NudgeEngagement.pet_id == pet_id)
-        .first()
-    )
+    nudge_repo = NudgeRepository(db)
+    engagement = nudge_repo.find_engagement_by_user_and_pet(user_id, pet_id)
 
     if engagement:
         engagement.last_engagement_at = datetime.now(timezone.utc)
         engagement.paused_until = None
         engagement.total_acted_on = (engagement.total_acted_on or 0) + 1
+        nudge_repo.update_engagement(engagement)
     else:
         engagement = NudgeEngagement(
             user_id=user_id,
@@ -119,7 +105,7 @@ def record_nudge_engagement(db: Session, user_id, pet_id):
             last_engagement_at=datetime.now(timezone.utc),
             total_acted_on=1,
         )
-        db.add(engagement)
+        nudge_repo.create_engagement(engagement)
 
     try:
         db.commit()

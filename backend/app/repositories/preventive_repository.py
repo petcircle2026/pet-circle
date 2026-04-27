@@ -623,6 +623,20 @@ class PreventiveRepository:
             .first()
         )
 
+    def find_recent_by_pet_and_master(
+        self, pet_id: UUID, preventive_master_id: UUID
+    ) -> PreventiveRecord | None:
+        """Find the most recent preventive record for a pet and master, ordered by last_done_date."""
+        return (
+            self.db.query(PreventiveRecord)
+            .filter(
+                PreventiveRecord.pet_id == pet_id,
+                PreventiveRecord.preventive_master_id == preventive_master_id,
+            )
+            .order_by(PreventiveRecord.last_done_date.desc())
+            .first()
+        )
+
     def find_existing_master_ids_for_pet(self, pet_id: UUID) -> set[UUID]:
         """Find all preventive master IDs already seeded for a pet."""
         results = (
@@ -646,6 +660,43 @@ class PreventiveRepository:
             )
             .filter(PreventiveRecord.pet_id == pet_id)
             .order_by(PreventiveRecord.next_due_date.asc())
+            .all()
+        )
+
+    def find_with_master_ordered_by_last_done(self, pet_id: UUID, limit: int = 25) -> list:
+        """Find preventive records with master details for a pet, ordered by last_done_date (desc)."""
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .outerjoin(
+                PreventiveMaster,
+                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
+            )
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .order_by(PreventiveRecord.last_done_date.desc().nullslast())
+            .limit(limit)
+            .all()
+        )
+
+    def find_with_master_by_pet(self, pet_id: UUID) -> list:
+        """Find preventive records with master items for a pet, ordered by last_done_date (desc)."""
+        return (
+            self.db.query(PreventiveRecord, PreventiveMaster)
+            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .order_by(PreventiveRecord.last_done_date.desc().nullslast())
+            .all()
+        )
+
+    def find_with_custom_by_pet(self, pet_id: UUID) -> list:
+        """Find preventive records with custom items for a pet, ordered by last_done_date (desc)."""
+        return (
+            self.db.query(PreventiveRecord, CustomPreventiveItem)
+            .join(
+                CustomPreventiveItem,
+                PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
+            )
+            .filter(PreventiveRecord.pet_id == pet_id)
+            .order_by(PreventiveRecord.last_done_date.desc().nullslast())
             .all()
         )
 

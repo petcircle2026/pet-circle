@@ -29,6 +29,8 @@ from sqlalchemy.orm import Session
 from app.core.constants import CONFLICT_KEEP_EXISTING, CONFLICT_USE_NEW
 from app.models.health.conflict_flag import ConflictFlag
 from app.models.preventive.preventive_record import PreventiveRecord
+from app.repositories.preventive_repository import PreventiveRepository
+from app.repositories.conflict_flag_repository import ConflictFlagRepository
 from app.services.shared.preventive_calculator import calculate_and_update_record
 
 logger = logging.getLogger(__name__)
@@ -68,15 +70,8 @@ def check_and_create_conflict(
     """
     # Find the latest existing record for this pet + preventive item.
     # Order by last_done_date descending to get the most recent one.
-    existing_record = (
-        db.query(PreventiveRecord)
-        .filter(
-            PreventiveRecord.pet_id == pet_id,
-            PreventiveRecord.preventive_master_id == preventive_master_id,
-        )
-        .order_by(PreventiveRecord.last_done_date.desc())
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    existing_record = preventive_repo.find_recent_by_pet_and_master(pet_id, preventive_master_id)
 
     if not existing_record:
         # No existing record — no conflict possible.
@@ -101,12 +96,8 @@ def check_and_create_conflict(
 
     # Check if there is already a pending conflict for this record.
     # Prevents duplicate conflict flags for the same record.
-    existing_conflict = (
-        db.query(ConflictFlag)
-        .filter(
-            ConflictFlag.preventive_record_id == existing_record.id,
-            ConflictFlag.status == "pending",
-        )
+    conflict_repo = ConflictFlagRepository(db)
+    existing_conflict = conflict_repo.find_pending_by_record(existing_record.id)
         .first()
     )
 
@@ -184,11 +175,8 @@ def resolve_conflict(
         )
 
     # Load the conflict flag.
-    conflict = (
-        db.query(ConflictFlag)
-        .filter(ConflictFlag.id == conflict_id)
-        .first()
-    )
+    conflict_repo = ConflictFlagRepository(db)
+    conflict = conflict_repo.find_by_id(conflict_id)
 
     if not conflict:
         raise ValueError(f"Conflict not found: {conflict_id}")
@@ -199,11 +187,8 @@ def resolve_conflict(
         )
 
     # Load the linked preventive record.
-    record = (
-        db.query(PreventiveRecord)
-        .filter(PreventiveRecord.id == conflict.preventive_record_id)
-        .first()
-    )
+    preventive_repo = PreventiveRepository(db)
+    record = preventive_repo.get_by_id(conflict.preventive_record_id)
 
     if not record:
         raise ValueError(

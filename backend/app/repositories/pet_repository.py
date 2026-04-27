@@ -256,3 +256,19 @@ class PetRepository:
             .first() is not None
         )
 
+    def find_active_with_user_by_onboarding_state(self, onboarding_state: str = "complete") -> list:
+        """
+        Find all active pets with their users filtered by user's onboarding state.
+        Used by nudge_sender for inactivity detection.
+        """
+        from app.models.core.user import User
+        return (
+            self.db.query(Pet)
+            .join(User, Pet.user_id == User.id)
+            .filter(
+                Pet.is_deleted == False,
+                User.onboarding_state == onboarding_state,
+            )
+            .all()
+        )
+

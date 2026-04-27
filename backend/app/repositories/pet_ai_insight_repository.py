@@ -4,6 +4,7 @@ PetAiInsight Repository — AI-generated insights for pets.
 Manages caching and retrieval of insight data (health trends, recognition, etc.).
 """
 
+import json
 from uuid import UUID
 from typing import List
 from datetime import datetime, timezone
@@ -59,4 +60,39 @@ class PetAiInsightRepository:
             PetAiInsight.pet_id == pet_id,
             PetAiInsight.insight_type == insight_type,
         ).delete()
+        self.db.flush()
+
+    def find_non_stale_by_pet_and_type(
+        self, pet_id: UUID, insight_type: str, stale_cutoff: datetime
+    ) -> PetAiInsight | None:
+        """Find non-stale insight by pet and type, returning None if stale or not found."""
+        return (
+            self.db.query(PetAiInsight)
+            .filter(
+                PetAiInsight.pet_id == pet_id,
+                PetAiInsight.insight_type == insight_type,
+                PetAiInsight.generated_at >= stale_cutoff,
+            )
+            .first()
+        )
+
+    def upsert_insight(
+        self, pet_id: UUID, insight_type: str, content_json: dict
+    ) -> None:
+        """Upsert an insight to the database."""
+        from sqlalchemy import text
+        self.db.execute(
+            text("""
+                INSERT INTO pet_ai_insights (pet_id, insight_type, content_json, generated_at)
+                VALUES (:pet_id, :insight_type, CAST(:content_json AS jsonb), NOW())
+                ON CONFLICT (pet_id, insight_type)
+                DO UPDATE SET content_json = EXCLUDED.content_json,
+                              generated_at = NOW()
+            """),
+            {
+                "pet_id": str(pet_id),
+                "insight_type": insight_type,
+                "content_json": json.dumps(content_json),
+            },
+        )
         self.db.flush()

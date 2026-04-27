@@ -306,6 +306,17 @@ class NudgeRepository:
             .first()
         )
 
+    def find_engagement_by_user_and_pet(self, user_id: UUID, pet_id: UUID) -> NudgeEngagement | None:
+        """Fetch engagement metrics by user and pet."""
+        return (
+            self.db.query(NudgeEngagement)
+            .filter(
+                NudgeEngagement.user_id == user_id,
+                NudgeEngagement.pet_id == pet_id,
+            )
+            .first()
+        )
+
     def update_engagement(
         self, engagement: NudgeEngagement
     ) -> NudgeEngagement:

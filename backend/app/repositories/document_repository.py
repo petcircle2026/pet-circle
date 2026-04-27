@@ -487,6 +487,32 @@ class DocumentRepository:
             .all()
         )
 
+    def find_successful_documents(self, pet_id: UUID) -> List[Document]:
+        """Find successful and partially-extracted documents for a pet, ordered by event_date (desc)."""
+        from sqlalchemy import desc
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status.in_(("success", "partially_extracted")),
+            )
+            .order_by(desc(Document.event_date).nullslast())
+            .all()
+        )
+
+    def find_failed_documents(self, pet_id: UUID) -> List[Document]:
+        """Find failed and rejected documents for a pet, ordered by created_at (desc)."""
+        from sqlalchemy import desc
+        return (
+            self.db.query(Document)
+            .filter(
+                Document.pet_id == pet_id,
+                Document.extraction_status.in_(("failed", "rejected")),
+            )
+            .order_by(desc(Document.created_at))
+            .all()
+        )
+
     def has_document_with_id(self, document_id: UUID) -> bool:
         """Check if document exists."""
         return (
