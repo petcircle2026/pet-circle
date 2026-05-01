@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 class _FakeDB:
@@ -30,8 +30,8 @@ async def test_step_pet_photo_uses_ai_and_asks_confirmation(monkeypatch):
     async def _fake_ai(_bytes, _mime):
         return {"species": "dog", "breed": "Labrador Retriever"}
 
-    monkeypatch.setattr("app.services.whatsapp_sender.download_whatsapp_media", _fake_download)
-    monkeypatch.setattr("app.services.document_upload.upload_to_supabase", _fake_upload)
+    monkeypatch.setattr("app.services.whatsapp.whatsapp_sender.download_whatsapp_media", _fake_download)
+    monkeypatch.setattr("app.services.shared.document_upload.upload_to_supabase", _fake_upload)
     monkeypatch.setattr(onboarding, "_ai_identify_pet_from_photo", _fake_ai)
 
     sent_messages = []
@@ -73,8 +73,8 @@ async def test_step_pet_photo_ai_unknown_falls_back_to_manual_species(monkeypatc
     async def _fake_ai(_bytes, _mime):
         return {"species": None, "breed": None}
 
-    monkeypatch.setattr("app.services.whatsapp_sender.download_whatsapp_media", _fake_download)
-    monkeypatch.setattr("app.services.document_upload.upload_to_supabase", _fake_upload)
+    monkeypatch.setattr("app.services.whatsapp.whatsapp_sender.download_whatsapp_media", _fake_download)
+    monkeypatch.setattr("app.services.shared.document_upload.upload_to_supabase", _fake_upload)
     monkeypatch.setattr(onboarding, "_ai_identify_pet_from_photo", _fake_ai)
 
     sent_messages = []

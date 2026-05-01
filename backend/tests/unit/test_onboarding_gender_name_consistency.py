@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 def test_sanitize_pet_name_candidate_strips_typed_wrong_suffix() -> None:
@@ -120,7 +120,7 @@ async def test_step_gender_weight_flags_pronoun_inconsistency(monkeypatch) -> No
 
     assert user.onboarding_state == "awaiting_gender_weight"
     sent_text = send_fn.await_args_list[-1].args[2]
-    assert sent_text == "Just to confirm â€” Bruno is female and spayed, right?"
+    assert sent_text == "Just to confirm — Bruno is female and spayed, right?"
 
 
 @pytest.mark.asyncio

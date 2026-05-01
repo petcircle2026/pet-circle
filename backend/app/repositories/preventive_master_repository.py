@@ -16,7 +16,7 @@ from app.models.lookup.product_food import ProductFood
 from app.models.lookup.product_supplement import ProductSupplement
 from app.models.lookup.breed_consequence_library import BreedConsequenceLibrary
 from app.models.lookup.nudge_message_library import NudgeMessageLibrary
-from app.models.lookup.whatsapp_template_config import WhatsAppTemplateConfig
+from app.models.lookup.whatsapp_template_config import WhatsappTemplateConfig
 
 
 class PreventiveMasterRepository:
@@ -243,11 +243,11 @@ class PreventiveMasterRepository:
             .first()
         )
 
-    # ---- WhatsAppTemplateConfig ----
+    # ---- WhatsappTemplateConfig ----
 
     def find_template_by_name(
         self, template_name: str
-    ) -> WhatsAppTemplateConfig | None:
+    ) -> WhatsappTemplateConfig | None:
         """
         Fetch WhatsApp message template by name.
 
@@ -258,14 +258,14 @@ class PreventiveMasterRepository:
             Template config or None if not found.
         """
         return (
-            self.db.query(WhatsAppTemplateConfig)
-            .filter(WhatsAppTemplateConfig.template_name == template_name)
+            self.db.query(WhatsappTemplateConfig)
+            .filter(WhatsappTemplateConfig.template_name == template_name)
             .first()
         )
 
-    def find_all_templates(self) -> List[WhatsAppTemplateConfig]:
+    def find_all_templates(self) -> List[WhatsappTemplateConfig]:
         """Fetch all WhatsApp message templates."""
-        return self.db.query(WhatsAppTemplateConfig).all()
+        return self.db.query(WhatsappTemplateConfig).all()
 
     def find_nudge_message_by_type(
         self, level: int, message_type: str, breed: str

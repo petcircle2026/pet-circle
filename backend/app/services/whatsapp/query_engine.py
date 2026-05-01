@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Strict Query Engine (Module 14)
 
 Answers user questions about their pet's health records using OpenAI GPT.
@@ -36,6 +36,7 @@ Rules:
 """
 import logging
 from uuid import UUID
+from typing import List
 
 from sqlalchemy.orm import Session
 
@@ -264,8 +265,6 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
                     med_line += f", dose: {med.dose}"
                 if med.frequency:
                     med_line += f", freq: {med.frequency}"
-                if med.status:
-                    med_line += f" ({med.status})"
                 if med.refill_due_date:
                     med_line += f", refill due: {med.refill_due_date}"
                 context_parts.append(med_line)

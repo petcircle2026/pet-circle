@@ -281,7 +281,7 @@ class ContactRepository:
 
         Returns tuple of (contact_name, last_visit_date) or None.
         """
-        from app.models.documents.document import Document
+        from app.models.auth.document import Document
 
         row = (
             self.db.query(

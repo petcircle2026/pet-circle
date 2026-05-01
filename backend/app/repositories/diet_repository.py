@@ -35,7 +35,7 @@ class DietRepository:
         """Fetch all diet items (foods) for a pet."""
         return (
             self.db.query(DietItem)
-            .filter(DietItem.pet_id == pet_id, DietItem.is_active == True)
+            .filter(DietItem.pet_id == pet_id)
             .all()
         )
 

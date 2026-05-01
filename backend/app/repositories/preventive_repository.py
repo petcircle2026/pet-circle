@@ -7,13 +7,14 @@ live here. This is the single source of truth for preventive data access.
 
 from uuid import UUID
 from datetime import date, timedelta
+from typing import List
 
 from sqlalchemy import and_, desc, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.preventive.preventive_record import PreventiveRecord
 from app.models.preventive.custom_preventive_item import CustomPreventiveItem
-from app.models.preventive_master import PreventiveMaster
+from app.models.lookup.preventive_master import PreventiveMaster
 
 
 class PreventiveRepository:

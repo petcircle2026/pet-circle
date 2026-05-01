@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — WhatsApp Message Sending Utility
 
 Sends messages and templates via the WhatsApp Cloud API.
@@ -28,6 +28,7 @@ import logging
 import time
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
+from typing import List
 
 import httpx
 from sqlalchemy.orm import Session

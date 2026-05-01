@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from app.services import gpt_extraction
+from app.services.shared import gpt_extraction
 
 
 def test_validate_extraction_preserves_diagnostic_values() -> None:

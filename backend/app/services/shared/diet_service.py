@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Diet Service
 
 CRUD operations for pet diet items (packaged food, homemade food, supplements).
@@ -8,6 +8,7 @@ Parses free-text nutrition detail into standardised format.
 
 import logging
 import re
+from typing import List
 
 from sqlalchemy.orm import Session
 
@@ -96,8 +97,24 @@ def _classify_food_type_llm(label: str) -> str:
     return food_type
 
 
+_STATIC_SUPPLEMENT_EXPANSIONS: dict[str, list[str]] = {
+    "joint support":      ["glucosamine", "chondroitin"],
+    "joint health":       ["glucosamine", "chondroitin"],
+    "skin and coat":      ["omega 3", "omega 6"],
+    "coat health":        ["omega 3", "omega 6"],
+    "gut health":         ["probiotics"],
+    "digestive health":   ["probiotics"],
+    "immunity":           ["vitamin e"],
+    "immune support":     ["vitamin e"],
+}
+
+
 def resolve_supplement_coverage(label: str) -> list[str] | None:
     """Return covered sub-types for a generic supplement label using the LLM, or None if specific."""
+    label_lower = label.strip().lower()
+    if label_lower in _STATIC_SUPPLEMENT_EXPANSIONS:
+        return _STATIC_SUPPLEMENT_EXPANSIONS[label_lower]
+
     if label in _SUPPLEMENT_CACHE:
         return _SUPPLEMENT_CACHE[label]
 

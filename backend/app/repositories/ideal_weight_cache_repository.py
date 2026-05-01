@@ -6,7 +6,7 @@ Manages ideal weight cache entries for breed/species/gender/age combinations.
 
 from sqlalchemy.orm import Session
 
-from app.models.health.ideal_weight_cache import IdealWeightCache
+from app.models.cache.ideal_weight_cache import IdealWeightCache
 
 
 class IdealWeightCacheRepository:

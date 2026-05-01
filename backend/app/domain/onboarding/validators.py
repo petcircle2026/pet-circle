@@ -13,9 +13,10 @@ from typing import NamedTuple
 logger = logging.getLogger(__name__)
 
 # Minimal universal yes/no signals that need no LLM (single chars / unambiguous abbrevs)
-_DEFINITE_YES = frozenset({"yes", "y", "yep", "yup", "yeah", "ok", "okay", "haan"})
-_DEFINITE_NO = frozenset({"no", "n", "nope", "nahi", "na"})
+_DEFINITE_YES = frozenset({"yes", "y", "yep", "yup", "yeah", "ok", "okay", "haan", "sure"})
+_DEFINITE_NO = frozenset({"no", "n", "nope", "nahi", "na", "nah"})
 _DEFINITE_SKIP = frozenset({"skip", "s", "later", "n/a"})
+_DOC_SKIP_PHRASES = frozenset({"no documents", "no docs", "what next", "skip docs"})
 
 _GENERIC_VAX_LABELS = frozenset({
     "vaccines", "shots", "vaccine", "shot",
@@ -111,7 +112,7 @@ async def is_doc_skip_intent_async(text: str | None) -> bool:
 def is_doc_skip_intent(text_lower: str) -> bool:
     """Sync fallback — checks only the definite-skip signals."""
     normalized = (text_lower or "").strip()
-    if normalized in _DEFINITE_SKIP or normalized in _DEFINITE_NO:
+    if normalized in _DEFINITE_SKIP or normalized in _DEFINITE_NO or normalized in _DOC_SKIP_PHRASES:
         return True
     return False
 

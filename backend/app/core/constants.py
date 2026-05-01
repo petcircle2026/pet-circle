@@ -119,7 +119,7 @@ CONFLICT_EXPIRY_DAYS: int = 5
 REMINDER_DONE: str = "REMINDER_DONE"            # "Done - Log It" (Due stage)
 REMINDER_ALREADY_DONE: str = "REMINDER_ALREADY_DONE"  # "Already Done" (T-7 stage)
 REMINDER_SNOOZE_7: str = "REMINDER_SNOOZE_7"    # "Remind Me Later" (T-7 / Due stage)
-REMINDER_ORDER_NOW: str = "REMINDER_ORDER_NOW"  # "Order Now" (Due stage) -> agentic_order
+REMINDER_ORDER_NOW: str = "REMINDER_ORDER_NOW"  # "Order Now" (Due stage) -> order_service
 REMINDER_STILL_PENDING: str = "REMINDER_STILL_PENDING"  # "Still Pending" (D+3 / Overdue)
 REMINDER_SCHEDULE: str = "REMINDER_SCHEDULE"    # "Schedule For ()" -> awaiting_reschedule_date
 REMINDER_RESCHEDULE: str = "REMINDER_RESCHEDULE"
@@ -135,6 +135,7 @@ REMINDER_PAYLOADS: frozenset[str] = frozenset({
 # Number of days to push next_due_date forward when user snoozes a reminder.
 # Per-category constants allow future independent tuning.
 # All currently set to 7 days - change individual values to configure.
+REMINDER_SNOOZE_DAYS: int = 7  # legacy alias used by tests
 SNOOZE_DAYS_VACCINE: int = 7
 SNOOZE_DAYS_DEWORMING: int = 7
 SNOOZE_DAYS_FLEA: int = 7
@@ -332,17 +333,36 @@ ORDER_COMMANDS: frozenset[str] = frozenset({
 })
 
 # Button payload IDs for order category selection.
-ORDER_CAT_MEDICINES: str = "ORDER_CAT_MEDICINES"
-ORDER_CAT_FOOD: str = "ORDER_CAT_FOOD"
-ORDER_CAT_SUPPLEMENTS: str = "ORDER_CAT_SUPPLEMENTS"
+ORDER_CATEGORY_MEDICINES: str = "ORDER_CATEGORY_MEDICINES"
+ORDER_CATEGORY_FOOD: str = "ORDER_CATEGORY_FOOD"
+ORDER_CATEGORY_SUPPLEMENTS: str = "ORDER_CATEGORY_SUPPLEMENTS"
+ORDER_CATEGORY_TREATS: str = "ORDER_CATEGORY_TREATS"
 
 # Button payload IDs for order confirmation.
 ORDER_CONFIRM: str = "ORDER_CONFIRM"
 ORDER_CANCEL: str = "ORDER_CANCEL"
 
+# Food diet sub-flow
+FOOD_PRESCRIBED: str = "FOOD_PRESCRIBED"
+FOOD_REGULAR: str = "FOOD_REGULAR"
+FOOD_DIET_PAYLOADS: frozenset[str] = frozenset({FOOD_PRESCRIBED, FOOD_REGULAR})
+
+# Medicine sub-flow
+MED_PREVENTIVE: str = "MED_PREVENTIVE"
+MED_PRESCRIPTION: str = "MED_PRESCRIPTION"
+MED_DEWORMING: str = "MED_DEWORMING"
+MED_FLEA_TICK: str = "MED_FLEA_TICK"
+MED_TYPE_PAYLOADS: frozenset[str] = frozenset({MED_PREVENTIVE, MED_PRESCRIPTION})
+MED_PREV_PAYLOADS: frozenset[str] = frozenset({MED_DEWORMING, MED_FLEA_TICK})
+
+# Cart actions
+ORDER_ADD_CART: str = "ORDER_ADD_CART"
+ORDER_CHECKOUT: str = "ORDER_CHECKOUT"
+CART_ACTION_PAYLOADS: frozenset[str] = frozenset({ORDER_ADD_CART, ORDER_CHECKOUT})
+
 # Sets for routing in message_router.
 ORDER_CATEGORY_PAYLOADS: frozenset[str] = frozenset({
-    ORDER_CAT_MEDICINES, ORDER_CAT_FOOD, ORDER_CAT_SUPPLEMENTS,
+    ORDER_CATEGORY_MEDICINES, ORDER_CATEGORY_FOOD, ORDER_CATEGORY_SUPPLEMENTS, ORDER_CATEGORY_TREATS,
 })
 
 ORDER_CONFIRM_PAYLOADS: frozenset[str] = frozenset({
@@ -361,9 +381,10 @@ ORDER_FULFILL_NO_PREFIX: str = "ORDER_FULFILL_NO:"
 
 # Map button payload -> database category value.
 ORDER_CATEGORY_MAP: dict[str, str] = {
-    ORDER_CAT_MEDICINES: "medicines",
-    ORDER_CAT_FOOD: "food_nutrition",
-    ORDER_CAT_SUPPLEMENTS: "supplements",
+    ORDER_CATEGORY_MEDICINES: "medicines",
+    ORDER_CATEGORY_FOOD: "food_nutrition",
+    ORDER_CATEGORY_SUPPLEMENTS: "supplements",
+    ORDER_CATEGORY_TREATS: "treats",
 }
 
 # Map database category -> display label for WhatsApp messages.
@@ -371,6 +392,7 @@ ORDER_CATEGORY_LABELS: dict[str, str] = {
     "medicines": "Medicines",
     "food_nutrition": "Food & Nutrition",
     "supplements": "Supplements",
+    "treats": "Treats",
 }
 
 # --- Pet Weight ---

@@ -547,6 +547,22 @@ class CareRepository:
             .first()
         )
 
+    def find_condition_by_document_and_name(self, document_id: UUID, condition_name: str):
+        """
+        Find condition by document and name (case-insensitive).
+        Used to prevent duplicate condition rows for the same condition on the same document.
+        """
+        from app.models.health.condition import Condition
+        from sqlalchemy import func
+        return (
+            self.db.query(Condition)
+            .filter(
+                Condition.document_id == document_id,
+                func.lower(Condition.name) == condition_name.lower(),
+            )
+            .first()
+        )
+
     def find_condition_medications_for_condition(self, condition_id: UUID) -> list:
         """
         Fetch all medications for a specific condition.

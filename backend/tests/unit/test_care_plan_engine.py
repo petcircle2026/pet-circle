@@ -478,20 +478,20 @@ class TestStatusTag:
     def test_no_history(self):
         assert _status_tag(None, Classification.NO_HISTORY) == "Not started"
 
-    def test_prescription_active(self):
-        assert _status_tag(TODAY + timedelta(days=10), Classification.PRESCRIPTION_ACTIVE) == "Prescription due"
+    def test_prescription_active_on_track(self):
+        assert _status_tag(TODAY + timedelta(days=10), Classification.PRESCRIPTION_ACTIVE) == "On track"
 
     def test_overdue(self):
         assert _status_tag(TODAY - timedelta(days=1), Classification.SPORADIC) == "Overdue"
 
-    def test_due_soon(self):
-        assert _status_tag(TODAY + timedelta(days=15), Classification.PERIODIC) == "Due soon"
+    def test_due_soon_within_7_days(self):
+        assert _status_tag(TODAY + timedelta(days=5), Classification.PERIODIC) == "Due soon"
 
-    def test_up_to_date(self):
-        assert _status_tag(TODAY + timedelta(days=90), Classification.PERIODIC) == "Up to date"
+    def test_on_track_beyond_7_days(self):
+        assert _status_tag(TODAY + timedelta(days=90), Classification.PERIODIC) == "On track"
 
-    def test_none_next_due_review_needed(self):
-        assert _status_tag(None, Classification.SPORADIC) == "Review needed"
+    def test_none_next_due_not_started(self):
+        assert _status_tag(None, Classification.SPORADIC) == "Not started"
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -546,7 +546,7 @@ class TestToSections:
             "unknown": self._make_item("unknown_type"),
         }
         sections = _to_sections(items)
-        assert sections[-1]["icon"] == "ðŸ¥"  # default section
+        assert sections[-1]["icon"] == "\U0001f3e5"  # default section
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -583,19 +583,42 @@ class TestComputeCarePlan:
     ):
         """Run compute_care_plan with fully mocked DB session."""
         from app.services.shared.care_plan_engine import compute_care_plan
+        from types import SimpleNamespace
+        from unittest.mock import patch
 
         db = MagicMock()
 
         # Mock PreventiveRecord+PreventiveMaster query
+        # Convert (rec, master) tuples to mock records with .preventive_master attribute,
+        # since compute_care_plan now uses get_by_pet_with_master() which returns records
+        # and then accesses r.preventive_master / r.custom_preventive_item.
+        mock_record_list = []
+        for rec, master in (record_rows or []):
+            rec.preventive_master = master
+            rec.custom_preventive_item = None
+            # Set to None/int so MagicMock defaults don't corrupt care plan logic.
+            if not isinstance(getattr(rec, "custom_recurrence_days", None), int):
+                rec.custom_recurrence_days = None
+            if not isinstance(getattr(rec, "medicine_name", None), str):
+                rec.medicine_name = None
+            # Ensure master.recurrence_days is an int so the >= 36500 puppy check works.
+            if not isinstance(getattr(master, "recurrence_days", None), int):
+                master.recurrence_days = 365
+            mock_record_list.append(rec)
+
         mock_rq = MagicMock()
         mock_rq.join.return_value = mock_rq
         mock_rq.filter.return_value = mock_rq
-        mock_rq.all.return_value = record_rows or []
+        mock_rq.options.return_value = mock_rq
+        mock_rq.order_by.return_value = mock_rq
+        mock_rq.all.return_value = mock_record_list
 
         # Mock ConditionMedication query
         mock_mq = MagicMock()
         mock_mq.join.return_value = mock_mq
         mock_mq.filter.return_value = mock_mq
+        mock_mq.options.return_value = mock_mq
+        mock_mq.order_by.return_value = mock_mq
         mock_mq.all.return_value = active_meds or []
 
         # Mock DietItem query
@@ -603,12 +626,16 @@ class TestComputeCarePlan:
         mock_dq.filter.return_value = mock_dq
         mock_dq.all.return_value = diet_rows or []
 
-        # Mock Order query for order-history based CTA/status.
+        # Mock Order query: enforce qualifying-status filter so cancelled orders
+        # are excluded (mirrors the real SQL filter in find_latest_qualifying_order).
+        _QUALIFYING = {"confirmed", "completed", "placed", "delivered"}
         mock_oq = MagicMock()
         mock_oq.filter.return_value = mock_oq
         mock_oq.order_by.return_value = mock_oq
         if order_query_raises:
             mock_oq.first.side_effect = RuntimeError("order query failed")
+        elif order_row is not None and getattr(order_row, "status", None) not in _QUALIFYING:
+            mock_oq.first.return_value = None
         else:
             mock_oq.first.return_value = order_row
 
@@ -629,7 +656,22 @@ class TestComputeCarePlan:
 
         db.query.side_effect = side_effect
 
-        return compute_care_plan(db, pet)
+        # Patch food/supplement signal resolvers so diet items are orderable without
+        # a real product catalog in the DB. _check_reorder_status still runs normally
+        # (uses the mocked Order query above) to test CTA/status derivation.
+        _fake_l2 = SimpleNamespace(
+            level=SimpleNamespace(value="L2"),
+            cta_label=None,
+            products=[],
+        )
+        with patch(
+            "app.services.shared.care_plan_engine.resolve_food_signal",
+            return_value=_fake_l2,
+        ), patch(
+            "app.services.shared.care_plan_engine.resolve_supplement_signal",
+            return_value=_fake_l2,
+        ):
+            return compute_care_plan(db, pet)
 
     def test_returns_care_plan_v2_structure(self):
         pet = self._make_pet()
@@ -676,6 +718,10 @@ class TestComputeCarePlan:
         med.name = "CBC Blood Chemistry"
         med.status = "active"
         med.refill_due_date = TODAY + timedelta(days=30)
+        med.end_date = None
+        med.dose = None
+        med.notes = None
+        med.condition.episode_dates = [TODAY.isoformat()]
 
         result = self._run_care_plan(pet, active_meds=[med])
 
@@ -705,6 +751,10 @@ class TestComputeCarePlan:
         med.name = "CBC Blood Chemistry Recheck"
         med.status = "active"
         med.refill_due_date = TODAY + timedelta(days=60)
+        med.end_date = None
+        med.dose = None
+        med.notes = None
+        med.condition.episode_dates = [TODAY.isoformat()]
 
         result = self._run_care_plan(pet, record_rows=records, active_meds=[med])
 
@@ -758,6 +808,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-1"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         result = self._run_care_plan(pet, diet_rows=[diet])
 
@@ -781,6 +833,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-2"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         last_order = MagicMock()
         last_order.created_at = TODAY - timedelta(days=4)
@@ -807,6 +861,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-3"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         last_order = MagicMock()
         last_order.created_at = TODAY - timedelta(days=25)
@@ -833,6 +889,8 @@ class TestComputeCarePlan:
         supp.id = "supp-uuid-1"
         supp.label = "Omega-3 Supplement"
         supp.type = "supplement"
+        supp.brand = None
+        supp.source = None
 
         result = self._run_care_plan(pet, diet_rows=[supp])
 
@@ -853,6 +911,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-4"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         result = self._run_care_plan(
             pet,
@@ -878,6 +938,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-5"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         cancelled_order = MagicMock()
         cancelled_order.created_at = TODAY - timedelta(days=2)
@@ -904,6 +966,8 @@ class TestComputeCarePlan:
         diet.id = "diet-uuid-6"
         diet.label = "Royal Canin Adult"
         diet.type = "packaged"
+        diet.brand = None
+        diet.source = None
 
         bad_order = MagicMock()
         bad_order.created_at = TODAY - timedelta(days=5)
@@ -930,6 +994,8 @@ class TestComputeCarePlan:
         med.name = "Urinalysis Recheck"
         med.status = "active"
         med.refill_due_date = TODAY + timedelta(days=14)
+        med.dose = None
+        med.notes = None
 
         result = self._run_care_plan(pet, active_meds=[med])
 

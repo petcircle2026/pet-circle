@@ -1,6 +1,6 @@
 ﻿import asyncio
 
-from app.services import message_router
+from app.services.whatsapp import message_router
 
 
 class DummyDB:

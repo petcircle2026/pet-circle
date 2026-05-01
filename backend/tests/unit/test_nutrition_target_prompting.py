@@ -7,31 +7,22 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import nutrition_service as ns
+from app.services.dashboard import nutrition_service as ns
 
 
-class _FakeResponse:
-    def __init__(self, content: str):
-        self.choices = [MagicMock(message=MagicMock(content=content))]
-
-
-class _FakeCompletions:
+class _FakeMessages:
     def __init__(self):
-        self.last_messages = None
+        self.last_kwargs = None
 
     async def create(self, **kwargs):
-        self.last_messages = kwargs["messages"]
-        return _FakeResponse('{"calories": 1000}')
-
-
-class _FakeChat:
-    def __init__(self):
-        self.completions = _FakeCompletions()
+        self.last_kwargs = kwargs
+        from types import SimpleNamespace
+        return SimpleNamespace(content=[SimpleNamespace(text='{"calories": 1000}')])
 
 
 class _FakeClient:
     def __init__(self):
-        self.chat = _FakeChat()
+        self.messages = _FakeMessages()
 
 
 def _make_required_targets() -> dict:
@@ -95,8 +86,8 @@ async def test_call_openai_nutrition_targets_omits_missing_optional_fields():
             gender=None,
         )
 
-    assert fake_client.chat.completions.last_messages is not None
-    user_prompt = fake_client.chat.completions.last_messages[1]["content"]
+    assert fake_client.messages.last_kwargs is not None
+    user_prompt = fake_client.messages.last_kwargs["messages"][0]["content"]
     assert "Species: dog" in user_prompt
     assert "Breed: labrador" in user_prompt
     assert "Age:" not in user_prompt

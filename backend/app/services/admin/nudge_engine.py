@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Nudge Engine Service
 
 Generates prioritized health action nudges for pets across 7 categories:
@@ -10,6 +10,7 @@ Two entry points:
 """
 import logging
 from datetime import date, datetime, timedelta, timezone
+from typing import List
 
 from sqlalchemy.orm import Session, selectinload
 
@@ -35,9 +36,8 @@ logger = logging.getLogger(__name__)
 
 _ITEM_CATEGORY_CACHE: dict[str, str | None] = {}
 
-
 def _classify_item(item_name: str) -> str | None:
-    """Classify a preventive_master item_name into a nudge category using the LLM."""
+    """Classify a preventive_master item_name into a nudge category using LLM."""
     if item_name in _ITEM_CATEGORY_CACHE:
         return _ITEM_CATEGORY_CACHE[item_name]
 
@@ -225,9 +225,10 @@ def _generate_condition_nudges(db: Session, pet_id, pet_name: str) -> list[Nudge
     conditions = HealthRepository(db).find_active_conditions(pet_id)
 
     for cond in conditions:
-        # Medication refill nudges
+        # Medication refill nudges (only for medications still being taken)
+        from app.services.dashboard.condition_aggregation_service import is_medication_active
         for med in cond.medications:
-            if med.status != "active":
+            if not is_medication_active(med, cond):
                 continue
             if med.refill_due_date and med.refill_due_date <= today:
                 nudges.append(_make_nudge(

@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Document Extraction Service (Module 7)
 
 Extracts structured preventive health data from uploaded pet documents
@@ -39,6 +39,7 @@ from contextlib import nullcontext
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
+from typing import List
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -221,6 +222,12 @@ def _get_preventive_categories_for_medicine(medication_name: str | None, db=None
     if not normalized:
         return set()
 
+    # Hardcoded overrides for medicines the DB catalogs as single-use but clinical
+    # evidence confirms dual-use (e.g. Simparica Trio treats flea/tick + intestinal worms).
+    _DUAL_USE_OVERRIDES = {"simparica trio", "simparica"}
+    if any(override in normalized for override in _DUAL_USE_OVERRIDES):
+        return {"flea_tick", "deworming"}
+
     # Ensure mapping is initialized
     if not _MEDICINE_MAPPING_INITIALIZED:
         _initialize_medicine_mapping(db)
@@ -281,6 +288,90 @@ def _condition_matches_extracted_medication_name(
 
     names.discard("")
     return condition_token in names
+
+
+def _validate_extraction_json(raw_json: str) -> tuple:
+    """Parse and validate extraction JSON from GPT, normalizing date formats.
+
+    Returns:
+        (items, document_name, pet_name, metadata)
+    """
+    try:
+        data = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        salvaged = _salvage_partial_extraction_json(raw_json)
+        if salvaged:
+            doc_name = salvaged.get("document_name")
+            raw_cat = salvaged.get("document_category")
+            salvaged["document_category"] = _normalize_document_category(raw_cat) or raw_cat
+            return [], doc_name, salvaged.get("pet_name"), salvaged
+        return [], None, None, {}
+
+    if isinstance(data, list):
+        items = data
+        doc_name = None
+        pet_name = None
+        metadata: dict = {}
+    elif isinstance(data, dict):
+        items = data.get("items", [])
+        doc_name = data.get("document_name")
+        pet_name = data.get("pet_name")
+        metadata = {}
+        for k, v in data.items():
+            if k == "items":
+                continue
+            if k == "document_category":
+                v = _normalize_document_category(v) or v
+            elif k == "conditions" and not isinstance(v, list):
+                v = []
+            metadata[k] = v
+    else:
+        return [], None, None, {}
+
+    from app.utils.date_utils import parse_date
+    from datetime import datetime as _dt
+
+    _today = _dt.utcnow().date()
+    _CHECKUP_KEYWORDS = ("annual checkup", "health checkup", "general checkup", "routine checkup")
+    filtered = []
+    for item in items:
+        item_name = (item.get("item_name") or "").lower()
+        if any(kw in item_name for kw in _CHECKUP_KEYWORDS):
+            continue
+        for date_field in ("last_done_date", "next_due_date"):
+            if item.get(date_field):
+                try:
+                    item[date_field] = parse_date(item[date_field]).isoformat()
+                except (ValueError, Exception):
+                    item[date_field] = None
+        # Skip items with a future last_done_date (GPT hallucination)
+        ldd = item.get("last_done_date")
+        if ldd:
+            try:
+                from datetime import date as _date_cls
+                if _date_cls.fromisoformat(ldd) > _today:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        filtered.append(item)
+
+    # Expand preventive_medications into tracked items
+    preventive_meds = metadata.get("preventive_medications") if isinstance(metadata, dict) else None
+    if preventive_meds:
+        conditions_list = metadata.get("conditions") if isinstance(metadata, dict) else []
+        if not isinstance(conditions_list, list):
+            conditions_list = []
+        filtered = _derive_items_from_medication_brands(filtered, conditions_list, preventive_meds)
+
+    if isinstance(metadata.get("vaccination_details"), list):
+        for vd in metadata["vaccination_details"]:
+            if vd.get("next_due_date"):
+                try:
+                    vd["next_due_date"] = parse_date(vd["next_due_date"]).isoformat()
+                except (ValueError, Exception):
+                    vd["next_due_date"] = None
+
+    return filtered, doc_name, pet_name, metadata
 
 
 def _extract_partial_json_string_value(raw_json: str, key: str) -> str | None:
@@ -746,7 +837,7 @@ def _append_single_extracted_date_to_filename(
     Preserve original filename and append a date only when extraction has one unique date.
 
     Rules:
-      - If exactly one valid unique `last_done_date` exists, append it to the filename in MonYY format (e.g., "Sep25").
+      - If exactly one valid unique `last_done_date` exists, append it to the filename in ISO format (e.g., "2026-03-10").
       - If zero or multiple unique dates exist, return the original filename unchanged.
       - If the filename already contains that date, return unchanged (idempotent).
     """
@@ -767,13 +858,9 @@ def _append_single_extracted_date_to_filename(
     if len(unique_dates) != 1:
         return original_filename
 
-    only_date_iso = next(iter(unique_dates))
+    date_suffix = next(iter(unique_dates))  # ISO format e.g. "2026-03-10"
 
-    # Convert to MonYY format (e.g., "Sep25" for September 2025)
-    date_obj = datetime.strptime(only_date_iso, "%Y-%m-%d")
-    date_suffix = date_obj.strftime("%b%y")  # e.g., "Sep25"
-
-    if date_suffix.lower() in original_filename.lower():
+    if date_suffix in original_filename:
         return original_filename
 
     # Append date before extension when present.
@@ -921,11 +1008,23 @@ EXTRACTION_SYSTEM_PROMPT = (
     '    - "reference_range": string or null\n'
     '    - "status_flag": "low" | "normal" | "high" | "abnormal" | null\n'
     '    - "observed_at": date string (same accepted formats) or null\n'
-    '  - "conditions": array of objects (diagnosed diseases/conditions found in the document; [] if none), each with:\n'
+    '  - "conditions": array of objects (diagnosed diseases/conditions found in the document; [] if none).\n'
+    '    IMPORTANT — INFERRED CONDITIONS: If a prescription has medications but NO explicitly named diagnosis,\n'
+    '    infer the most likely condition from the medication cluster and any dietary/activity advice written\n'
+    '    on the document. Use general clinical terms and append "(inferred)" to the name.\n'
+    '    Examples: Metrogyl + Digene + "curd and rice" → "Gastrointestinal illness (inferred)";\n'
+    '    corticosteroid + hot fomentation → "Musculoskeletal pain (inferred)";\n'
+    '    antibiotics + antifungal topical → "Skin infection (inferred)";\n'
+    '    antibiotic eye drops → "Eye infection (inferred)".\n'
+    '    Only infer when the clinical picture is reasonably clear from the drugs and advice.\n'
+    '    Set source = "inferred" for these. Set source = "explicit" when the diagnosis IS written.\n'
+    '    Each condition object has:\n'
     '    - "condition_name": string --- the NAME of a diagnosed DISEASE, DISORDER, or SYNDROME only '
     '(e.g. "Hip Dysplasia", "Diabetes Mellitus", "Otitis Externa", "Skin Allergy"). '
     'NEVER use a medication, drug, supplement, or vaccine brand as condition_name '
     '(e.g. do NOT write "Simparica", "Doxycycline", "NexGard", "Omega-3" as a condition_name).\n'
+    '    - "source": "explicit" | "inferred" --- "explicit" if the condition name is written in the document;\n'
+    '      "inferred" if you are inferring the condition from the medication cluster.\n'
     '    - "condition_type": "chronic" | "episodic"\n'
     '      "episodic" = a single self-limiting episode (use for all non-chronic conditions including recurring ones — '
     'recurrence is detected across documents, not per-document).\n'
@@ -941,17 +1040,21 @@ EXTRACTION_SYSTEM_PROMPT = (
     '    - "diagnosis": string or null (brief diagnosis description)\n'
     '    - "diagnosed_at": date string or null\n'
     '    - "episode_dates": array of date strings --- ALL dates on which this condition was recorded, treated,\n'
-    '      or mentioned in this document. Always include diagnosed_at here if known. Add any additional\n'
-    '      encounter or treatment dates found in the document for this condition. [] if none found.\n'
+    '      or mentioned in this document. CRITICAL: The visit/consultation date (from PRESCRIPTION DATE CASCADE)\n'
+    '      MUST always be the first entry here — every condition on a prescription shares the same visit date.\n'
+    '      Always include diagnosed_at here if known. Add any additional encounter or treatment dates found.\n'
+    '      NEVER return [] for episode_dates when a visit date is visible anywhere on the document.\n'
     '    - "medications": array of objects ([] if none) --- drugs/products prescribed TO TREAT this condition, each with:\n'
     '      - "name": string (medication/drug name)\n'
     '      - "item_type": "medicine" | "supplement" --- classify as "medicine" if it is a pharmaceutical drug used to treat a condition (e.g., antibiotics, antifungals, steroids, antihistamines); classify as "supplement" if it is nutritional or supportive (e.g., omega-3, coat supplements, probiotics, vitamins, joint supplements). Use product knowledge if needed (e.g., Fur+, Nutricoat Advance+ → supplement).\n'
     '      - "dose": string or null\n'
     '      - "frequency": string or null (e.g., "Once daily", "Twice daily")\n'
     '      - "route": string or null (e.g., "oral", "topical", "injection")\n'
-    '      - "end_date": string or null --- the last date of the treatment course as explicitly stated in the\n'
-    '        document (e.g., "give for 5 days" computed from a start date, or a specific stop date written on\n'
-    '        the prescription). Only populate if derivable from the document itself. Do NOT infer from clinical norms.\n'
+    '      - "duration_days": integer or null --- number of days the medication course runs, extracted from\n'
+    '        phrases written on the prescription such as "× 5 days", "for 10 days", "5 days", "1 week" (=7),\n'
+    '        "2 weeks" (=14). Extract the number ONLY — do not compute dates here.\n'
+    '      - "end_date": string or null --- the explicit stop date if written on the document (e.g. "till 25 Jan").\n'
+    '        Leave null when only a duration phrase is present — the system will compute it from duration_days.\n'
     '    - "monitoring": array of objects ([] if none), each with:\n'
     '      - "name": string (e.g., "Blood Work", "Follow-up Vet Visit")\n'
     '      - "frequency": string or null (e.g., "Every 6 months", "Yearly")\n'
@@ -968,8 +1071,9 @@ EXTRACTION_SYSTEM_PROMPT = (
     '    - "dose": string or null\n'
     '    - "frequency": string or null\n'
     '    - "route": string or null\n'
-    '    - "end_date": string or null (same derivation rule as conditions[].medications[].end_date)\n'
-    '    - "notes": string or null (any additional context written near the medication, e.g., duration phrase)\n'
+    '    - "duration_days": integer or null --- number of days written on the prescription (e.g. "× 5 days" → 5, "for 10 days" → 10, "1 week" → 7).\n'
+    '    - "end_date": string or null (explicit stop date only; leave null when only a duration phrase is present)\n'
+    '    - "notes": string or null (any additional context written near the medication, e.g., diet advice)\n'
     '  - "recommendations": array of objects ([] if none) --- non-medication clinical guidance written by the\n'
     '    vet as part of the treatment or management plan. Captures diet instructions, activity restrictions,\n'
     '    rest advice, feeding plans, and similar directives that are not drugs or supplements.\n'
@@ -1231,6 +1335,10 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                     "type": "object",
                     "properties": {
                         "condition_name": {"type": "string"},
+                        "source": {
+                            "type": ["string", "null"],
+                            "enum": ["explicit", "inferred", None],
+                        },
                         "condition_type": {
                             "type": "string",
                             "enum": ["chronic", "episodic"],
@@ -1255,6 +1363,7 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                                     "dose": {"type": ["string", "null"]},
                                     "frequency": {"type": ["string", "null"]},
                                     "route": {"type": ["string", "null"]},
+                                    "duration_days": {"type": ["integer", "null"]},
                                     "end_date": {"type": ["string", "null"]},
                                 },
                                 "required": ["name"],
@@ -1286,6 +1395,7 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                         "dose": {"type": ["string", "null"]},
                         "frequency": {"type": ["string", "null"]},
                         "route": {"type": ["string", "null"]},
+                        "duration_days": {"type": ["integer", "null"]},
                         "end_date": {"type": ["string", "null"]},
                         "notes": {"type": ["string", "null"]},
                     },
@@ -3101,6 +3211,7 @@ async def extract_and_process_document(
         # --- Store extracted conditions ---
         extracted_conditions = metadata.get("conditions") or []
         extracted_preventive_meds = metadata.get("preventive_medications") or []
+        _doc_condition_objs: list = []  # collect for post-loop document-date cascade
         for raw_condition in extracted_conditions:
             if not isinstance(raw_condition, dict):
                 continue
@@ -3193,26 +3304,57 @@ async def extract_and_process_document(
                             str(raw_condition["diagnosed_at"]), str(document_id), condition_name,
                         )
 
+                # Guarantee diagnosed_at is always reflected in episode_dates.
+                # GPT sometimes extracts diagnosed_at correctly but omits it from
+                # episode_dates — this ensures the two are always consistent.
+                if diagnosed_at and str(diagnosed_at) not in valid_episode_dates:
+                    valid_episode_dates.append(str(diagnosed_at))
+                    valid_episode_dates = sorted(set(valid_episode_dates))
+
                 # One condition row per document per condition name.
-                # Aggregation across documents happens in condition_aggregation_service.
+                # If GPT returns the same condition name twice for one document (e.g.
+                # because two medication clusters both infer the same label), reuse the
+                # existing row and merge episode_dates / diagnosed_at into it rather than
+                # inserting a duplicate.
                 from app.repositories.care_repository import CareRepository
                 care_repo = CareRepository(db)
-                condition_obj = Condition(
-                    pet_id=pet.id,
-                    document_id=document.id,
-                    name=condition_name[:200],
-                    diagnosis=(str(raw_condition.get("diagnosis"))[:500] if raw_condition.get("diagnosis") else None),
-                    condition_type=condition_type,
-                    condition_status=condition_status,
-                    episode_dates=valid_episode_dates,
-                    diagnosed_at=diagnosed_at,
-                    source="extraction",
-                )
-                db.add(condition_obj)
-                db.flush()
+                # source: "inferred" when GPT deduced condition from medications,
+                # "extraction" (default) when the diagnosis is explicitly written.
+                _gpt_source = str(raw_condition.get("source") or "explicit").strip().lower()
+                condition_source = "inferred" if _gpt_source == "inferred" else "extraction"
+
+                _existing_for_doc = care_repo.find_condition_by_document_and_name(document.id, condition_name)
+                if _existing_for_doc:
+                    # Merge episode_dates and diagnosed_at into the existing row.
+                    _merged_eps = sorted(set((_existing_for_doc.episode_dates or []) + valid_episode_dates))
+                    _existing_for_doc.episode_dates = _merged_eps
+                    if diagnosed_at and not _existing_for_doc.diagnosed_at:
+                        _existing_for_doc.diagnosed_at = diagnosed_at
+                    # Upgrade source: explicit beats inferred.
+                    if condition_source == "extraction":
+                        _existing_for_doc.source = "extraction"
+                    db.flush()
+                    condition_obj = _existing_for_doc
+                    # Don't append to _doc_condition_objs again — already tracked.
+                else:
+                    condition_obj = Condition(
+                        pet_id=pet.id,
+                        document_id=document.id,
+                        name=condition_name[:200],
+                        diagnosis=(str(raw_condition.get("diagnosis"))[:500] if raw_condition.get("diagnosis") else None),
+                        condition_type=condition_type,
+                        condition_status=condition_status,
+                        episode_dates=valid_episode_dates,
+                        diagnosed_at=diagnosed_at,
+                        source=condition_source,
+                    )
+                    db.add(condition_obj)
+                    db.flush()
+                    _doc_condition_objs.append(condition_obj)
 
                 # Add medications (deduplicate by condition_id + name).
                 raw_meds = raw_condition.get("medications") or []
+                _condition_max_med_end: "date | None" = None  # track for status computation
                 for med in raw_meds:
                     if not isinstance(med, dict):
                         continue
@@ -3238,7 +3380,8 @@ async def extract_and_process_document(
 
                     # Medicines → condition_medications (existing path)
                     existing_med = care_repo.find_medication_by_condition_and_name(condition_obj.id, med_name)
-                    # Parse end_date if provided. For chronic conditions, default to far-future date.
+
+                    # 1. Try explicit end_date from document.
                     med_end_date = None
                     if med.get("end_date"):
                         try:
@@ -3247,9 +3390,31 @@ async def extract_and_process_document(
                                 med_end_date = _med_end
                         except Exception:
                             pass
-                    # If medicine belongs to a chronic condition and end_date is not set, use far-future date
+
+                    # 2. Compute from duration_days + episode/visit date when end_date is missing.
+                    #    "× 5 days" from visit date 13-Jan → end_date = 13-Jan + 5 = 18-Jan.
+                    if not med_end_date and med.get("duration_days"):
+                        try:
+                            _dur = int(med["duration_days"])
+                            if _dur > 0:
+                                _ref = (
+                                    condition_obj.diagnosed_at
+                                    or (parse_date(condition_obj.episode_dates[0]) if condition_obj.episode_dates else None)
+                                )
+                                if _ref:
+                                    from datetime import timedelta
+                                    med_end_date = _ref + timedelta(days=_dur)
+                        except Exception:
+                            pass
+
+                    # 3. Chronic fallback — no end_date means lifelong.
                     if not med_end_date and condition_obj.condition_type == "chronic":
                         med_end_date = date(2099, 12, 31)
+                    # Track condition-level medication end_date for status computation.
+                    if med_end_date and (
+                        _condition_max_med_end is None or med_end_date > _condition_max_med_end
+                    ):
+                        _condition_max_med_end = med_end_date
                     if not existing_med:
                         db.add(ConditionMedication(
                             condition_id=condition_obj.id,
@@ -3262,6 +3427,9 @@ async def extract_and_process_document(
                         ))
                     elif med_end_date and not existing_med.end_date:
                         existing_med.end_date = med_end_date
+
+                # Store medication_end_date on the condition row (denormalized for perf).
+                condition_obj.medication_end_date = _condition_max_med_end
 
                 # Add monitoring checks (deduplicate by condition_id + name).
                 raw_monitors = raw_condition.get("monitoring") or []
@@ -3291,12 +3459,93 @@ async def extract_and_process_document(
                     elif mon_recheck and not existing_mon.recheck_due_date:
                         existing_mon.recheck_due_date = mon_recheck
 
+                # ── Compute document-level condition_status from dates ──────────
+                # Spec: GPT's "resolved" is the only value we keep as-is (explicit
+                # clinical resolution written on the document). For everything else,
+                # Python computes the correct status from medication_end_date
+                # (preferred) or episode_date (fallback) vs today.
+                #
+                # For the dedup-merge path, also consider pre-existing medications
+                # on the condition by taking the max of _condition_max_med_end and
+                # any already-stored medication end_dates.
+                if condition_obj.condition_status != "resolved":
+                    if condition_obj.condition_type == "chronic":
+                        condition_obj.condition_status = "active"
+                    else:
+                        # For merge path: check if existing meds have a later end_date.
+                        _all_meds = care_repo.find_condition_medications_for_condition(condition_obj.id)
+                        for _em in _all_meds:
+                            if _em.end_date and (
+                                _condition_max_med_end is None or _em.end_date > _condition_max_med_end
+                            ):
+                                _condition_max_med_end = _em.end_date
+
+                        if _condition_max_med_end is not None:
+                            _days = (_today - _condition_max_med_end).days
+                            if _days <= 0:
+                                condition_obj.condition_status = "active"
+                            elif _days <= 30:
+                                condition_obj.condition_status = "monitoring"
+                            else:
+                                condition_obj.condition_status = "resolved"
+                        else:
+                            # No medication end_date — fall back to latest episode_date.
+                            _latest_ep_date = None
+                            if condition_obj.episode_dates:
+                                try:
+                                    _latest_ep_date = parse_date(condition_obj.episode_dates[-1])
+                                except Exception:
+                                    pass
+                            if _latest_ep_date:
+                                _ep_days = (_today - _latest_ep_date).days
+                                if _ep_days <= 30:
+                                    condition_obj.condition_status = "monitoring"
+                                else:
+                                    condition_obj.condition_status = "resolved"
+                            else:
+                                condition_obj.condition_status = "resolved"
+                    db.flush()
+
             except Exception as e:
                 db.rollback()
                 logger.warning(
                     "Error storing extracted condition '%s': %s. document_id=%s",
                     condition_name, str(e), str(document_id),
                 )
+
+        # --- Document-level date cascade ---
+        # All conditions on one document come from the same vet visit. If GPT extracted a
+        # date for some conditions but not others, cascade the document visit date to the
+        # conditions that missed it. This is the primary fix for empty episode_dates causing
+        # conditions to never trigger the recurrence threshold.
+        if _doc_condition_objs:
+            # Collect all episode dates extracted across all conditions for this document.
+            _all_doc_dates: list[str] = []
+            for _cobj in _doc_condition_objs:
+                _all_doc_dates.extend(_cobj.episode_dates or [])
+
+            if _all_doc_dates:
+                # Use the most common date (visit date for this document).
+                # Tiebreak: earliest date (oldest = the actual visit date).
+                from collections import Counter as _Counter
+                _date_counts = _Counter(_all_doc_dates)
+                _max_count = max(_date_counts.values())
+                _candidates = [d for d, c in _date_counts.items() if c == _max_count]
+                _doc_visit_date_str = min(_candidates)  # earliest among most-common
+
+                for _cobj in _doc_condition_objs:
+                    if not _cobj.episode_dates:
+                        _cobj.episode_dates = [_doc_visit_date_str]
+                        if not _cobj.diagnosed_at:
+                            try:
+                                _cobj.diagnosed_at = parse_date(_doc_visit_date_str)
+                            except Exception:
+                                pass
+                        logger.info(
+                            "Date cascade: applied document visit date %s to condition '%s' "
+                            "(document_id=%s)",
+                            _doc_visit_date_str, _cobj.name, str(document_id),
+                        )
 
         # --- Store standalone medications ---
         # Medications with no linked condition from the prescription.
@@ -3340,12 +3589,27 @@ async def extract_and_process_document(
                         # Medicines → condition_medications under placeholder condition
                         try:
                             existing = care_repo.find_medication_by_condition_and_name(standalone_condition.id, med_name)
+                            # 1. Explicit end_date from document.
                             med_end_date = None
                             if med.get("end_date"):
                                 try:
                                     _med_end = parse_date(str(med["end_date"]))
                                     if _med_end.year >= 2015:
                                         med_end_date = _med_end
+                                except Exception:
+                                    pass
+                            # 2. Compute from duration_days + document visit date.
+                            if not med_end_date and med.get("duration_days"):
+                                try:
+                                    _dur = int(med["duration_days"])
+                                    if _dur > 0:
+                                        _ref = (
+                                            standalone_condition.diagnosed_at
+                                            or (parse_date(standalone_condition.episode_dates[0]) if standalone_condition.episode_dates else None)
+                                        )
+                                        if _ref:
+                                            from datetime import timedelta
+                                            med_end_date = _ref + timedelta(days=_dur)
                                 except Exception:
                                     pass
                             if not existing:
@@ -3620,6 +3884,22 @@ async def extract_and_process_document(
             include_puppy_series=_should_include_puppy_series_for_pet(pet),
         )
 
+        # Build medicine_name lookup from preventive_medications[] for use in items loop.
+        # GPT uses "flea_tick"; _normalize_item_name returns "tick_flea" — alias both.
+        from app.services.shared.care_plan_engine import _normalize_item_name
+        med_name_by_target: dict[str, str] = {}
+        for _pm in (metadata.get("preventive_medications") or []):
+            _med_name = (
+                _pm.get("medication_name") or _pm.get("name") or ""
+            ).strip()
+            if not _med_name:
+                continue
+            for _target in (_pm.get("prevention_targets") or []):
+                if _target in ("deworming", "flea_tick") and _target not in med_name_by_target:
+                    med_name_by_target[_target] = _med_name
+        if "flea_tick" in med_name_by_target and "tick_flea" not in med_name_by_target:
+            med_name_by_target["tick_flea"] = med_name_by_target["flea_tick"]
+
         for item in extracted_items:
             try:
                 item_name = item["item_name"]
@@ -3666,12 +3946,16 @@ async def extract_and_process_document(
                     results["items_processed"] += 1
                 else:
                     # No conflict — create or update preventive record.
-                    # compute_next_due_date uses master.recurrence_days from DB.
+                    # Resolve medicine_name from preventive_medications[] lookup.
+                    _test_type = _normalize_item_name(item_name)
+                    _medicine_name = med_name_by_target.get(_test_type)  # None for vaccines
                     record = create_preventive_record(
                         db=db,
                         pet_id=pet.id,
                         preventive_master_id=master.id,
                         last_done_date=last_done_date,
+                        medicine_name=_medicine_name,
+                        pet=pet,
                     )
 
                     # Attach vaccination metadata when available.

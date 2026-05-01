@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Dashboard Service (Module 13)
 
 Provides data retrieval and update logic for the tokenized pet dashboard.
@@ -34,6 +34,7 @@ import asyncio
 import logging
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
+from typing import List
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -78,6 +79,7 @@ from app.services.dashboard.life_stage_service import get_life_stage_data
 from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
+    get_effective_recurrence_days,
 )
 from app.services.dashboard.vet_summary_service import get_vet_summary
 
@@ -736,19 +738,9 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     for record in selected_records:
         master = record.preventive_master
         test_type = _normalize_item_name(master.item_name)
-        _LIFE_STAGE_TYPES = {"deworming", "tick_flea"}
+        effective_recurrence = get_effective_recurrence_days(db, master, record, pet)
 
-        if record.custom_recurrence_days:
-            effective_recurrence = record.custom_recurrence_days
-        elif test_type in _LIFE_STAGE_TYPES:
-            effective_recurrence = get_preventive_baseline_days(pet, test_type)
-        else:
-            effective_recurrence = master.recurrence_days
-
-        if record.last_done_date and test_type in _LIFE_STAGE_TYPES:
-            display_next_due = str(record.last_done_date + timedelta(days=effective_recurrence))
-        else:
-            display_next_due = str(record.next_due_date) if record.next_due_date else None
+        display_next_due = str(record.next_due_date) if record.next_due_date else None
 
         preventive_records.append({
             "item_name": master.item_name,
@@ -770,7 +762,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
 
     reminder_data = []
     for reminder, record, master in reminders:
-        effective_recurrence = record.custom_recurrence_days or master.recurrence_days
+        effective_recurrence = get_effective_recurrence_days(db, master, record, pet)
         reminder_data.append({
             "item_name": master.item_name,
             "next_due_date": str(reminder.next_due_date),
@@ -1377,30 +1369,10 @@ def update_preventive_date(
         # --- Update last_done_date ---
         target_record.last_done_date = new_last_done_date
 
-        # --- Auto-detect medicine frequency if not already set ---
-        # For medicine-dependent items (Tick/Flea, Deworming, etc.) with a medicine_name,
-        # automatically set custom_recurrence_days based on the actual product frequency
-        # from product_medicines catalog instead of using the generic master value.
-        if (
-            not target_record.custom_recurrence_days
-            and target_master.medicine_dependent
-            and target_record.medicine_name
-        ):
-            from app.services.shared.preventive_calculator import get_medicine_recurrence_days
-            med_recurrence = get_medicine_recurrence_days(db, target_record.medicine_name)
-            if med_recurrence:
-                target_record.custom_recurrence_days = med_recurrence
-                logger.info(
-                    f"Auto-detected medicine frequency: {target_record.medicine_name} "
-                    f"→ {med_recurrence} days (overriding master {target_master.recurrence_days})"
-                )
-
         # --- Recalculate next_due_date ---
-        # Respect custom recurrence when present; otherwise use master default.
-        effective_recurrence_days = (
-            target_record.custom_recurrence_days
-            if target_record.custom_recurrence_days
-            else target_master.recurrence_days
+        # get_effective_recurrence_days handles medicine lookup + persistence internally.
+        effective_recurrence_days = get_effective_recurrence_days(
+            db, target_master, target_record, pet
         )
         target_record.next_due_date = compute_next_due_date(
             new_last_done_date, effective_recurrence_days

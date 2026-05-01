@@ -44,6 +44,11 @@ _MONTH_PATTERN = (
 
 
 
+def is_ambiguous_date_input(raw: str) -> bool:
+    """Return True if the date string lacks a 4-digit year (e.g. 'jan 26', '26 jan')."""
+    return not bool(re.search(r"\b\d{4}\b", raw.strip()))
+
+
 def parse_date(raw_date: str) -> date:
     """
     Parse a user-provided date string into a Python date object.

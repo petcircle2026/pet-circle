@@ -1,52 +1,74 @@
-"""
-PetCircle — Order Service
+﻿"""
+PetCircle — Order Service v2
 
-Handles the WhatsApp order conversation flow:
-    1. User types "order" → show category buttons
-    2. User taps category → get AI recommendations (if pet available)
-    3. User selects items from recommendations or types custom items
-    4. User selects pet (if 2+ pets) → show confirmation
-    5. User taps confirm/cancel → finalize or abort
-    6. Preferences are recorded for future personalization
+Unified WhatsApp order flow. All logic is deterministic using signal_resolver
+for SKU resolution and rule-based product recommendations.
 
-Flow states:
-    - awaiting_order_category: after user types "order"
-    - awaiting_reco_sel: after user selects category (if recommendations available)
-    - awaiting_order_items: if no recommendations or after cancel recommendation
-    - awaiting_order_pet: multi-pet selection
-    - awaiting_order_confirm: confirmation
+Flow overview:
+    User types "order"
+        → start_order_flow        — category buttons (food, supplements, medicines, treats)
+    User taps category
+        → start_order_for_category
+            ├─ food        → (pet select?) → diet type? → SKU list → cart buttons
+            ├─ supplements → (pet select?) → current items / recommended → SKU list → cart
+            ├─ medicines   → type (preventive | prescription)
+            │   ├─ preventive → sub-type (deworming | flea-tick) → (pet select?) → SKU list → cart
+            │   └─ prescription → numbered RX list → admin notified
+            └─ treats      → (pet select?) → treat name → admin notified
 
-State is tracked via user.order_state and user.active_order_id.
+State is tracked via:
+    user.order_state   — str  current step name
+    user.order_context — JSONB context dict (pet_id, sku_options, selected_sku, …)
+
+IMPORTANT — JSONB mutation tracking:
+    Always call flag_modified(user, "order_context") before db.commit() when
+    modifying user.order_context in place.
 """
 import asyncio
 import logging
 from uuid import UUID
+from typing import List
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.core.constants import (
     ORDER_CANCEL,
-    ORDER_CAT_FOOD,
-    ORDER_CAT_MEDICINES,
-    ORDER_CAT_SUPPLEMENTS,
+    ORDER_CATEGORY_FOOD,
+    ORDER_CATEGORY_MEDICINES,
+    ORDER_CATEGORY_SUPPLEMENTS,
+    ORDER_CATEGORY_TREATS,
     ORDER_CATEGORY_LABELS,
-    ORDER_CATEGORY_MAP,
     ORDER_CONFIRM,
     ORDER_FULFILL_NO,
     ORDER_FULFILL_NO_PREFIX,
     ORDER_FULFILL_YES,
     ORDER_FULFILL_YES_PREFIX,
+    MED_DEWORMING,
+    MED_FLEA_TICK,
+    MED_PRESCRIPTION,
+    MED_PREVENTIVE,
+    ORDER_ADD_CART,
+    ORDER_CHECKOUT,
+    FOOD_PRESCRIBED,
+    FOOD_REGULAR,
 )
 from app.core.encryption import decrypt_field
 from app.core.log_sanitizer import mask_phone
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.nutrition.diet_item import DietItem
+from app.models.commerce.order import Order
+from app.models.core.pet import Pet
 from app.repositories.pet_repository import PetRepository
 from app.repositories.order_repository import OrderRepository
-from app.repositories.preventive_master_repository import PreventiveMasterRepository
-from app.services.shared.recommendation_service import (
-    get_or_generate_recommendations,
-    get_pet_top_preferences,
-    record_preference,
+from app.services.dashboard.signal_resolver import (
+    resolve_food_signal,
+    resolve_supplement_signal,
+    resolve_deworming_signal,
+    resolve_flea_tick_signal,
+    _get_pet_life_stage,
 )
 from app.services.whatsapp.whatsapp_sender import (
     send_interactive_buttons,
@@ -57,652 +79,871 @@ from app.services.whatsapp.whatsapp_sender import (
 logger = logging.getLogger(__name__)
 
 
-def _get_medicines_example_text(db: Session, species: str | None = None) -> str:
-    """Return example medicine text from top products in product_medicines.
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    Falls back to a generic example when the table is unavailable so the
-    order flow is never blocked by a catalog query failure.
-    """
+
+def _get_mobile(user) -> str:
+    cached = getattr(user, "_plaintext_mobile", None)
+    if cached:
+        return cached
+    return decrypt_field(user.mobile_number)
+
+
+def _get_active_pets(db: Session, user) -> list:
+    pet_repo = PetRepository(db)
+    pets = [p for p in pet_repo.find_by_user(user.id) if not p.is_deleted]
+    return sorted(pets, key=lambda p: p.name or "")
+
+
+def _set_order_state(user, db: Session, state: str, ctx: dict | None = None) -> None:
+    user.order_state = state
+    if ctx is not None:
+        user.order_context = ctx
+    elif user.order_context is None:
+        user.order_context = {}
+    flag_modified(user, "order_context")
     try:
-        master_repo = PreventiveMasterRepository(db)
-        medicines = master_repo.find_all_active_medicines()
-        query = medicines
-        if species:
-            query = query.filter(ProductMedicines.life_stage_tags.ilike(f"%{species}%"))
-        rows = query.order_by(ProductMedicines.popularity_rank.asc()).limit(3).all()
-        names = [r[0] for r in rows]
-        if len(names) >= 2:
-            return f"_Example: {names[0]}, {names[1]}_"
-        if names:
-            return f"_Example: {names[0]}_"
+        db.commit()
     except Exception as exc:
-        logger.debug("Could not fetch example medicines from product_medicines: %s", exc)
-    return "_Example: Nexgard, Drontal_"
+        logger.error("order_service: set_state %s error: %s", state, exc)
+        db.rollback()
+
+
+def _update_order_ctx(user, db: Session, **kwargs) -> None:
+    if user.order_context is None:
+        user.order_context = {}
+    user.order_context.update(kwargs)
+    flag_modified(user, "order_context")
+    try:
+        db.commit()
+    except Exception as exc:
+        logger.error("order_service: update_ctx error: %s", exc)
+        db.rollback()
+
+
+def _clear_order_state(db: Session, user) -> None:
+    user.order_state = None
+    user.order_context = None
+    try:
+        db.commit()
+    except Exception as exc:
+        logger.error("order_service: clear_state error: %s", exc)
+        db.rollback()
+
+
+def _get_conditions(db: Session, pet_id) -> list[str]:
+    try:
+        conditions = (
+            db.query(Condition)
+            .filter(Condition.pet_id == pet_id, Condition.is_active.is_(True))
+            .all()
+        )
+        return [c.name for c in conditions]
+    except Exception:
+        return []
+
+
+def _format_sku_list(sku_options: list[dict]) -> str:
+    lines = []
+    for i, sku in enumerate(sku_options, 1):
+        brand = sku.get("brand_name", "")
+        line_name = sku.get("product_line", "")
+        price = sku.get("discounted_price") or sku.get("mrp", 0)
+        pack = sku.get("pack_size", "")
+        label = f"{brand} {line_name}".strip()
+        if pack:
+            label += f" ({pack})"
+        lines.append(f"{i}. {label} — ₹{price}")
+    return "\n".join(lines)
+
+
+async def _send_sku_results(db: Session, mobile: str, pet_name: str, sku_options: list[dict]) -> None:
+    if not sku_options:
+        await send_text_message(
+            db, mobile,
+            "Sorry, I couldn't find matching products in our catalog. "
+            "Please contact us to order.",
+        )
+        return
+    sku_list = _format_sku_list(sku_options)
+    await send_text_message(
+        db, mobile,
+        f"Here are the recommended products for {pet_name}:\n\n{sku_list}\n\n"
+        "Reply with a number to select, or *cancel* to exit.",
+    )
+
+
+async def _notify_admin_order(db: Session, user, pet_name: str, category: str, items_desc: str) -> None:
+    admin_phone = settings.ORDER_NOTIFICATION_PHONE
+    if not admin_phone:
+        return
+    try:
+        user_phone = decrypt_field(user.mobile_number)
+        admin_phone_norm = admin_phone.strip().replace("+", "")
+        user_phone_norm = user_phone.strip().replace("+", "")
+        if admin_phone_norm == user_phone_norm:
+            return
+        user_name = user.full_name or "Unknown"
+        label = ORDER_CATEGORY_LABELS.get(category, category)
+        await send_template_message(
+            db=db,
+            to_number=admin_phone,
+            template_name=settings.WHATSAPP_TEMPLATE_ORDER_FULFILLMENT_CHECK,
+            parameters=[user_name, user_phone, pet_name, label, items_desc, "N/A"],
+        )
+    except Exception as exc:
+        logger.error("order_service: admin notify error: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Entry points (called by message_router start triggers)
+# ---------------------------------------------------------------------------
 
 
 async def start_order_flow(db: Session, user) -> None:
-    """
-    Begin the order flow by sending category selection buttons.
-
-    Sets user.order_state to 'awaiting_order_category' so the router
-    knows to intercept the next button press as a category selection.
-    """
-    from_number = _get_mobile(user)
-
-    # Clean up any abandoned draft order from a previous incomplete flow.
-    # Draft orders have empty items_description — they were created when the
-    # user selected a category but never confirmed.
-    if user.active_order_id:
-        order_repo = OrderRepository(db)
-        old_order = order_repo.find_by_id(user.active_order_id)
-        if old_order and not old_order.items_description:
-            db.delete(old_order)
-            logger.info("Cleaned up abandoned draft order %s", str(old_order.id))
-        _clear_order_state(db, user)
-
-    # Check if user has any active (non-deleted) pets for personalization.
+    """Send category selection buttons. Called when user types 'order'."""
+    mobile = _get_mobile(user)
     pets = _get_active_pets(db, user)
+
     if pets and len(pets) == 1:
         body = f"What would you like to order for *{pets[0].name}*?"
-    elif pets and len(pets) > 1:
-        pet_names = ", ".join(p.name for p in pets)
-        body = f"What would you like to order? (Pets: {pet_names})"
+    elif pets:
+        names = ", ".join(p.name for p in pets)
+        body = f"What would you like to order? (Pets: {names})"
     else:
         body = "What would you like to order?"
 
     buttons = [
-        {"id": ORDER_CAT_MEDICINES, "title": "Medicines"},
-        {"id": ORDER_CAT_FOOD, "title": "Food & Nutrition"},
-        {"id": ORDER_CAT_SUPPLEMENTS, "title": "Supplements"},
-    ]
+        {"id": ORDER_CATEGORY_MEDICINES, "title": "Medicines"},
+        {"id": ORDER_CATEGORY_FOOD, "title": "Food & Nutrition"},
+        {"id": ORDER_CATEGORY_SUPPLEMENTS, "title": "Supplements"},
+        {"id": ORDER_CATEGORY_TREATS, "title": "Treats"},
+    ][:3]  # WhatsApp interactive buttons max = 3; Treats fits only if we merge
 
-    user.order_state = "awaiting_order_category"
-    db.commit()
-
-    await send_interactive_buttons(db, from_number, body, buttons)
-    logger.info("Order flow started for user %s", mask_phone(from_number))
+    _clear_order_state(db, user)
+    await send_interactive_buttons(db, mobile, body, buttons)
 
 
-async def handle_order_category(db: Session, user, payload: str) -> None:
-    """
-    Handle category button selection — create a draft order and get recommendations.
+async def start_order_for_category(db: Session, user, payload: str) -> None:
+    """Handle category button tap. Route to pet selection or sub-flow."""
+    mobile = _get_mobile(user)
+    pets = _get_active_pets(db, user)
 
-    If user has 1 active pet, try to generate recommendations for that pet.
-    If recommendations found, show them as a numbered list.
-    Otherwise, fall back to asking for free-text items.
+    category_state_prefix = {
+        ORDER_CATEGORY_FOOD:        "food",
+        ORDER_CATEGORY_SUPPLEMENTS: "supp",
+        ORDER_CATEGORY_MEDICINES:   "med",
+        ORDER_CATEGORY_TREATS:      "treat",
+    }.get(payload)
 
-    Args:
-        payload: Button payload ID (ORDER_CAT_MEDICINES, etc.)
-    """
-    from_number = _get_mobile(user)
-    category = ORDER_CATEGORY_MAP.get(payload)
-
-    if not category:
-        logger.warning("Invalid order category payload '%s' from %s", payload, mask_phone(from_number))
-        await send_text_message(db, from_number, "Please select a valid category.")
+    if not category_state_prefix:
+        await send_text_message(db, mobile, "Unknown category. Please try again.")
         return
 
-    # Create draft order with category only (items not yet provided).
-    order = Order(
-        user_id=user.id,
-        category=category,
-        items_description="",  # Will be filled when user selects items.
-        status="pending",
-    )
-    db.add(order)
-    db.flush()  # Get the order ID before committing.
-
-    user.active_order_id = order.id
-    label = ORDER_CATEGORY_LABELS.get(category, category)
-
-    # Try to get recommendations based on pet profile.
-    # For multi-pet users, ask pet first to personalize recommendations.
-    pets = _get_active_pets(db, user)
-    recommendations = []
+    ctx = {"category": category_state_prefix}
 
     if len(pets) > 1:
-        user.order_state = "awaiting_pet_reco"
-        db.commit()
-        pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
+        # Need to pick a pet first
+        pet_list = "\n".join(f"{i + 1}. {p.name}" for i, p in enumerate(pets))
+        _set_order_state(user, db, f"{category_state_prefix}_awaiting_pet", ctx)
         await send_text_message(
-            db,
-            from_number,
-            f"Which pet is this for? Reply with the name or number:\n{pet_list}",
+            db, mobile,
+            f"Which pet is this for?\n\n{pet_list}\n\nReply with a number.",
         )
         return
 
-    if len(pets) == 1:
-        try:
-            pet = pets[0]
-            recommendations = await _get_numbered_suggestions(
-                db,
-                pet,
-                category,
-                increment_on_hit=True,
-            )
-
-            if recommendations:
-                # Store pet_id for preference tracking later
-                order.pet_id = pet.id
-                db.commit()
-                user.order_state = "awaiting_reco_sel"
-                db.commit()
-                await _send_recommendation_list(db, from_number, label, pet.name, recommendations)
-                logger.info(
-                    "Order category '%s' selected with %d recommendations for %s",
-                    category, len(recommendations), mask_phone(from_number)
-                )
-                return
-
-        except Exception as e:
-            logger.warning(f"Failed to get recommendations: {e}")
-            recommendations = []
-
-    # No recommendations available or user has multiple pets — fall back to custom items
-    user.order_state = "awaiting_order_items"
-    db.commit()
-
-    await send_text_message(
-        db, from_number,
-        f"*{label}* — got it!\n\n"
-        f"Please type the item names and quantities you need.\n"
-        f"{_get_medicines_example_text(db)}",
-    )
-    logger.info("Order category '%s' selected by %s (no recommendations)", category, mask_phone(from_number))
+    pet = pets[0] if pets else None
+    if pet:
+        ctx["pet_id"] = str(pet.id)
+    await _enter_category_flow(db, user, pet, category_state_prefix, ctx, mobile)
 
 
-async def handle_recommendation_selection(db: Session, user, text: str) -> None:
-    """
-    Handle user input after recommendations are shown.
-
-    User can:
-    - Reply with number(s): "1", "2 3", "1-3" to select recommendations
-    - Type custom text to override with custom items
-    - Reply "back" to cancel
-
-    Args:
-        text: User's response text
-    """
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
-
-    if not order:
-        await _abort_stale_flow(db, user, from_number)
-        return
-
-    # Check if user said "back" to cancel
-    if text.strip().lower() == "back":
-        await cancel_order_flow(db, user)
-        return
-
-    text_lower = text.strip().lower()
-
-    # Quick shortcut: "usual" / "repeat" selects top saved preferences.
-    if text_lower in {"usual", "repeat", "my usual", "usual items", "same as last"}:
-        pet_repo = PetRepository(db)
-        pet = pet_repo.get_by_id(order.pet_id)
-        if not pet:
-            await send_text_message(db, from_number, "Error: pet not found. Please try again.")
-            return
-
-        top_preferences = get_pet_top_preferences(db, pet.id, str(order.category), limit=3)
-        if not top_preferences:
-            await send_text_message(
-                db,
-                from_number,
-                "I couldn't find usual items yet. Reply with numbers from the list or type custom items.",
-            )
-            return
-
-        selected_items = [pref.get("name") for pref in top_preferences if pref.get("name")]
-        for item_name in selected_items:
-            record_preference(db, pet.id, str(order.category), item_name, "recommendation")
-
-        order.items_description = ", ".join(selected_items)  # type: ignore[assignment]
-        db.commit()
-
-        pets = _get_active_pets(db, user)
-        if len(pets) == 1:
-            await _show_order_confirmation(db, user, order, pet=pets[0])
-        elif len(pets) > 1:
-            user.order_state = "awaiting_order_pet"
-            db.commit()
-            pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
-            await send_text_message(
-                db, from_number,
-                f"Which pet is this order for? Reply with the name or number:\n{pet_list}",
-            )
-        else:
-            await _show_order_confirmation(db, user, order, pet=None)
-        return
-
-    # Try to parse as number selection (e.g., "1", "2 3", "1-3")
-    selected_indices = _parse_number_selection(text)
-
-    if selected_indices is not None and len(selected_indices) > 0:
-        # User selected recommendations by number
-        try:
-            # Get recommendations again from DB
-            pet_repo = PetRepository(db)
-        pet = pet_repo.get_by_id(order.pet_id)
-            if not pet:
-                await send_text_message(db, from_number, "Error: pet not found. Please try again.")
-                return
-
-            recommendations = await _get_numbered_suggestions(
-                db,
-                pet,
-                str(order.category),
-                increment_on_hit=False,
-            )
-
-            # Extract selected items
-            selected_items = []
-            for idx in selected_indices:
-                if 0 < idx <= len(recommendations):
-                    item = recommendations[idx - 1]  # Convert to 0-indexed
-                    selected_items.append(item.get("name"))
-                    # Record as recommendation preference
-                    record_preference(
-                        db, pet.id, str(order.category), item.get("name"), "recommendation"
-                    )
-
-            if selected_items:
-                # Save selected items to order
-                order.items_description = ", ".join(selected_items)  # type: ignore[assignment]
-                db.commit()
-
-                logger.info(f"User selected {len(selected_items)} recommendation items")
-
-                # Continue to pet selection or confirmation
-                pets = _get_active_pets(db, user)
-                if len(pets) == 1:
-                    # Already have pet selected from recommendations
-                    await _show_order_confirmation(db, user, order, pet=pets[0])
-                elif len(pets) > 1:
-                    # Ask for pet selection
-                    user.order_state = "awaiting_order_pet"
-                    db.commit()
-                    pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
-                    await send_text_message(
-                        db, from_number,
-                        f"Which pet is this order for? Reply with the name or number:\n{pet_list}",
-                    )
-                else:
-                    await _show_order_confirmation(db, user, order, pet=None)
-                return
-            else:
-                await send_text_message(
-                    db, from_number,
-                    "I didn't find those items in the list. Please try again with valid numbers."
-                )
-                return
-
-        except Exception as e:
-            logger.error(f"Error processing recommendation selection: {e}", exc_info=True)
-            await send_text_message(db, from_number, "Error processing your selection. Please try again.")
-            return
-
-    # User provided custom text — treat as free-form items
-    await handle_order_items(db, user, text)
-
-
-async def handle_order_pet_for_recommendation(db: Session, user, text: str) -> None:
-    """
-    For multi-pet users, choose the pet first, then show AI recommendations.
-    """
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
-
-    if not order:
-        await _abort_stale_flow(db, user, from_number)
-        return
-
-    pets = _get_active_pets(db, user)
-    matched_pet = _match_pet_from_text(pets, text)
-
-    if not matched_pet:
-        pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
+async def _enter_category_flow(db, user, pet, cat: str, ctx: dict, mobile: str) -> None:
+    """Start the category-specific sub-flow once a pet is known."""
+    if cat == "food":
+        await _start_food_flow(db, user, pet, ctx, mobile)
+    elif cat == "supp":
+        await _start_supplement_flow(db, user, pet, ctx, mobile)
+    elif cat == "med":
+        _set_order_state(user, db, "med_type_sel", ctx)
+        await send_interactive_buttons(
+            db, mobile,
+            "Which type of medicine would you like to order?",
+            [
+                {"id": MED_PREVENTIVE, "title": "Preventive"},
+                {"id": MED_PRESCRIPTION, "title": "Prescription / RX"},
+            ],
+        )
+    elif cat == "treat":
+        _set_order_state(user, db, "treat_awaiting_name", ctx)
+        pet_name = pet.name if pet else "your pet"
         await send_text_message(
-            db,
-            from_number,
-            f"I didn't recognize that pet. Please reply with the name or number:\n{pet_list}",
-        )
-        return
-
-    order.pet_id = matched_pet.id
-    db.commit()
-
-    order_category = str(order.category)
-    label = ORDER_CATEGORY_LABELS.get(order_category, order_category)
-    recommendations = await _get_numbered_suggestions(
-        db,
-        matched_pet,
-        order_category,
-        increment_on_hit=True,
-    )
-
-    if recommendations:
-        user.order_state = "awaiting_reco_sel"
-        db.commit()
-        await _send_recommendation_list(db, from_number, label, matched_pet.name, recommendations)
-        return
-
-    # Fallback if AI/cached recommendations unavailable.
-    user.order_state = "awaiting_order_items"
-    db.commit()
-    await send_text_message(
-        db,
-        from_number,
-        f"*{label}* — got it!\n\n"
-        f"Please type the item names and quantities you need.\n"
-        f"{_get_medicines_example_text(db)}",
-    )
-
-
-async def _send_recommendation_list(
-    db: Session,
-    from_number: str,
-    category_label: str,
-    pet_name: str,
-    recommendations: list,
-) -> None:
-    """Send recommendations in a numbered list with selection instructions."""
-    rec_text = f"*{category_label}* for {pet_name}:\n\n"
-    for rec in recommendations:
-        tag = " (Usual)" if rec.get("source") == "preference" else ""
-        rec_text += f"{rec.get('id')}. *{rec.get('name')}*{tag}\n   _{rec.get('description')}_\n\n"
-
-    rec_text += (
-        "Reply with:\n"
-        "• Number(s) to select items: _1_, _2_, _1 3_, or _1-3_\n"
-        "• Or type *usual* / *repeat* for your top saved items\n"
-        "• Or type your own items (medicine name, supplement, etc.)\n"
-        "• Or reply *back* to cancel"
-    )
-    await send_text_message(db, from_number, rec_text)
-
-
-async def _get_numbered_suggestions(
-    db: Session,
-    pet,
-    category: str,
-    increment_on_hit: bool,
-) -> list:
-    """
-    Build a combined suggestions list:
-    1) user's saved preferences for this pet/category
-    2) AI/cached recommendations for profile
-
-    Returns a numbered list with unique names.
-    """
-    combined = []
-    seen = set()
-
-    preferences = get_pet_top_preferences(db, pet.id, category, limit=5)
-    for pref in preferences:
-        name = str(pref.get("name", "")).strip()
-        if not name:
-            continue
-        key = name.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        combined.append(
-            {
-                "name": name,
-                "description": f"Previously ordered {pref.get('used_count', 0)} time(s)",
-                "reason": "From your order history",
-                "source": "preference",
-            }
+            db, mobile,
+            f"What treat would you like to order for {pet_name}? "
+            "(e.g., Pedigree Dentastix, raw hide chew)",
         )
 
-    recommendations = await get_or_generate_recommendations(
-        db,
-        pet,
-        category,
-        increment_on_hit=increment_on_hit,
-    )
-    for rec in recommendations:
-        name = str(rec.get("name", "")).strip()
-        if not name:
-            continue
-        key = name.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        merged = dict(rec)
-        merged["source"] = "ai"
-        combined.append(merged)
 
-    for idx, item in enumerate(combined, start=1):
-        item["id"] = idx
-
-    return combined
+# ---------------------------------------------------------------------------
+# Pet selection (shared across food / supp / med / treat)
+# ---------------------------------------------------------------------------
 
 
-def _parse_number_selection(text: str) -> list | None:
-    """
-    Parse number selection from text.
-
-    Supports: "1", "2 3", "1-3", "1, 2"
-
-    Returns:
-        List of selected indices (1-indexed), or None if not a number pattern.
-        Returns empty list if parsing fails.
-    """
-    import re
-
-    text = text.strip()
-
-    # Check if it looks like numbers
-    if not re.match(r'^[\d\s\-,]+$', text):
-        return None  # Not a number pattern
-
-    indices = []
-
-    # Split by various delimiters: spaces, commas, hyphens
-    # Handle ranges like "1-3"
-    parts = re.split(r'[\s,]+', text)
-
-    for part in parts:
-        if not part:
-            continue
-
-        if '-' in part:
-            # Range like "1-3"
-            try:
-                start, end = part.split('-')
-                start, end = int(start), int(end)
-                indices.extend(range(start, end + 1))
-            except (ValueError, IndexError):
-                pass
-        else:
-            # Single number
-            try:
-                indices.append(int(part))
-            except ValueError:
-                pass
-
-    return list(set(indices)) if indices else []  # Remove duplicates
-
-
-async def handle_order_items(db: Session, user, text: str) -> None:
-    """
-    Handle items text — save to draft order, then route to pet selection or confirmation.
-
-    Auto-selects pet if user has exactly 1 pet.
-    Asks for pet selection if user has 2+ pets.
-    Skips pet selection if user has 0 pets.
-
-    Records custom item preferences for personalization.
-    """
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
-
-    if not order:
-        # Draft order not found — abort flow gracefully.
-        await _abort_stale_flow(db, user, from_number)
-        return
-
-    # Save items description to the draft order.
-    order.items_description = text.strip()[:2000]  # type: ignore[assignment]
-    db.commit()
-
-    order_pet_id = getattr(order, "pet_id", None)
-    order_category = str(order.category)
-
-    # Record custom preferences (split by commas)
-    if order_pet_id is not None:
-        # Pet already selected (from recommendations flow)
-        pet_repo = PetRepository(db)
-        pet = pet_repo.get_by_id(order_pet_id)
-        if pet:
-            items = [item.strip() for item in order.items_description.split(",")]
-            for item in items:
-                if item:
-                    record_preference(db, pet.id, order_category, item, "custom")
-
+async def handle_pet_selection_for_category(db: Session, user, text: str, category: str) -> None:
+    """Handle numbered pet selection for any category awaiting pet."""
+    mobile = _get_mobile(user)
     pets = _get_active_pets(db, user)
 
-    if len(pets) == 0:
-        # No pets — skip pet selection, show confirmation without pet.
-        await _show_order_confirmation(db, user, order, pet=None)
-    elif len(pets) == 1:
-        # Auto-select the only pet (if not already selected)
-        if getattr(order, "pet_id", None) is None:
-            order.pet_id = pets[0].id
+    pet = None
+    if text.strip().isdigit():
+        idx = int(text.strip()) - 1
+        if 0 <= idx < len(pets):
+            pet = pets[idx]
+    if pet is None:
+        # Try name match
+        for p in pets:
+            if p.name.lower() == text.strip().lower():
+                pet = p
+                break
 
-            # Record custom preferences
-            items = [item.strip() for item in order.items_description.split(",")]
-            for item in items:
-                if item:
-                    record_preference(db, pets[0].id, order_category, item, "custom")
+    if pet is None:
+        pet_list = "\n".join(f"{i + 1}. {p.name}" for i, p in enumerate(pets))
+        await send_text_message(
+            db, mobile,
+            f"Please reply with a number:\n\n{pet_list}",
+        )
+        return
 
-        db.commit()
-        await _show_order_confirmation(db, user, order, pet=pets[0])
+    ctx = user.order_context or {}
+    ctx["pet_id"] = str(pet.id)
+    flag_modified(user, "order_context")
+    await _enter_category_flow(db, user, pet, category, ctx, mobile)
+
+
+# ---------------------------------------------------------------------------
+# Food flow
+# ---------------------------------------------------------------------------
+
+
+async def _start_food_flow(db, user, pet, ctx: dict, mobile: str) -> None:
+    """Begin food ordering — ask prescribed vs regular if applicable."""
+    if pet is None:
+        _set_order_state(user, db, "food_awaiting_pet", ctx)
+        await send_text_message(db, mobile, "Which pet is this food for? Reply with a number.")
+        return
+
+    conditions = _get_conditions(db, pet.id)
+    diet_items = db.query(DietItem).filter(DietItem.pet_id == pet.id, DietItem.type == "packaged").all()
+
+    if conditions:
+        # Pet has conditions — ask if prescribed or regular
+        _set_order_state(user, db, "food_awaiting_diet_confirm", ctx)
+        await send_interactive_buttons(
+            db, mobile,
+            f"Would you like prescribed diet or regular food for {pet.name}?",
+            [
+                {"id": FOOD_PRESCRIBED, "title": "Prescribed Diet"},
+                {"id": FOOD_REGULAR, "title": "Regular Food"},
+            ],
+        )
     else:
-        # Multiple pets — ask user to choose.
-        user.order_state = "awaiting_order_pet"
-        db.commit()
-        pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
+        # Go straight to SKU resolution
+        await _resolve_and_show_food(db, user, pet, diet_items, conditions, ctx, mobile)
+
+
+async def handle_diet_confirm(db: Session, user, payload: str) -> None:
+    """Handle the prescribed / regular diet button tap."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    pet_id = ctx.get("pet_id")
+
+    pets = _get_active_pets(db, user)
+    pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+    if not pet:
+        await send_text_message(db, mobile, "Session expired. Type *order* to start again.")
+        _clear_order_state(db, user)
+        return
+
+    ctx["diet_type"] = "prescribed" if payload == FOOD_PRESCRIBED else "regular"
+    conditions = _get_conditions(db, pet.id) if payload == FOOD_PRESCRIBED else []
+    diet_items = (
+        db.query(DietItem).filter(DietItem.pet_id == pet.id, DietItem.type == "packaged").all()
+    )
+    await _resolve_and_show_food(db, user, pet, diet_items, conditions, ctx, mobile)
+
+
+async def _resolve_and_show_food(db, user, pet, diet_items, conditions, ctx, mobile):
+    """Resolve food signal and display SKU options."""
+    sku_options = []
+    if diet_items:
+        for item in diet_items:
+            try:
+                result = resolve_food_signal(db, item, pet, conditions)
+                if result.products:
+                    sku_options = result.products
+                    ctx["diet_item_id"] = str(item.id)
+                    break
+            except Exception as exc:
+                logger.warning("order_service: food signal error: %s", exc)
+
+    if not sku_options:
+        # Fallback: query by life stage directly
+        try:
+            life_stage = _get_pet_life_stage(pet)
+            from app.models import ProductFood as _PF
+            filters = [
+                _PF.life_stage_tags.ilike(f"%{life_stage}%"),
+                _PF.in_stock.is_(True),
+            ]
+            if pet.species:
+                filters.insert(0, _PF.species_tags.ilike(f"%{pet.species}%"))
+            rows = (
+                db.query(_PF)
+                .filter(*filters)
+                .order_by(_PF.popularity_rank.asc())
+                .limit(3)
+                .all()
+            )
+            sku_options = [
+                {
+                    "sku_id": r.sku_id, "brand_name": r.brand_name,
+                    "product_line": r.product_line, "pack_size": f"{r.pack_size_kg} kg",
+                    "mrp": int(r.mrp), "discounted_price": int(r.discounted_price),
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning("order_service: food fallback error: %s", exc)
+
+    ctx["sku_options"] = sku_options
+    _set_order_state(user, db, "food_awaiting_sku_sel", ctx)
+    await _send_sku_results(db, mobile, pet.name, sku_options)
+
+
+async def handle_food_sku_selection(db: Session, user, text: str) -> None:
+    """Handle numbered food SKU selection from the list."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    sku_options = ctx.get("sku_options", [])
+    pet_id = ctx.get("pet_id")
+
+    if not text.strip().isdigit():
+        await send_text_message(db, mobile, "Please reply with a number to select a product.")
+        return
+
+    idx = int(text.strip()) - 1
+    if idx < 0 or idx >= len(sku_options):
+        await send_text_message(db, mobile, f"Please choose 1–{len(sku_options)}.")
+        return
+
+    selected = sku_options[idx]
+    ctx["selected_sku"] = selected
+    _set_order_state(user, db, "awaiting_cart_action", ctx)
+
+    brand = selected.get("brand_name", "")
+    line = selected.get("product_line", "")
+    price = selected.get("discounted_price") or selected.get("mrp", 0)
+    pack = selected.get("pack_size", "")
+    label = f"{brand} {line}".strip()
+    if pack:
+        label += f" ({pack})"
+
+    await send_interactive_buttons(
+        db, mobile,
+        f"Selected: *{label}* — ₹{price}\n\nWhat would you like to do?",
+        [
+            {"id": ORDER_ADD_CART, "title": "Add to Cart"},
+            {"id": ORDER_CHECKOUT, "title": "Checkout Now"},
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Supplement flow
+# ---------------------------------------------------------------------------
+
+
+async def _start_supplement_flow(db, user, pet, ctx: dict, mobile: str) -> None:
+    """Show current supplement diet items + recommended option."""
+    if pet is None:
+        _set_order_state(user, db, "supp_awaiting_pet", ctx)
+        await send_text_message(db, mobile, "Which pet is this for? Reply with a number.")
+        return
+
+    supp_items = (
+        db.query(DietItem)
+        .filter(DietItem.pet_id == pet.id, DietItem.type == "supplement")
+        .all()
+    )
+
+    if supp_items:
+        lines = [f"{i + 1}. {it.label}" for i, it in enumerate(supp_items)]
+        lines.append(f"{len(supp_items) + 1}. See recommended supplements")
+        ctx["supp_item_ids"] = [str(it.id) for it in supp_items]
+        ctx["supp_item_count"] = len(supp_items)
+        _set_order_state(user, db, "supp_sel_current", ctx)
         await send_text_message(
-            db, from_number,
-            f"Which pet is this order for? Reply with the name or number:\n{pet_list}",
+            db, mobile,
+            f"Supplements for {pet.name}:\n\n" + "\n".join(lines) + "\n\nReply with a number.",
         )
+    else:
+        # No current supplements — go straight to recommended
+        await _resolve_and_show_supplement(db, user, pet, None, ctx, mobile)
 
 
-async def handle_order_pet_selection(db: Session, user, text: str) -> None:
-    """
-    Handle pet name/number selection for multi-pet users.
+async def handle_supplement_current_selection(db: Session, user, text: str) -> None:
+    """Handle supplement selection from current items list."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    pet_id = ctx.get("pet_id")
+    item_ids = ctx.get("supp_item_ids", [])
+    item_count = ctx.get("supp_item_count", 0)
 
-    Matches by exact name (case-insensitive) or by list position number.
-    """
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
+    pets = _get_active_pets(db, user)
+    pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+    if not pet:
+        await send_text_message(db, mobile, "Session expired. Type *order* to start again.")
+        _clear_order_state(db, user)
+        return
 
-    if not order:
-        await _abort_stale_flow(db, user, from_number)
+    if not text.strip().isdigit():
+        await send_text_message(db, mobile, "Please reply with a number.")
+        return
+
+    idx = int(text.strip()) - 1
+    if idx == item_count:
+        # "See recommended supplements"
+        await _resolve_and_show_supplement(db, user, pet, None, ctx, mobile)
+        return
+
+    if idx < 0 or idx >= len(item_ids):
+        await send_text_message(db, mobile, f"Please choose 1–{item_count + 1}.")
+        return
+
+    diet_item = db.query(DietItem).filter(DietItem.id == item_ids[idx]).first()
+    await _resolve_and_show_supplement(db, user, pet, diet_item, ctx, mobile)
+
+
+async def _resolve_and_show_supplement(db, user, pet, diet_item, ctx, mobile):
+    """Resolve supplement signal and display SKU options."""
+    sku_options = []
+    conditions = _get_conditions(db, pet.id)
+
+    if diet_item:
+        try:
+            result = resolve_supplement_signal(db, diet_item, pet, conditions)
+            if result.products:
+                sku_options = result.products
+                ctx["diet_item_id"] = str(diet_item.id)
+        except Exception as exc:
+            logger.warning("order_service: supplement signal error: %s", exc)
+
+    if not sku_options:
+        # Fallback: top supplements for species
+        try:
+            from app.models import ProductSupplement as _PS
+            filters = [_PS.in_stock.is_(True)]
+            if pet.species:
+                filters.insert(0, _PS.species_tags.ilike(f"%{pet.species}%"))
+            rows = (
+                db.query(_PS)
+                .filter(*filters)
+                .order_by(_PS.popularity_rank.asc())
+                .limit(3)
+                .all()
+            )
+            sku_options = [
+                {
+                    "sku_id": r.sku_id, "brand_name": r.brand_name,
+                    "product_line": r.product_line,
+                    "mrp": int(r.mrp), "discounted_price": int(r.discounted_price),
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning("order_service: supplement fallback error: %s", exc)
+
+    ctx["sku_options"] = sku_options
+    _set_order_state(user, db, "supp_sel_recommended", ctx)
+    await _send_sku_results(db, mobile, pet.name, sku_options)
+
+
+async def handle_supplement_recommended_selection(db: Session, user, text: str) -> None:
+    """Handle supplement SKU selection (reused for recommended flow)."""
+    await handle_food_sku_selection(db, user, text)
+
+
+# ---------------------------------------------------------------------------
+# Medicine flow
+# ---------------------------------------------------------------------------
+
+
+async def handle_medicine_type_selection(db: Session, user, payload: str) -> None:
+    """Handle Preventive / Prescription button tap."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    pets = _get_active_pets(db, user)
+
+    if payload == MED_PREVENTIVE:
+        _set_order_state(user, db, "med_prev_type_sel", ctx)
+        await send_interactive_buttons(
+            db, mobile,
+            "Which type of preventive medicine?",
+            [
+                {"id": MED_DEWORMING, "title": "Deworming"},
+                {"id": MED_FLEA_TICK, "title": "Flea & Tick"},
+            ],
+        )
+    elif payload == MED_PRESCRIPTION:
+        # Show pet's RX medicines
+        pet_id = ctx.get("pet_id")
+        pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+        if pet is None and len(pets) == 1:
+            pet = pets[0]
+            ctx["pet_id"] = str(pet.id)
+        if pet is None:
+            pet_list = "\n".join(f"{i + 1}. {p.name}" for i, p in enumerate(pets))
+            _set_order_state(user, db, "med_prev_awaiting_pet", ctx)
+            await send_text_message(db, mobile, f"Which pet?\n\n{pet_list}")
+            return
+        await _show_rx_medicines(db, user, pet, ctx, mobile)
+    else:
+        await send_text_message(db, mobile, "Please select Preventive or Prescription.")
+
+
+async def handle_preventive_type_selection(db: Session, user, payload: str) -> None:
+    """Handle Deworming / Flea & Tick button tap."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    pets = _get_active_pets(db, user)
+
+    if payload not in (MED_DEWORMING, MED_FLEA_TICK):
+        await send_text_message(db, mobile, "Please select Deworming or Flea & Tick.")
+        return
+
+    ctx["med_sub_type"] = payload
+    pet_id = ctx.get("pet_id")
+    pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+    if pet is None and len(pets) == 1:
+        pet = pets[0]
+        ctx["pet_id"] = str(pet.id)
+
+    if pet is None:
+        pet_list = "\n".join(f"{i + 1}. {p.name}" for i, p in enumerate(pets))
+        _set_order_state(user, db, "med_prev_awaiting_pet", ctx)
+        await send_text_message(db, mobile, f"Which pet?\n\n{pet_list}")
+        return
+
+    await _resolve_and_show_medicine(db, user, pet, payload, ctx, mobile)
+
+
+async def _resolve_and_show_medicine(db, user, pet, sub_type: str, ctx: dict, mobile: str) -> None:
+    """Resolve medicine signal and display SKU options."""
+    sku_options = []
+    try:
+        if sub_type == MED_DEWORMING:
+            result = resolve_deworming_signal(db, pet)
+        else:
+            result = resolve_flea_tick_signal(db, pet)
+        if result.products:
+            sku_options = result.products
+    except Exception as exc:
+        logger.warning("order_service: medicine signal error: %s", exc)
+
+    ctx["sku_options"] = sku_options
+    _set_order_state(user, db, "med_prev_sku_sel", ctx)
+    await _send_sku_results(db, mobile, pet.name, sku_options)
+
+
+async def handle_preventive_sku_selection(db: Session, user, text: str) -> None:
+    """Handle numbered medicine SKU selection."""
+    await handle_food_sku_selection(db, user, text)
+
+
+async def _show_rx_medicines(db, user, pet, ctx, mobile):
+    """Show list of pet's prescription medicines (from ConditionMedication)."""
+    rx_items = []
+    try:
+        conditions = (
+            db.query(Condition)
+            .filter(Condition.pet_id == pet.id, Condition.is_active.is_(True))
+            .all()
+        )
+        for cond in conditions:
+            meds = (
+                db.query(ConditionMedication)
+                .filter(ConditionMedication.condition_id == cond.id)
+                .all()
+            )
+            for m in meds:
+                rx_items.append({
+                    "name": m.name or m.medicine_name or "Medicine",
+                    "condition": cond.name,
+                    "dosage": m.dosage or "",
+                })
+    except Exception as exc:
+        logger.warning("order_service: rx query error: %s", exc)
+
+    if not rx_items:
+        await send_text_message(
+            db, mobile,
+            f"No prescription medicines found for {pet.name}. "
+            "Please contact us directly to order RX medicines.",
+        )
+        _clear_order_state(db, user)
+        return
+
+    lines = [
+        f"{i + 1}. {m['name']} (for {m['condition']})" + (f" — {m['dosage']}" if m["dosage"] else "")
+        for i, m in enumerate(rx_items)
+    ]
+    ctx["rx_medicines"] = rx_items
+    _set_order_state(user, db, "med_rx_sel_items", ctx)
+    await send_text_message(
+        db, mobile,
+        f"Prescription medicines for {pet.name}:\n\n" + "\n".join(lines) + "\n\n"
+        "Reply with a number. Our team will contact you to process the order.",
+    )
+
+
+async def handle_prescription_medicine_selection(db: Session, user, text: str) -> None:
+    """Handle numbered RX medicine selection → notify admin."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    rx_items = ctx.get("rx_medicines", [])
+    pet_id = ctx.get("pet_id")
+
+    if not text.strip().isdigit():
+        await send_text_message(db, mobile, "Please reply with a number.")
+        return
+
+    idx = int(text.strip()) - 1
+    if idx < 0 or idx >= len(rx_items):
+        await send_text_message(db, mobile, f"Please choose 1–{len(rx_items)}.")
+        return
+
+    selected = rx_items[idx]
+    pets = _get_active_pets(db, user)
+    pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+    pet_name = pet.name if pet else "your pet"
+
+    items_desc = f"{selected['name']} (for {selected['condition']})"
+    await send_text_message(
+        db, mobile,
+        f"Got it! We'll process your request for *{selected['name']}* for {pet_name}. "
+        "Our team will call you shortly.",
+    )
+
+    asyncio.create_task(_notify_admin_order(db, user, pet_name, "medicines", items_desc))
+    _clear_order_state(db, user)
+
+
+# ---------------------------------------------------------------------------
+# Treats flow
+# ---------------------------------------------------------------------------
+
+
+async def handle_treat_name(db: Session, user, text: str) -> None:
+    """Handle treat name input → notify admin."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    pet_id = ctx.get("pet_id")
+
+    if not text.strip():
+        await send_text_message(db, mobile, "Please enter the treat name.")
         return
 
     pets = _get_active_pets(db, user)
-    matched_pet = _match_pet_from_text(pets, text)
+    pet = next((p for p in pets if str(p.id) == pet_id), None) if pet_id else None
+    pet_name = pet.name if pet else "your pet"
+    treat_name = text.strip()
 
-    if not matched_pet:
-        pet_list = "\n".join(f"{i+1}. {p.name}" for i, p in enumerate(pets))
-        await send_text_message(
-            db, from_number,
-            f"I didn't recognize that pet name. Please reply with the name or number:\n{pet_list}",
-        )
+    await send_text_message(
+        db, mobile,
+        f"Got it! We'll process your request for *{treat_name}* for {pet_name}. "
+        "Our team will contact you shortly.",
+    )
+
+    asyncio.create_task(_notify_admin_order(db, user, pet_name, "treats", treat_name))
+    _clear_order_state(db, user)
+
+
+# ---------------------------------------------------------------------------
+# Cart actions
+# ---------------------------------------------------------------------------
+
+
+async def handle_add_to_cart(db: Session, user) -> None:
+    """Add selected SKU to cart and confirm."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    selected = ctx.get("selected_sku")
+    pet_id = ctx.get("pet_id")
+
+    if not selected or not pet_id:
+        await send_text_message(db, mobile, "Session expired. Type *order* to start again.")
+        _clear_order_state(db, user)
         return
 
-    order.pet_id = matched_pet.id
+    try:
+        from app.services.dashboard.cart_service import add_to_cart as _add_to_cart
+        await _add_to_cart(
+            db=db,
+            pet_id=pet_id,
+            product_id=selected.get("sku_id"),
+            name=f"{selected.get('brand_name', '')} {selected.get('product_line', '')}".strip(),
+            price=selected.get("discounted_price") or selected.get("mrp", 0),
+        )
+        pets = _get_active_pets(db, user)
+        pet = next((p for p in pets if str(p.id) == pet_id), None)
+        pet_name = pet.name if pet else "your pet"
+        await send_text_message(
+            db, mobile,
+            f"Added to {pet_name}'s cart!\n\n"
+            "You can complete checkout on the dashboard. "
+            "Send *dashboard* for the link.",
+        )
+    except Exception as exc:
+        logger.error("order_service: add_to_cart error: %s", exc)
+        await send_text_message(db, mobile, "Couldn't add to cart. Please try again.")
 
-    # If items already entered as custom text, store as preferences now.
-    if str(order.items_description).strip():
-        items = [item.strip() for item in order.items_description.split(",")]
-        for item in items:
-            if item:
-                record_preference(db, matched_pet.id, str(order.category), item, "custom")
+    _clear_order_state(db, user)
 
-    db.commit()
-    await _show_order_confirmation(db, user, order, pet=matched_pet)
+
+async def handle_checkout(db: Session, user) -> None:
+    """Initiate checkout — send dashboard link to complete payment."""
+    mobile = _get_mobile(user)
+    ctx = user.order_context or {}
+    selected = ctx.get("selected_sku")
+    pet_id = ctx.get("pet_id")
+
+    if not selected or not pet_id:
+        await send_text_message(db, mobile, "Session expired. Type *order* to start again.")
+        _clear_order_state(db, user)
+        return
+
+    try:
+        from app.services.dashboard.cart_service import add_to_cart as _add_to_cart
+        from app.services.whatsapp.onboarding import get_or_create_active_dashboard_token
+
+        await _add_to_cart(
+            db=db,
+            pet_id=pet_id,
+            product_id=selected.get("sku_id"),
+            name=f"{selected.get('brand_name', '')} {selected.get('product_line', '')}".strip(),
+            price=selected.get("discounted_price") or selected.get("mrp", 0),
+        )
+
+        token = get_or_create_active_dashboard_token(db, pet_id)
+        checkout_url = f"{settings.FRONTEND_URL}/dashboard/{token}?tab=cart"
+
+        await send_text_message(
+            db, mobile,
+            f"Your item has been added to cart.\n\nComplete checkout here:\n{checkout_url}",
+        )
+    except Exception as exc:
+        logger.error("order_service: checkout error: %s", exc)
+        await send_text_message(db, mobile, "Couldn't process checkout. Please try again.")
+
+    _clear_order_state(db, user)
+
+
+# ---------------------------------------------------------------------------
+# Preserved from v1 — unchanged API
+# ---------------------------------------------------------------------------
+
+
+async def cancel_order_flow(db: Session, user) -> None:
+    """Cancel the active order flow and notify user."""
+    mobile = _get_mobile(user)
+
+    # Clean up any stale draft Order rows
+    if hasattr(user, "active_order_id") and user.active_order_id:
+        try:
+            order_repo = OrderRepository(db)
+            old_order = order_repo.find_by_id(user.active_order_id)
+            if old_order and not old_order.items_description:
+                db.delete(old_order)
+            user.active_order_id = None
+        except Exception:
+            pass
+
+    _clear_order_state(db, user)
+    await send_text_message(db, mobile, "Order cancelled. Let me know if you need anything else!")
 
 
 async def handle_order_confirmation(db: Session, user, payload: str) -> None:
     """
-    Handle confirm/cancel button press on the order summary.
-
-    On confirm: finalize the order, notify admin via WhatsApp, clear flow state.
-    On cancel: delete draft order, clear flow state.
+    Handle ORDER_CONFIRM / ORDER_CANCEL button press on old-style order summary.
+    Kept for backwards compatibility with any in-flight orders during deployment.
     """
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
+    mobile = _get_mobile(user)
+
+    if not hasattr(user, "active_order_id") or not user.active_order_id:
+        await send_text_message(
+            db, mobile,
+            "No active order found. Type *order* to start again.",
+        )
+        _clear_order_state(db, user)
+        return
+
+    order_repo = OrderRepository(db)
+    order = order_repo.find_by_id(user.active_order_id)
 
     if not order:
-        await _abort_stale_flow(db, user, from_number)
+        _clear_order_state(db, user)
+        await send_text_message(
+            db, mobile,
+            "Something went wrong with your order. Type *order* to start again.",
+        )
         return
 
     if payload == ORDER_CONFIRM:
-        # Finalize the order — keep status as 'pending' for admin to process.
-        order.status = "pending"  # type: ignore[assignment]
+        order.status = "pending"
         _clear_order_state(db, user)
+        user.active_order_id = None
+        db.commit()
 
-        pet_id = getattr(order, "pet_id", None)
         pet = None
-        if pet_id is not None:
+        if order.pet_id:
             pet_repo = PetRepository(db)
-            pet = pet_repo.get_by_id(pet_id)
+            pet = pet_repo.get_by_id(order.pet_id)
 
         await send_text_message(
-            db, from_number,
+            db, mobile,
             "Your order has been received! Our team will call you shortly to process it.",
         )
 
-        # Notify admin via WhatsApp (if configured).
-        await _notify_admin_whatsapp(db, order, user, pet)
-
-        # Send follow-up with purchase history + new recommendations (non-blocking).
-        if pet is not None:
-            asyncio.create_task(
-                _send_post_order_recommendations(db, user, order, pet, from_number)
-            )
-
-        logger.info("Order confirmed: order_id=%s, user=%s", str(order.id), mask_phone(from_number))
+        admin_phone = settings.ORDER_NOTIFICATION_PHONE
+        if admin_phone:
+            try:
+                user_phone = decrypt_field(user.mobile_number)
+                pet_name = pet.name if pet else "N/A"
+                label = ORDER_CATEGORY_LABELS.get(str(order.category), str(order.category))
+                await send_template_message(
+                    db=db,
+                    to_number=admin_phone,
+                    template_name=settings.WHATSAPP_TEMPLATE_ORDER_FULFILLMENT_CHECK,
+                    parameters=[
+                        user.full_name or "Unknown",
+                        user_phone,
+                        pet_name,
+                        label,
+                        order.items_description,
+                        str(order.id),
+                    ],
+                )
+            except Exception as exc:
+                logger.error("order_service: admin notify error: %s", exc)
 
     elif payload == ORDER_CANCEL:
         await cancel_order_flow(db, user)
 
-    else:
-        logger.warning("Unknown order confirmation payload '%s' from %s", payload, mask_phone(from_number))
-
-
-async def cancel_order_flow(db: Session, user) -> None:
-    """Cancel the active order flow — delete draft order, clear state, notify user."""
-    from_number = _get_mobile(user)
-    order = _get_active_order(db, user)
-
-    if order:
-        # Delete the draft order since it was never confirmed.
-        db.delete(order)
-
-    _clear_order_state(db, user)
-
-    await send_text_message(db, from_number, "Order cancelled. Let me know if you need anything else!")
-    logger.info("Order flow cancelled by %s", mask_phone(from_number))
-
 
 async def handle_admin_order_status_feedback(db: Session, from_number: str, payload: str) -> None:
-    """
-    Handle admin WhatsApp fulfillment feedback and update order status.
-
-    Supports two payload formats:
-      - Fixed template button payloads: ORDER_FULFILL_YES / ORDER_FULFILL_NO
-        (embedded in order_fulfillment_check_v1 template). Resolves the most
-        recent pending order since template buttons cannot carry dynamic IDs.
-      - Legacy dynamic payloads: ORDER_FULFILL_YES:{order_id} / ORDER_FULFILL_NO:{order_id}
-        (kept for backwards-compatibility with any previously sent messages).
-    """
+    """Handle admin WhatsApp fulfillment feedback and update order status."""
     is_yes = payload == ORDER_FULFILL_YES or payload.startswith(ORDER_FULFILL_YES_PREFIX)
     is_no = payload == ORDER_FULFILL_NO or payload.startswith(ORDER_FULFILL_NO_PREFIX)
 
@@ -710,20 +951,16 @@ async def handle_admin_order_status_feedback(db: Session, from_number: str, payl
         await send_text_message(db, from_number, "I couldn't process that response.")
         return
 
-    # Resolve the order: prefer dynamic payload with embedded order_id,
-    # fall back to most recently created pending order for fixed template buttons.
     order = None
     if ":" in payload:
         order_id_str = payload.split(":", 1)[1]
         try:
-            order_id = UUID(order_id_str)
             order_repo = OrderRepository(db)
-            order = order_repo.find_by_id(order_id)
+            order = order_repo.find_by_id(UUID(order_id_str))
         except Exception:
             pass
 
     if not order:
-        # Fixed template button — resolve the most recent pending order.
         order_repo = OrderRepository(db)
         pending_orders = order_repo.find_pending()
         order = pending_orders[0] if pending_orders else None
@@ -733,223 +970,18 @@ async def handle_admin_order_status_feedback(db: Session, from_number: str, payl
         return
 
     if is_yes:
-        order.status = "completed"  # type: ignore[assignment]
+        order.status = "completed"
         note = "Admin confirmed via WhatsApp: fulfilled."
-        order.admin_notes = f"{order.admin_notes}\n{note}".strip() if order.admin_notes else note  # type: ignore[assignment]
+        order.admin_notes = (
+            f"{order.admin_notes}\n{note}".strip() if order.admin_notes else note
+        )
         db.commit()
         await send_text_message(db, from_number, "Marked as fulfilled (completed).")
     else:
-        order.status = "cancelled"  # type: ignore[assignment]
-        note = "Admin reported via WhatsApp: not fulfilled yet, order cancelled."
-        order.admin_notes = f"{order.admin_notes}\n{note}".strip() if order.admin_notes else note  # type: ignore[assignment]
+        order.status = "cancelled"
+        note = "Admin reported via WhatsApp: not fulfilled, order cancelled."
+        order.admin_notes = (
+            f"{order.admin_notes}\n{note}".strip() if order.admin_notes else note
+        )
         db.commit()
         await send_text_message(db, from_number, "Marked as not fulfilled yet and cancelled.")
-
-
-async def _send_post_order_recommendations(
-    db: Session,
-    user,
-    order,
-    pet,
-    from_number: str,
-) -> None:
-    """
-    Send a follow-up WhatsApp message after order confirmation with:
-    - Previously ordered items (excluding items in the current order)
-    - New product recommendations from catalog (items never previously bought)
-
-    Skipped entirely if:
-    - This is the pet's first order (no prior history beyond current order)
-    - Both sections are empty
-    Never crashes — failure does not affect the confirmed order.
-    """
-    try:
-        await asyncio.sleep(2)  # Let the confirmation message arrive first.
-
-        from app.services.dashboard.cart_service import (
-            _format_last_bought_label,
-            get_last_bought,
-            get_recommendations,
-        )
-
-        # Build exclusion set from items just ordered.
-        items_desc = str(order.items_description or "")
-        just_ordered = {
-            item.strip().lower()
-            for item in items_desc.split(",")
-            if item.strip()
-        }
-
-        last_bought = get_last_bought(db, pet.id, exclude_names=just_ordered)
-        recommendations = await get_recommendations(db, pet.id)
-
-        # Nothing to send.
-        if not last_bought and not recommendations:
-            return
-
-        parts = []
-
-        if last_bought:
-            lines = [f"🛍️ *Previously ordered for {pet.name}:*"]
-            for item in last_bought[:5]:
-                count = item["used_count"]
-                times = "time" if count == 1 else "times"
-                label = _format_last_bought_label(item["last_bought_at"])
-                suffix = f" ({label})" if label else ""
-                lines.append(f"• {item['name']} (ordered {count} {times}){suffix}")
-            parts.append("\n".join(lines))
-
-        if recommendations:
-            lines = ["💡 *You might also need:*"]
-            for idx, rec in enumerate(recommendations[:5], start=1):
-                reason = rec.get("reason", "")
-                reason_str = f" — {reason}" if reason else ""
-                lines.append(f"{idx}. *{rec['name']}*{reason_str}")
-            parts.append("\n".join(lines))
-
-        msg = "\n\n".join(parts)
-        await send_text_message(db, from_number, msg)
-        logger.info(
-            "Post-order follow-up sent for order %s pet %s",
-            str(order.id), str(pet.id),
-        )
-    except Exception as e:
-        logger.error(
-            "Failed to send post-order recommendations for order %s: %s",
-            str(order.id), str(e),
-        )
-
-
-# --- Private Helpers ---
-
-
-async def _show_order_confirmation(db: Session, user, order: Order, pet) -> None:
-    """Send order summary with Confirm/Cancel buttons."""
-    from_number = _get_mobile(user)
-    order_category = str(order.category)
-    label = ORDER_CATEGORY_LABELS.get(order_category, order_category)
-
-    pet_line = f"Pet: *{pet.name}*\n" if pet else ""
-    body = (
-        f"Here's your order summary:\n\n"
-        f"{pet_line}"
-        f"Category: *{label}*\n"
-        f"Items: {order.items_description}\n\n"
-        f"Would you like to confirm this order?"
-    )
-
-    buttons = [
-        {"id": ORDER_CONFIRM, "title": "Confirm Order"},
-        {"id": ORDER_CANCEL, "title": "Cancel"},
-    ]
-
-    # Move to awaiting confirmation state.
-    user.order_state = "awaiting_order_confirm"
-    db.commit()
-
-    await send_interactive_buttons(db, from_number, body, buttons)
-
-
-async def _notify_admin_whatsapp(db: Session, order: Order, user, pet) -> None:
-    """
-    Send a WhatsApp notification to the admin phone about a new order.
-
-    Skips silently if ORDER_NOTIFICATION_PHONE is not configured.
-    Never crashes — notification failure should not affect user experience.
-    """
-    admin_phone = settings.ORDER_NOTIFICATION_PHONE
-    if not admin_phone:
-        logger.info("ORDER_NOTIFICATION_PHONE not set — skipping WhatsApp admin notification.")
-        return
-
-    try:
-        user_phone = decrypt_field(user.mobile_number)
-        admin_phone_normalized = admin_phone.strip().replace("+", "")
-        user_phone_normalized = user_phone.strip().replace("+", "")
-
-        # Safety check: never send the admin fulfillment template
-        # back to the ordering user's own WhatsApp number.
-        if admin_phone_normalized == user_phone_normalized:
-            logger.warning(
-                "Skipping admin order notification for order %s because ORDER_NOTIFICATION_PHONE matches user phone.",
-                str(order.id),
-            )
-            return
-
-        user_name = user.full_name or "Unknown"
-        pet_name = pet.name if pet else "N/A"
-        order_category = str(order.category)
-        label = ORDER_CATEGORY_LABELS.get(order_category, order_category)
-
-        await send_template_message(
-            db=db,
-            to_number=admin_phone,
-            template_name=settings.WHATSAPP_TEMPLATE_ORDER_FULFILLMENT_CHECK,
-            parameters=[
-                user_name,
-                user_phone,
-                pet_name,
-                label,
-                order.items_description,
-                str(order.id),
-            ],
-        )
-        logger.info("Admin notified about order %s", str(order.id))
-    except Exception as e:
-        # Never crash on notification failure — order is already confirmed.
-        logger.error("Failed to notify admin about order %s: %s", str(order.id), str(e))
-
-
-def _get_mobile(user) -> str:
-    """Get decrypted mobile number from user."""
-    return decrypt_field(user.mobile_number)
-
-
-def _get_active_pets(db: Session, user) -> list:
-    """Get all active (non-deleted) pets for a user, ordered by name."""
-    pet_repo = PetRepository(db)
-    pets = [p for p in pet_repo.find_by_user(user.id) if not p.is_deleted]
-    return sorted(pets, key=lambda p: p.name or "")
-
-
-def _get_active_order(db: Session, user) -> Order | None:
-    """Get the user's active draft order by active_order_id."""
-    if not user.active_order_id:
-        return None
-    order_repo = OrderRepository(db)
-    return order_repo.find_by_id(user.active_order_id)
-
-
-def _match_pet_from_text(pets: list, text: str):
-    """Match a pet by number or case-insensitive exact name."""
-    text_lower = text.strip().lower()
-
-    try:
-        idx = int(text_lower) - 1
-        if 0 <= idx < len(pets):
-            return pets[idx]
-    except ValueError:
-        pass
-
-    for pet in pets:
-        if pet.name.lower() == text_lower:
-            return pet
-
-    return None
-
-
-def _clear_order_state(db: Session, user) -> None:
-    """Clear the order flow state from the user record."""
-    user.order_state = None
-    user.active_order_id = None
-    db.commit()
-
-
-async def _abort_stale_flow(db: Session, user, from_number: str) -> None:
-    """Handle case where order state exists but draft order is missing."""
-    _clear_order_state(db, user)
-    await send_text_message(
-        db, from_number,
-        "Something went wrong with your order. Please type *order* to start again.",
-    )
-    logger.warning("Stale order flow cleared for %s", mask_phone(from_number))

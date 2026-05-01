@@ -44,10 +44,10 @@ class QueryHandler(BaseHandler):
             return
 
         # Import here to avoid circular deps
-        from app.services.whatsapp.query_engine import handle_query
+        from app.services.whatsapp.query_engine import answer_pet_question
 
         try:
-            await handle_query(
+            await answer_pet_question(
                 db=db,
                 user=user,
                 text=text,

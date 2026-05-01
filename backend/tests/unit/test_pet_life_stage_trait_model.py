@@ -1,5 +1,5 @@
 ﻿from app.models.core.pet import Pet
-from app.models.pet_life_stage_trait import PetLifeStageTrait
+from app.models.pet_profile.pet_life_stage_trait import PetLifeStageTrait
 
 
 def test_pet_life_stage_trait_unique_constraint_declared() -> None:

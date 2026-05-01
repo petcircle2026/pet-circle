@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Message Router
 
 Routes incoming WhatsApp messages to the appropriate service handler
@@ -25,6 +25,7 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime, timedelta
+from typing import List
 
 from sqlalchemy.orm import Session
 
@@ -55,6 +56,13 @@ from app.core.constants import (
     NUDGE_DISMISS,
     NUDGE_PAYLOADS,
     NUDGE_VIEW_DASHBOARD,
+    CART_ACTION_PAYLOADS,
+    FOOD_DIET_PAYLOADS,
+    MED_PREV_PAYLOADS,
+    MED_TYPE_PAYLOADS,
+    ORDER_ADD_CART,
+    ORDER_CATEGORY_FOOD,
+    ORDER_CATEGORY_MEDICINES,
     ORDER_CATEGORY_PAYLOADS,
     ORDER_COMMANDS,
     ORDER_CONFIRM_PAYLOADS,
@@ -263,7 +271,6 @@ from app.domain.onboarding import OnboardingService
 from app.handlers import (
     ConflictHandler,
     DocumentHandler,
-    OrderHandler,
     QueryHandler,
     ReminderHandler,
 )
@@ -462,8 +469,8 @@ def _has_pending_deferred_care_plan(db: Session, pet_id, user=None) -> bool:
         stale_cutoff = datetime.now(UTC) - timedelta(minutes=_DEFERRED_MARKER_STALE_MINUTES)
         if marker.created_at and marker.created_at < stale_cutoff:
             from app.repositories.document_repository import DocumentRepository
-        doc_repo = DocumentRepository(db)
-        pending_doc_count = len(doc_repo.find_pending_by_pet(pet_id))
+            doc_repo = DocumentRepository(db)
+            pending_doc_count = len(doc_repo.find_pending_by_pet(pet_id))
             if pending_doc_count == 0:
                 logger.info(
                     "Auto-clearing stale deferred marker for pet=%s (age > %dmin, no pending docs)",
@@ -525,27 +532,6 @@ def _get_active_deferred_marker(db: Session, pet_id):
     from app.repositories.deferred_care_plan_repository import DeferredCarePlanRepository
     deferred_repo = DeferredCarePlanRepository(db)
     return deferred_repo.find_uncleared_by_pet(pet_id)
-
-
-def _should_use_agentic_order() -> bool:
-    """
-    Return True when AGENTIC_ORDER_ENABLED='true' and the appropriate API key
-    is configured based on AI_PROVIDER. Evaluated per-message so the flag can
-    be toggled via env var update + redeploy without code changes.
-
-    Falls back to False (deterministic state machine) on any error.
-    """
-    from app.core.constants import AI_PROVIDER
-
-    flag = getattr(settings, "AGENTIC_ORDER_ENABLED", "false")
-
-    # Check for the appropriate API key based on AI_PROVIDER
-    if AI_PROVIDER == "openai":
-        has_key = bool(getattr(settings, "OPENAI_API_KEY", None))
-    else:  # Default to claude/Anthropic
-        has_key = bool(getattr(settings, "ANTHROPIC_API_KEY", None))
-
-    return flag.lower() == "true" and has_key
 
 
 def _get_mobile(user) -> str:
@@ -786,7 +772,6 @@ async def _dispatch_to_handlers(
         ConflictHandler(),
         ReminderHandler(),
         DocumentHandler(),
-        OrderHandler(),
         QueryHandler(),
     ]
 
@@ -797,7 +782,7 @@ async def _dispatch_to_handlers(
                 return True
             except Exception as e:
                 logger.exception("Handler %s failed: %s", handler, str(e))
-                raise
+                return False
 
     return False
 
@@ -964,7 +949,7 @@ async def route_message(db: Session, message_data: dict) -> None:
         # --- Step 3: User is fully onboarded — route using handlers ---
         # Try new handler system first (conflict, reminder, document, order, query).
         # If no handler matches, fall back to old routing for backwards compatibility.
-        handled = await _dispatch_to_handlers(db, user, message_data, send_fn)
+        handled = await _dispatch_to_handlers(db, user, message_data, send_text_message)
 
         if not handled:
             # Fallback to old routing system
@@ -1039,13 +1024,52 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # be sent automatically when generation/extraction completes.
     from app.repositories.pet_repository import PetRepository
     pet_repo = PetRepository(db)
-    _deferred_pet = pet_repo.find_by_user_desc(user.id)
+    _deferred_pet = pet_repo.find_most_recent_by_user(user.id)
     if _deferred_pet and _has_pending_deferred_care_plan(db, _deferred_pet.id, user=user):
-        logger.info(
-            "Documents processing — routing query %r directly for pet=%s, skipping other handlers",
-            text_lower[:40], str(_deferred_pet.id),
-        )
-        await _handle_query(db, user, text)
+        _deferred_dashboard_kw = ("dashboard", "link", "care plan", "my plan")
+        if any(kw in text_lower for kw in _deferred_dashboard_kw):
+            # User is asking for the dashboard/care plan while deferred delivery is active.
+            # If docs are still being extracted, tell them to wait; otherwise send the plan.
+            pending_count = db.query(Document.id).filter(
+                Document.pet_id == _deferred_pet.id,
+            ).count()
+            if pending_count > 0:
+                await send_text_message(
+                    db, from_number,
+                    f"{_deferred_pet.name}'s care plan is still being prepared 🐾 "
+                    "You'll receive the dashboard link as soon as it's ready.",
+                )
+            else:
+                docs = db.query(Document).filter(
+                    Document.pet_id == _deferred_pet.id,
+                ).all()
+                _success_count = sum(
+                    1 for d in docs
+                    if getattr(d, "extraction_status", "") == "success"
+                )
+                _fail_count = sum(
+                    1 for d in docs
+                    if getattr(d, "extraction_status", "") == "rejected"
+                )
+                _failed_names = [
+                    (getattr(d, "file_path", "") or "").split("/")[-1]
+                    for d in docs
+                    if getattr(d, "extraction_status", "") == "rejected"
+                ]
+                _all_results = [
+                    {"status": getattr(d, "extraction_status", ""), "document_id": str(getattr(d, "id", ""))}
+                    for d in docs
+                ]
+                await _send_deferred_care_plan(
+                    db, user, _deferred_pet, from_number,
+                    _all_results, _success_count, _fail_count, _failed_names,
+                )
+        else:
+            logger.info(
+                "Deferred care plan active — suppressing message %r for pet=%s",
+                text_lower[:40], str(_deferred_pet.id),
+            )
+            await _handle_query(db, user, text)
         return
 
     # --- Check for pending reschedule before any other routing ---
@@ -1058,57 +1082,55 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # --- Agentic edit flow (in-progress) ---
     # Route all messages to the edit agent while user.edit_state is active.
     # Checked before order routing so "cancel" inside an edit session is handled correctly.
-    if getattr(user, "edit_state", None) == "agentic_edit":
-        from app.services.whatsapp.agentic_edit import handle_agentic_edit_step
-        await handle_agentic_edit_step(db, user, message_data, send_text_message)
+    if getattr(user, "edit_state", None) == "editing":
+        from app.services.whatsapp.edit_service import handle_edit_step
+        await handle_edit_step(db, user, message_data, send_text_message)
         return
 
-    # --- Agentic order flow — route all text to the agent ---
-    if user.order_state == "agentic_order":
-        if text_lower in ("cancel", "stop"):
-            # Let the agent handle the cancellation gracefully
-            pass
-        from app.services.whatsapp.agentic_order import handle_agentic_order_step
-        await handle_agentic_order_step(db, user, message_data, send_text_message)
-        return
-
-    # --- Active order flow — intercept text for items or pet selection ---
-    if user.order_state in (
-        "awaiting_pet_reco",
-        "awaiting_reco_sel",
-        "awaiting_order_items",
+    # --- Order flow — text states ---
+    _ORDER_TEXT_STATES = {
+        "food_awaiting_pet":     ("handle_pet_selection_for_category", "food"),
+        "food_awaiting_sku_sel": ("handle_food_sku_selection", None),
+        "supp_awaiting_pet":     ("handle_pet_selection_for_category", "supp"),
+        "supp_sel_current":      ("handle_supplement_current_selection", None),
+        "supp_sel_recommended":  ("handle_supplement_recommended_selection", None),
+        "med_prev_awaiting_pet": ("handle_pet_selection_for_category", "med"),
+        "med_prev_sku_sel":      ("handle_preventive_sku_selection", None),
+        "med_rx_sel_items":      ("handle_prescription_medicine_selection", None),
+        "treat_awaiting_pet":    ("handle_pet_selection_for_category", "treat"),
+        "treat_awaiting_name":   ("handle_treat_name", None),
+    }
+    # Gracefully reset mid-flight users from old order states
+    _OLD_ORDER_STATES = {
+        "awaiting_pet_reco", "awaiting_reco_sel", "awaiting_order_items",
         "awaiting_order_pet",
-        "awaiting_order_confirm",
-    ):
-        # Allow user to cancel mid-flow by typing "cancel" or "stop".
+    }
+    if user.order_state in _OLD_ORDER_STATES:
+        from app.services.whatsapp.order_service import cancel_order_flow
+        await cancel_order_flow(db, user)
+        await send_text_message(db, from_number, "Type *order* to start a new order.")
+        return
+
+    if user.order_state in _ORDER_TEXT_STATES:
         if text_lower in ("cancel", "stop"):
             from app.services.whatsapp.order_service import cancel_order_flow
             await cancel_order_flow(db, user)
             return
+        handler_name, extra_arg = _ORDER_TEXT_STATES[user.order_state]
+        from app.services.whatsapp import order_service as _os
+        handler = getattr(_os, handler_name)
+        if extra_arg:
+            await handler(db, user, text, extra_arg)
+        else:
+            await handler(db, user, text)
+        return
 
-        if user.order_state == "awaiting_pet_reco":
-            from app.services.whatsapp.order_service import handle_order_pet_for_recommendation
-            await handle_order_pet_for_recommendation(db, user, text)
-            return
-        elif user.order_state == "awaiting_reco_sel":
-            from app.services.whatsapp.order_service import handle_recommendation_selection
-            await handle_recommendation_selection(db, user, text)
-            return
-        elif user.order_state == "awaiting_order_items":
-            from app.services.whatsapp.order_service import handle_order_items
-            await handle_order_items(db, user, text)
-            return
-        elif user.order_state == "awaiting_order_pet":
-            from app.services.whatsapp.order_service import handle_order_pet_selection
-            await handle_order_pet_selection(db, user, text)
-            return
-        elif user.order_state == "awaiting_order_confirm":
-            # User typed text instead of tapping a button — remind them.
-            await send_text_message(
-                db, from_number,
-                "Please tap *Confirm Order* or *Cancel* above to proceed.",
-            )
-            return
+    if user.order_state == "awaiting_order_confirm":
+        await send_text_message(
+            db, from_number,
+            "Please tap *Confirm Order* or *Cancel* above to proceed.",
+        )
+        return
 
     # --- Greeting — canned menu, no GPT call ---
     if text_lower in GREETINGS:
@@ -1185,28 +1207,19 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
         await _send_dashboard_links(db, user)
         return
 
-    # "order" / "shop" / "buy" command — start product ordering flow.
-    # When AGENTIC_ORDER_ENABLED=true and OpenAI is reachable, use the
-    # LLM-driven flow; otherwise fall back to the deterministic state machine.
-    # Matches exact commands ("order") or natural language ("I want to order fish oil").
+    # "order" / "shop" / "buy" command — start deterministic order flow.
     if text_lower in ORDER_COMMANDS or any(word in ORDER_COMMANDS for word in text_lower.split()):
-        if _should_use_agentic_order():
-            user.order_state = "agentic_order"
-            db.commit()
-            from app.services.whatsapp.agentic_order import handle_agentic_order_step
-            await handle_agentic_order_step(db, user, message_data, send_text_message)
-        else:
-            from app.services.whatsapp.order_service import start_order_flow
-            await start_order_flow(db, user)
+        from app.services.whatsapp.order_service import start_order_flow
+        await start_order_flow(db, user)
         return
 
     # --- Edit intent detection ---
-    # Trigger the agentic edit flow when the user wants to update pet or owner details.
+    # Trigger the edit flow when the user wants to update pet or owner details.
     # Checked last so it doesn't intercept order/dashboard/help commands above.
     # Does NOT fire when the user is in an active order flow.
     if not user.order_state and _is_edit_intent(text_lower):
-        from app.services.whatsapp.agentic_edit import handle_agentic_edit_intent
-        await handle_agentic_edit_intent(db, user, message_data, send_text_message)
+        from app.services.whatsapp.edit_service import handle_edit_intent
+        await handle_edit_intent(db, user, message_data, send_text_message)
         return
 
     # --- Vet diet recommendation via chat ---
@@ -1214,7 +1227,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # persist it as a tagged diet item, then also answer any question present.
     if _is_vet_diet_intent(text_lower):
         chat_pet = (
-            pet_repo.find_by_user_desc(user.id)
+            pet_repo.find_most_recent_by_user(user.id)
         )
         if chat_pet:
             await _handle_vet_diet_chat(db, user, text, from_number, chat_pet)
@@ -1228,7 +1241,7 @@ async def _send_help_menu(db: Session, from_number: str, user=None) -> None:
     """Send the help/commands menu to the user, personalised with pet name."""
     pet_name = None
     if user:
-        pet = pet_repo.find_by_user_desc(user.id)
+        pet = pet_repo.find_most_recent_by_user(user.id)
         if pet:
             pet_name = pet.name
 
@@ -1312,19 +1325,28 @@ async def _handle_button(db: Session, user, message_data: dict) -> None:
     payload = message_data.get("button_payload", "")
     from_number = _get_mobile(user)
 
-    # --- Agentic order flow: forward button taps to the agent ---
-    if user.order_state == "agentic_order":
-        from app.services.whatsapp.agentic_order import handle_agentic_order_step
-        await handle_agentic_order_step(db, user, message_data, send_text_message)
-        return
-
     if payload in REMINDER_PAYLOADS:
         await _handle_reminder_button(db, user, payload)
     elif payload in CONFLICT_PAYLOADS:
         await _handle_conflict_button(db, user, payload)
     elif payload in ORDER_CATEGORY_PAYLOADS:
-        from app.services.whatsapp.order_service import handle_order_category
-        await handle_order_category(db, user, payload)
+        from app.services.whatsapp.order_service import start_order_for_category
+        await start_order_for_category(db, user, payload)
+    elif payload in FOOD_DIET_PAYLOADS:
+        from app.services.whatsapp.order_service import handle_diet_confirm
+        await handle_diet_confirm(db, user, payload)
+    elif payload in MED_TYPE_PAYLOADS:
+        from app.services.whatsapp.order_service import handle_medicine_type_selection
+        await handle_medicine_type_selection(db, user, payload)
+    elif payload in MED_PREV_PAYLOADS:
+        from app.services.whatsapp.order_service import handle_preventive_type_selection
+        await handle_preventive_type_selection(db, user, payload)
+    elif payload in CART_ACTION_PAYLOADS:
+        from app.services.whatsapp.order_service import handle_add_to_cart, handle_checkout
+        if payload == ORDER_ADD_CART:
+            await handle_add_to_cart(db, user)
+        else:
+            await handle_checkout(db, user)
     elif payload in ORDER_CONFIRM_PAYLOADS:
         from app.services.whatsapp.order_service import handle_order_confirmation
         await handle_order_confirmation(db, user, payload)
@@ -1403,14 +1425,8 @@ async def _handle_reminder_button(db: Session, user, payload: str) -> None:
 
         elif payload == REMINDER_ORDER_NOW:
             # Reminder handler marks it snoozed; now initiate the order flow.
-            if _should_use_agentic_order():
-                user.order_state = "agentic_order"
-                db.commit()
-                from app.services.whatsapp.agentic_order import handle_agentic_order_step
-                await handle_agentic_order_step(db, user, {}, send_text_message)
-            else:
-                from app.services.whatsapp.order_service import start_order_flow
-                await start_order_flow(db, user)
+            from app.services.whatsapp.order_service import start_order_flow
+            await start_order_flow(db, user)
 
         elif payload == REMINDER_STILL_PENDING:
             await send_text_message(
@@ -1550,7 +1566,7 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
 
     # Find user's most recent active pet.
     pet_repo = PetRepository(db)
-    pet = pet_repo.find_by_user_desc(user.id)
+    pet = pet_repo.find_most_recent_by_user(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "Please register a pet first.")
@@ -1588,7 +1604,6 @@ async def _handle_media(db: Session, user, message_data: dict) -> None:
             return
     elif media_id:
         existing_doc = doc_repo.find_by_pet_and_media_id(pet.id, media_id, dedup_cutoff)
-        )
         if existing_doc:
             logger.info(
                 "Duplicate image detected (media_id dedup): media_id=%s, "
@@ -2310,7 +2325,7 @@ async def _handle_query(db: Session, user, text: str) -> None:
     from_number = _get_mobile(user)
 
     pet_repo = PetRepository(db)
-    pet = pet_repo.find_by_user_desc(user.id)
+    pet = pet_repo.find_most_recent_by_user(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "Please register a pet first.")

@@ -43,17 +43,17 @@ logger = logging.getLogger("test_full_flow")
 from app.config import settings
 from app.core.encryption import decrypt_field, hash_field
 from app.database import SessionLocal
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.conflict_flag import ConflictFlag
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.health.conflict_flag import ConflictFlag
 from app.models.core.contact import Contact
-from app.models.dashboard_token import DashboardToken
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.document import Document
+from app.models.auth.dashboard_token import DashboardToken
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
+from app.models.auth.document import Document
 from app.models.core.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
 from app.models.core.user import User
 from app.services.shared.document_upload import (
     build_storage_path,

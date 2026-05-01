@@ -2,7 +2,7 @@
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import medicine_recurrence_service as service
+from app.services.dashboard import medicine_recurrence_service as service
 
 
 class _FakeQuery:

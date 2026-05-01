@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 def test_noise_suppression_allows_meal_confirmation_reply() -> None:
@@ -270,7 +270,7 @@ async def test_step_supplements_no_reply_skips_supplement_parse(monkeypatch) -> 
         onboarding_data={},
         onboarding_state="awaiting_supplements",
     )
-    pet = SimpleNamespace(id="pet-1", name="Milo")
+    pet = SimpleNamespace(id="pet-1", name="Milo", dob=None)
     db = SimpleNamespace(commit=lambda: None)
     send_fn = AsyncMock()
     parse_diet_mock = AsyncMock()

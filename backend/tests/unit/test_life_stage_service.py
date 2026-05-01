@@ -16,6 +16,16 @@ class FakeQuery:
         self._rows = rows
         self._filters = {}
 
+    def filter(self, *args, **kwargs):
+        return self
+
+    def order_by(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        filtered = self.all()
+        return filtered[0] if filtered else None
+
     def filter_by(self, **kwargs):
         self._filters.update(kwargs)
         return self
@@ -80,8 +90,8 @@ async def test_get_life_stage_data_boundary_senior_for_all_breed_sizes(
         ]
     )
 
-    monkeypatch.setattr("app.services.life_stage_service._get_pet_age_months", lambda _pet: boundary_months)
-    monkeypatch.setattr("app.services.life_stage_service._get_breed_size", lambda _w, _b: breed_size)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_pet_age_months", lambda _pet: boundary_months)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_breed_size", lambda _w, _b: breed_size)
 
     result = await get_life_stage_data(db, pet)
 
@@ -101,14 +111,14 @@ async def test_cache_hit_returns_cached_traits_without_gpt(monkeypatch):
     )
     db = FakeSession(rows=[cached])
 
-    monkeypatch.setattr("app.services.life_stage_service._get_pet_age_months", lambda _pet: 48)
-    monkeypatch.setattr("app.services.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_pet_age_months", lambda _pet: 48)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
 
     async def should_not_call_gpt(*args, **kwargs):
         raise AssertionError("GPT generation should not run when cache is present")
 
     monkeypatch.setattr(
-        "app.services.life_stage_service._generate_life_stage_traits_gpt",
+        "app.services.dashboard.life_stage_service._generate_life_stage_traits_gpt",
         should_not_call_gpt,
     )
 
@@ -116,8 +126,7 @@ async def test_cache_hit_returns_cached_traits_without_gpt(monkeypatch):
 
     assert isinstance(result, LifeStageData)
     assert result.stage == "adult"
-    assert result.traits == cached.traits
-    assert result.essential_care == cached.essential_care
+    assert result.insights == cached.traits
     assert db.commit_count == 0
     assert db.added == []
     assert db.deleted == []
@@ -135,16 +144,15 @@ async def test_cache_miss_generates_and_invalidates_old_stage(monkeypatch):
     )
     db = FakeSession(rows=[stale])
 
-    monkeypatch.setattr("app.services.life_stage_service._get_pet_age_months", lambda _pet: 48)
-    monkeypatch.setattr("app.services.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_pet_age_months", lambda _pet: 48)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
 
     async def fake_generate(*args, **kwargs):
         return SimpleNamespace(
-            traits=[{"label": "Mature energy", "color": "neutral"}],
-            essential_care=[{"icon": "ðŸ©º", "title": "Annual checks", "detail": "Track bloodwork yearly"}],
+            insights=[{"text": "Mature energy levels expected at this stage.", "color": "neutral"}],
         )
 
-    monkeypatch.setattr("app.services.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
 
     result = await get_life_stage_data(db, pet)
 
@@ -168,16 +176,15 @@ async def test_cache_miss_generates_when_breed_size_changes_same_stage(monkeypat
     )
     db = FakeSession(rows=[stale_same_stage])
 
-    monkeypatch.setattr("app.services.life_stage_service._get_pet_age_months", lambda _pet: 48)
-    monkeypatch.setattr("app.services.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_pet_age_months", lambda _pet: 48)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
 
     async def fake_generate(*args, **kwargs):
         return SimpleNamespace(
-            traits=[{"label": "Updated profile", "color": "green"}],
-            essential_care=[{"icon": "ðŸ©º", "title": "Annual checks", "detail": "Use current size profile"}],
+            insights=[{"text": "Updated profile for current size.", "color": "green"}],
         )
 
-    monkeypatch.setattr("app.services.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._generate_life_stage_traits_gpt", fake_generate)
 
     result = await get_life_stage_data(db, pet)
 
@@ -195,19 +202,18 @@ async def test_gpt_failure_returns_empty_payload(monkeypatch):
     db = FakeSession(rows=[])
     pet = SimpleNamespace(id=uuid4(), breed="Indie", weight=12, dob=date(2020, 1, 1))
 
-    monkeypatch.setattr("app.services.life_stage_service._get_pet_age_months", lambda _pet: 36)
-    monkeypatch.setattr("app.services.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.MEDIUM)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_pet_age_months", lambda _pet: 36)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._get_breed_size", lambda _w, _b: BreedSize.MEDIUM)
 
     async def broken_generate(*args, **kwargs):
         raise RuntimeError("openai unavailable")
 
-    monkeypatch.setattr("app.services.life_stage_service._generate_life_stage_traits_gpt", broken_generate)
+    monkeypatch.setattr("app.services.dashboard.life_stage_service._generate_life_stage_traits_gpt", broken_generate)
 
     result = await get_life_stage_data(db, pet)
 
     assert result.stage == "adult"
-    assert result.traits == []
-    assert result.essential_care == []
+    assert result.insights == []
     assert db.added == []
     assert db.deleted == []
     assert db.commit_count == 0

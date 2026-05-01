@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 def test_resolve_vaccine_item_name_maps_kennel_cough_variants() -> None:

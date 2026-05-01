@@ -98,8 +98,6 @@ def check_and_create_conflict(
     # Prevents duplicate conflict flags for the same record.
     conflict_repo = ConflictFlagRepository(db)
     existing_conflict = conflict_repo.find_pending_by_record(existing_record.id)
-        .first()
-    )
 
     if existing_conflict:
         logger.info(

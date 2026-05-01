@@ -4,7 +4,7 @@ Base repository interface for all data access patterns.
 Defines the common CRUD operations that all repositories implement.
 """
 
-from typing import Generic, TypeVar, Protocol
+from typing import List, Generic, TypeVar, Protocol
 from uuid import UUID
 
 T = TypeVar('T')

@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle — Reminder Engine (Excel v5 4-Stage Lifecycle)
 
 Stateless daily reminder processor. Triggered by GitHub Actions cron at 8 AM IST.
@@ -35,6 +35,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
+from typing import List
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -42,6 +43,14 @@ from sqlalchemy.orm import Session
 from app.core.constants import (
     HYGIENE_ITEM_LABELS,
     REMINDER_MONTHLY_INTERVAL_DAYS,
+    SNOOZE_DAYS_DEWORMING,
+    SNOOZE_DAYS_FLEA,
+    SNOOZE_DAYS_FOOD,
+    SNOOZE_DAYS_HYGIENE,
+    SNOOZE_DAYS_MEDICINE,
+    SNOOZE_DAYS_SUPPLEMENT,
+    SNOOZE_DAYS_VACCINE,
+    SNOOZE_DAYS_VET_FOLLOWUP,
     STAGE_D3,
     STAGE_DUE,
     STAGE_OVERDUE,
@@ -54,6 +63,7 @@ from app.core.log_sanitizer import mask_phone
 from app.models.health.condition_medication import ConditionMedication
 from app.models.nutrition.diet_item import DietItem
 from app.models.core.pet import Pet
+from app.models.core.user import User
 from app.models.preventive.reminder import Reminder
 from app.repositories.care_repository import CareRepository
 from app.repositories.contact_repository import ContactRepository
@@ -72,6 +82,22 @@ from app.services.admin.reminder_templates import (
 from app.utils.date_utils import IST, format_date_for_user, get_today_ist
 
 logger = logging.getLogger(__name__)
+
+
+_CATEGORY_SNOOZE_MAP: dict[str, int] = {
+    "vaccine": SNOOZE_DAYS_VACCINE,
+    "deworming": SNOOZE_DAYS_DEWORMING,
+    "flea_tick": SNOOZE_DAYS_FLEA,
+    "food": SNOOZE_DAYS_FOOD,
+    "supplement": SNOOZE_DAYS_SUPPLEMENT,
+    "chronic_medicine": SNOOZE_DAYS_MEDICINE,
+    "vet_followup": SNOOZE_DAYS_VET_FOLLOWUP,
+    "hygiene": SNOOZE_DAYS_HYGIENE,
+}
+
+
+def _snooze_for_category(category: str) -> int:
+    return _CATEGORY_SNOOZE_MAP.get(category, 7)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

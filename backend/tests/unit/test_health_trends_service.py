@@ -69,16 +69,16 @@ async def test_get_health_trends_assembles_all_sections(monkeypatch):
         ),
     ]
 
-    monkeypatch.setattr("app.services.health_trends_service._fetch_active_conditions", lambda _db, _pid: [condition])
-    monkeypatch.setattr("app.services.health_trends_service._fetch_latest_blood_results", lambda _db, _pid: blood_rows)
-    monkeypatch.setattr("app.services.health_trends_service._fetch_weight_rows_desc", lambda _db, _pid: weights)
-    monkeypatch.setattr("app.services.health_trends_service._fetch_preventive_rows", lambda _db, _pid: preventive)
-    monkeypatch.setattr("app.services.health_trends_service._fetch_diagnostic_rows_desc", lambda _db, _pid: blood_rows)
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_active_conditions", lambda _db, _pid: [condition])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_latest_blood_results", lambda _db, _pid: blood_rows)
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_weight_rows_desc", lambda _db, _pid: weights)
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_preventive_rows", lambda _db, _pid: preventive)
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_diagnostic_rows_desc", lambda _db, _pid: blood_rows)
 
     async def fake_questions(_db, _pet, _condition):
         return ["Should we repeat this panel next month?"]
 
-    monkeypatch.setattr("app.services.health_trends_service._get_condition_questions", fake_questions)
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._get_condition_questions", fake_questions)
 
     result = await get_health_trends(SimpleNamespace(), pet)
 
@@ -94,11 +94,11 @@ async def test_get_health_trends_assembles_all_sections(monkeypatch):
 async def test_get_health_trends_returns_null_sections_when_data_missing(monkeypatch):
     pet = SimpleNamespace(id=uuid4(), name="Milo", species="dog", breed="Indie")
 
-    monkeypatch.setattr("app.services.health_trends_service._fetch_active_conditions", lambda _db, _pid: [])
-    monkeypatch.setattr("app.services.health_trends_service._fetch_latest_blood_results", lambda _db, _pid: [])
-    monkeypatch.setattr("app.services.health_trends_service._fetch_weight_rows_desc", lambda _db, _pid: [])
-    monkeypatch.setattr("app.services.health_trends_service._fetch_preventive_rows", lambda _db, _pid: [])
-    monkeypatch.setattr("app.services.health_trends_service._fetch_diagnostic_rows_desc", lambda _db, _pid: [])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_active_conditions", lambda _db, _pid: [])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_latest_blood_results", lambda _db, _pid: [])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_weight_rows_desc", lambda _db, _pid: [])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_preventive_rows", lambda _db, _pid: [])
+    monkeypatch.setattr("app.services.dashboard.health_trends_service._fetch_diagnostic_rows_desc", lambda _db, _pid: [])
 
     result = await get_health_trends(SimpleNamespace(), pet)
 

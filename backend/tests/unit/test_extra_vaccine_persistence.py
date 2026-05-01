@@ -1,9 +1,9 @@
 ﻿from datetime import date
 from uuid import uuid4
 
-from app.models.custom_preventive_item import CustomPreventiveItem
+from app.models.preventive.custom_preventive_item import CustomPreventiveItem
 from app.models.core.pet import Pet
-from app.models.preventive_record import PreventiveRecord
+from app.models.preventive.preventive_record import PreventiveRecord
 from app.services.shared.gpt_extraction import _persist_extra_vaccines_for_pet
 
 

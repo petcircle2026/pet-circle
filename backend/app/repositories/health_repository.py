@@ -8,6 +8,7 @@ health metrics. This is the single source of truth for all health-related querie
 from uuid import UUID
 from datetime import date
 from decimal import Decimal
+from typing import List
 
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session, selectinload
@@ -103,7 +104,7 @@ class HealthRepository:
         """Fetch all active conditions for a pet."""
         return (
             self.db.query(Condition)
-            .filter(and_(Condition.pet_id == pet_id, Condition.status == "active"))
+            .filter(and_(Condition.pet_id == pet_id, Condition.is_active == True))
             .all()
         )
 
@@ -116,7 +117,7 @@ class HealthRepository:
         """
         return (
             self.db.query(Condition)
-            .filter(and_(Condition.pet_id == pet_id, Condition.status == "active"))
+            .filter(and_(Condition.pet_id == pet_id, Condition.is_active == True))
             .options(
                 selectinload(Condition.medications),
                 selectinload(Condition.monitoring_items),
@@ -174,7 +175,7 @@ class HealthRepository:
         """Count active conditions for a pet (used by health score)."""
         return (
             self.db.query(Condition)
-            .filter(and_(Condition.pet_id == pet_id, Condition.status == "active"))
+            .filter(and_(Condition.pet_id == pet_id, Condition.is_active == True))
             .count()
         )
 

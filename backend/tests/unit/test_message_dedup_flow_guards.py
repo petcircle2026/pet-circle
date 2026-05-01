@@ -2,7 +2,7 @@
 import time
 from types import SimpleNamespace
 
-from app.services import message_router, onboarding
+from app.services.whatsapp import message_router, onboarding
 
 
 class _CountQuery:
@@ -24,6 +24,13 @@ class _CountQuery:
         if self._value is None:
             return 0
         return int(self._value)
+
+    def scalar(self):
+        if self._value is None:
+            return 0
+        if isinstance(self._value, list):
+            return len(self._value)
+        return self._value
 
     def all(self):
         if isinstance(self._value, list):

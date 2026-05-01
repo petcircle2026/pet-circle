@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 from app.utils.date_utils import is_ambiguous_date_input, parse_date
 
 

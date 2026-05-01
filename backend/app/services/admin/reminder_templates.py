@@ -1,6 +1,7 @@
-"""PetCircle reminder template registry for category-stage specific messaging."""
+﻿"""PetCircle reminder template registry for category-stage specific messaging."""
 
 from __future__ import annotations
+from typing import List
 
 from dataclasses import dataclass
 from datetime import time

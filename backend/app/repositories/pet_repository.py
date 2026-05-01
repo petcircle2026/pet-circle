@@ -7,6 +7,7 @@ for how pets are fetched, created, updated, and deleted.
 
 from uuid import UUID
 from datetime import datetime
+from typing import List
 
 from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session, selectinload, joinedload

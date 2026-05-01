@@ -6,7 +6,9 @@ Linked to a condition via condition_id FK.
 
 Constraints:
     - condition_id: FK to conditions(id), ON DELETE CASCADE
-    - status: CHECK IN ('active', 'discontinued')
+
+Note: Medication "active" status is computed at runtime from end_date vs today,
+not stored. The stored columns are: end_date (explicit), started_at, refill_due_date.
 """
 
 import uuid
@@ -35,9 +37,8 @@ class ConditionMedication(Base):
     dose = Column(String(100), nullable=True)
     frequency = Column(String(100), nullable=True)
     route = Column(String(50), nullable=True)
-    status = Column(String(20), nullable=False, default="active")  # active | discontinued
     started_at = Column(Date, nullable=True)
-    end_date = Column(Date, nullable=True)  # Treatment end date (extracted from prescription)
+    end_date = Column(Date, nullable=True)  # Treatment end date (extracted from prescription or computed from duration_days)
     refill_due_date = Column(Date, nullable=True)  # When refill is due
     price = Column(String(20), nullable=True)  # e.g. "₹280"
     notes = Column(String(500), nullable=True)

@@ -124,7 +124,7 @@ def is_valid_category(category: str) -> bool:
 
 def classify_item_category(item_name: str) -> str | None:
     """
-    Classify a preventive item into a reminder category using the LLM.
+    Classify a preventive item into a reminder category using LLM.
 
     Args:
         item_name: Name of the preventive item

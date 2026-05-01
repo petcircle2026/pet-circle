@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from app.core.constants import STAGE_D3, STAGE_DUE, STAGE_OVERDUE, STAGE_T7
-from app.services import reminder_engine
+from app.services.admin import reminder_engine
 from app.services.admin.reminder_engine import (
     ReminderCandidate,
     _apply_send_rules,
@@ -105,8 +105,9 @@ def test_apply_send_rules_limits_pet_daily_and_item_gap() -> None:
 
     db = _FakeDB(
         all_results=[
-            [],
-            [(source_due, datetime.now() - timedelta(days=1))],
+            [],  # ReminderConfigLoader.load()
+            [],  # find_sent_today_summary (no reminders sent today)
+            [(source_due, datetime.now() - timedelta(days=1))],  # find_recently_sent
         ]
     )
 
@@ -154,6 +155,8 @@ def test_course_vs_chronic_detection_and_candidate_generation(monkeypatch) -> No
         frequency="for 5 days",
         notes=None,
         refill_due_date=date.today(),
+        end_date=None,
+        status="active",
     )
     chronic_med = SimpleNamespace(
         id=uuid.uuid4(),
@@ -162,9 +165,11 @@ def test_course_vs_chronic_detection_and_candidate_generation(monkeypatch) -> No
         frequency="daily",
         notes="ongoing",
         refill_due_date=date.today(),
+        end_date=None,
+        status="active",
     )
 
-    condition = SimpleNamespace(diagnosis="Dermatitis")
+    condition = SimpleNamespace(diagnosis="Dermatitis", episode_dates=[date.today().isoformat()])
     pet = SimpleNamespace(id=uuid.uuid4(), name="Milo")
     user = SimpleNamespace(onboarding_completed_at=datetime.now(), full_name="Riya")
 

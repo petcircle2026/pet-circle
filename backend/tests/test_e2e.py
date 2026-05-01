@@ -1,8 +1,8 @@
-﻿"""
+"""
 from app.models import (
     PreventiveMaster,
 )
-PetCircle Phase 1 â€” End-to-End Test Suite
+PetCircle Phase 1 " End-to-End Test Suite
 
 Tests the complete application flow:
     1. User onboarding (consent, name, pincode, pet creation)
@@ -29,13 +29,13 @@ from datetime import date, timedelta
 from app.core.constants import *
 from app.core.encryption import decrypt_field, hash_field
 from app.database import SessionLocal
-from app.models.conflict_flag import ConflictFlag
-from app.models.dashboard_token import DashboardToken
-from app.models.document import Document
-from app.models.message_log import MessageLog
+from app.models.health.conflict_flag import ConflictFlag
+from app.models.auth.dashboard_token import DashboardToken
+from app.models.auth.document import Document
+from app.models.messaging.message_log import MessageLog
 from app.models.core.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
 from app.models.core.user import User
 from app.services.whatsapp.conflict_engine import check_and_create_conflict, resolve_conflict
 from app.services.admin.conflict_expiry import expire_pending_conflicts

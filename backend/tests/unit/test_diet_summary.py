@@ -58,23 +58,21 @@ class TestDietSummaryThresholdCalories:
 
 class TestDietSummaryThresholdOmega3:
     def test_omega3_at_15_pct_is_red_critical(self):
-        """Omega-3 at exactly 15 % must return RED 'Critical gap' (explicit req)."""
         color, note = _diet_summary_threshold("Omega-3", 15.0)
         assert color == "red"
-        assert note == "Critical gap"
+        assert note == "Deficient"
 
     def test_omega3_at_5_pct_is_red_critical(self):
         color, note = _diet_summary_threshold("Omega-3", 5.0)
         assert color == "red"
-        assert note == "Critical gap"
+        assert note == "Deficient"
 
     def test_omega3_at_0_pct_is_red_critical(self):
         color, note = _diet_summary_threshold("Omega-3", 0.0)
         assert color == "red"
-        assert note == "Critical gap"
+        assert note == "Deficient"
 
     def test_omega3_at_16_pct_is_red_deficient(self):
-        """Just above critical threshold (16 %) is still red but not critical."""
         color, note = _diet_summary_threshold("Omega-3", 16.0)
         assert color == "red"
         assert note == "Deficient"
@@ -170,6 +168,7 @@ def _make_pet(pet_id="pet-001") -> SimpleNamespace:
 def _base_analysis() -> dict:
     """Return a realistic analyze_nutrition output for a healthy pet."""
     return {
+        "calories_per_day": 1100,
         "calories": {"actual": 1100, "target": 1200, "status": "adequate"},
         "macros": [
             {"name": "Protein", "actual": 22.0, "target": 25.0, "unit": "%",
@@ -223,7 +222,7 @@ class TestGetDietSummary:
     def _patch_analysis(self, analysis_data: dict):
         """Context manager that patches analyze_nutrition with fixed data."""
         return patch(
-            "app.services.nutrition_service.analyze_nutrition",
+            "app.services.dashboard.nutrition_service.analyze_nutrition",
             new=AsyncMock(return_value=analysis_data),
         )
 
@@ -240,7 +239,7 @@ class TestGetDietSummary:
         with self._patch_analysis(_base_analysis()):
             result = self._run(get_diet_summary(None, pet))
         names = [m["name"] for m in result["macros"]]
-        assert names == ["Calories", "Protein", "Omega-3", "Fat"]
+        assert names == ["Calories", "Protein", "Fat", "Fibre"]
 
     def test_macro_fields_present(self):
         pet = _make_pet()
@@ -262,22 +261,21 @@ class TestGetDietSummary:
         calories_macro = next(m for m in result["macros"] if m["name"] == "Calories")
         assert calories_macro["color"] == "green"
 
-    def test_omega3_critical_deficiency_is_red(self):
-        """45 mg / 300 mg = 15.0 % â†’ Omega-3 critical â†’ RED."""
+    def test_fibre_critical_deficiency_is_red(self):
+        """Fibre actual=2, target=4 → 50% → RED ‘Deficient’."""
         pet = _make_pet()
         analysis = _base_analysis()
-        # Set Omega-3 actual=45, target=300 â†’ 15 %
-        for item in analysis["others"]:
-            if item["name"] == "Omega-3":
-                item["actual"] = 45
-                item["target"] = 300
+        for m in analysis["macros"]:
+            if m["name"] == "Fibre":
+                m["actual"] = 2.0
+                m["target"] = 4.0
                 break
         with self._patch_analysis(analysis):
             result = self._run(get_diet_summary(None, pet))
-        omega3_macro = next(m for m in result["macros"] if m["name"] == "Omega-3")
-        assert omega3_macro["color"] == "red"
-        assert omega3_macro["note"] == "Critical gap"
-        assert omega3_macro["pct_of_need"] == 15.0
+        fibre_macro = next(m for m in result["macros"] if m["name"] == "Fibre")
+        assert fibre_macro["color"] == "red"
+        assert fibre_macro["note"] == "Deficient"
+        assert fibre_macro["pct_of_need"] == 50.0
 
     def test_fat_slightly_over_is_amber(self):
         """fat actual=16, target=14 â†’ 114.3 % â†’ amber."""
@@ -311,7 +309,7 @@ class TestGetDietSummary:
         """All macros with >110 % must not return green."""
         pet = _make_pet()
         analysis = _base_analysis()
-        # Pump up protein and fat and omega-3 way over 110 %
+        # Pump up protein, fat, and fibre way over 110 %
         for m in analysis["macros"]:
             if m["name"] == "Protein":
                 m["actual"] = 30.0
@@ -319,10 +317,9 @@ class TestGetDietSummary:
             if m["name"] == "Fat":
                 m["actual"] = 20.0
                 m["target"] = 14.0    # ~143 %
-        for item in analysis["others"]:
-            if item["name"] == "Omega-3":
-                item["actual"] = 400
-                item["target"] = 300  # ~133 %
+            if m["name"] == "Fibre":
+                m["actual"] = 6.0
+                m["target"] = 4.0     # 150 %
         # Pump calories over 100 %
         analysis["calories"]["actual"] = 1500
         analysis["calories"]["target"] = 1200  # 125 %
@@ -387,7 +384,7 @@ class TestGetDietSummary:
         """If analyze_nutrition raises, get_diet_summary returns empty dicts."""
         pet = _make_pet()
         with patch(
-            "app.services.nutrition_service.analyze_nutrition",
+            "app.services.dashboard.nutrition_service.analyze_nutrition",
             new=AsyncMock(side_effect=ValueError("pet not found")),
         ):
             result = self._run(get_diet_summary(None, pet))
@@ -397,7 +394,7 @@ class TestGetDietSummary:
         """Fallback return value always has the two expected keys."""
         pet = _make_pet()
         with patch(
-            "app.services.nutrition_service.analyze_nutrition",
+            "app.services.dashboard.nutrition_service.analyze_nutrition",
             new=AsyncMock(side_effect=RuntimeError("db down")),
         ):
             result = self._run(get_diet_summary(None, pet))

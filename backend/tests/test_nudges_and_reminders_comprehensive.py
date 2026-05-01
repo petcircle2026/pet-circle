@@ -1,10 +1,4 @@
-﻿"""
-from app.models import (
-    BreedConsequenceLibrary,
-    NudgeDeliveryLog,
-    NudgeMessageLibrary,
-    PreventiveMaster,
-)
+"""
 PetCircle -- Comprehensive Nudge & Reminder Test Suite (Excel v5)
 
 Covers every scenario defined in PetCircle_Nudges_v5.xlsx and the reminder spec:
@@ -158,17 +152,17 @@ from app.core.constants import (
 )
 from app.core.encryption import encrypt_field, hash_field
 from app.core.log_sanitizer import mask_phone
-from app.models.condition import Condition
-from app.models.condition_medication import ConditionMedication
-from app.models.condition_monitoring import ConditionMonitoring
-from app.models.diagnostic_test_result import DiagnosticTestResult
-from app.models.diet_item import DietItem
-from app.models.hygiene_preference import HygienePreference
-from app.models.message_log import MessageLog
-from app.models.nudge import Nudge
+from app.models.health.condition import Condition
+from app.models.health.condition_medication import ConditionMedication
+from app.models.health.condition_monitoring import ConditionMonitoring
+from app.models.health.diagnostic_test_result import DiagnosticTestResult
+from app.models.nutrition.diet_item import DietItem
+from app.models.nutrition.hygiene_preference import HygienePreference
+from app.models.messaging.message_log import MessageLog
+from app.models.messaging.nudge import Nudge
 from app.models.core.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
 from app.models.core.user import User
 from app.services.admin.nudge_engine import (
     _classify_item as nudge_classify_item,
@@ -208,6 +202,7 @@ from app.services.admin.reminder_engine import (
 
 # Import functions under test
 from app.utils.date_utils import get_today_ist
+from app.models import BreedConsequenceLibrary, NudgeDeliveryLog, NudgeMessageLibrary, PreventiveMaster
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -1509,13 +1504,13 @@ def run_section_c(db):
         db.flush()
         cands_vax = [c for c in _collect_candidates(db, today)
                      if str(c.pet.id) == str(pet_vax.id) and c.category == "vaccine"]
-        t("C30 multiple vaccines same due_date batched into â‰¤ 1 candidate per (pet, stage, due)",
+        t("C30 multiple vaccines same due_date batched into ‰¤ 1 candidate per (pet, stage, due)",
           len(cands_vax) <= 1)
     else:
-        t("C30 vaccine batching [SKIP: need â‰¥ 2 vaccine masters]", True)
+        t("C30 vaccine batching [SKIP: need ‰¥ 2 vaccine masters]", True)
 
     # C31: Ignore detection -- sent > 24h with no reply -> increment
-    from app.models.message_log import MessageLog
+    from app.models.messaging.message_log import MessageLog
     pet_ign = _make_pet(db, user_c, "IgnDog", "dog", "Labrador")
     rec_ign = _make_preventive_record(db, pet_ign, master, -5, "overdue")
     sent_25h_ago = datetime.now() - timedelta(hours=25)
@@ -1630,7 +1625,7 @@ def run_section_c(db):
       f"days_overdue={params[3] if len(params) > 3 else 'MISSING'}")
 
     # C38: Breed consequence -- breed-specific row used first
-        breed_row = db.query(BreedConsequenceLibrary).filter(
+    breed_row = db.query(BreedConsequenceLibrary).filter(
         BreedConsequenceLibrary.breed == "German Shepherd",
     ).first()
     if breed_row:

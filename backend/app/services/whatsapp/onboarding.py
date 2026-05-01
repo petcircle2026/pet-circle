@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Onboarding Service (Deterministic Flow v2)
 
 Handles the 9-step WhatsApp conversation for user registration and
@@ -226,10 +226,6 @@ def _detect_species_intent(text_lower: str) -> str | None:
                 break
 
     if not matched_species:
-        # Fallback: check if input is a known breed name in breed dictionaries.
-        inferred = _infer_species_from_breed(normalized)
-        if inferred:
-            return inferred
         return None
 
     if "dog" in matched_species:
@@ -4044,8 +4040,9 @@ async def _parse_breed_age(text: str) -> dict:
         '{"breed": "...", "species": "dog"|"cat"|null, '
         '"age_years": number|null, "age_text": "original age text", '
         '"dob": "YYYY-MM-DD"|null, "confident": true|false}. '
-        "If the breed is clearly identifiable, set confident=true. "
-        "If the breed is ambiguous or unrecognizable, set confident=false. "
+        "Both 'breed' and 'species' must ALWAYS be non-null strings — never return null for either. "
+        "Identify the breed from the user message and infer the species from it. "
+        "If the breed is ambiguous or a mix, return 'Mixed Breed' and infer the most likely species from context. "
         "For age, accept years, months, or life stage words "
         '(puppy=0.5, kitten=0.5, junior=1.5, adult=4, senior=9). '
         "If the user provides a date of birth (like '11/11/2021', '11 Nov 21', etc.), "
@@ -4786,6 +4783,8 @@ def _normalize_preventive_medicine_categories(parsed: dict) -> dict:
         final_missing.append("blood_test")
     normalized["missing"] = final_missing
     return normalized
+
+
 
 
 _DOG_BREED_SIGNALS = frozenset({

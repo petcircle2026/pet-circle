@@ -133,8 +133,8 @@ class User(Base):
     # Nullable — None when user is not in an order flow.
     order_state = Column(String(30), nullable=True)
 
-    # --- Agentic Edit Flow State ---
-    # Set to "agentic_edit" when user is in an AI-driven profile edit conversation.
+    # --- Edit Flow State ---
+    # Set to "editing" when user is in a profile edit conversation.
     # Cleared to None when the edit session completes or is cancelled.
     edit_state = Column(String(30), nullable=True)
 

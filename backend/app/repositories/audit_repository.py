@@ -18,7 +18,7 @@ from sqlalchemy import func, desc
 
 from app.models.health.conflict_flag import ConflictFlag
 from app.models.preventive.deferred_care_plan_pending import DeferredCarePlanPending
-from app.models.pet_profile.pet_ai_insight import PetAIInsight
+from app.models.pet_profile.pet_ai_insight import PetAiInsight
 from app.models.commerce.agent_order_session import AgentOrderSession
 from app.models.cache.dashboard_visit import DashboardVisit
 
@@ -194,61 +194,61 @@ class AuditRepository:
 
     # ---- AI Insight ----
 
-    def log_ai_insight(self, insight: PetAIInsight) -> PetAIInsight:
+    def log_ai_insight(self, insight: PetAiInsight) -> PetAiInsight:
         """Create an AI insight record."""
         self.db.add(insight)
         self.db.flush()
         return insight
 
-    def find_insight_by_id(self, insight_id: UUID) -> PetAIInsight | None:
+    def find_insight_by_id(self, insight_id: UUID) -> PetAiInsight | None:
         """Fetch an AI insight by ID."""
         return (
-            self.db.query(PetAIInsight)
-            .filter(PetAIInsight.id == insight_id)
+            self.db.query(PetAiInsight)
+            .filter(PetAiInsight.id == insight_id)
             .first()
         )
 
-    def find_insights_by_pet(self, pet_id: UUID) -> List[PetAIInsight]:
+    def find_insights_by_pet(self, pet_id: UUID) -> List[PetAiInsight]:
         """Fetch all insights for a pet."""
         return (
-            self.db.query(PetAIInsight)
-            .filter(PetAIInsight.pet_id == pet_id)
-            .order_by(desc(PetAIInsight.created_at))
+            self.db.query(PetAiInsight)
+            .filter(PetAiInsight.pet_id == pet_id)
+            .order_by(desc(PetAiInsight.created_at))
             .all()
         )
 
-    def find_latest_insight(self, pet_id: UUID) -> PetAIInsight | None:
+    def find_latest_insight(self, pet_id: UUID) -> PetAiInsight | None:
         """Fetch the most recent insight for a pet."""
         return (
-            self.db.query(PetAIInsight)
-            .filter(PetAIInsight.pet_id == pet_id)
-            .order_by(desc(PetAIInsight.created_at))
+            self.db.query(PetAiInsight)
+            .filter(PetAiInsight.pet_id == pet_id)
+            .order_by(desc(PetAiInsight.created_at))
             .first()
         )
 
     def find_latest_insight_by_type(
         self, pet_id: UUID, insight_type: str
-    ) -> PetAIInsight | None:
+    ) -> PetAiInsight | None:
         """Fetch the most recent insight of a specific type for a pet."""
         return (
-            self.db.query(PetAIInsight)
+            self.db.query(PetAiInsight)
             .filter(
-                PetAIInsight.pet_id == pet_id,
-                PetAIInsight.insight_type == insight_type,
+                PetAiInsight.pet_id == pet_id,
+                PetAiInsight.insight_type == insight_type,
             )
-            .order_by(desc(PetAIInsight.created_at))
+            .order_by(desc(PetAiInsight.created_at))
             .first()
         )
 
-    def find_insights_by_type(self, pet_id: UUID, insight_type: str) -> List[PetAIInsight]:
+    def find_insights_by_type(self, pet_id: UUID, insight_type: str) -> List[PetAiInsight]:
         """Find insights of a specific type."""
         return (
-            self.db.query(PetAIInsight)
+            self.db.query(PetAiInsight)
             .filter(
-                PetAIInsight.pet_id == pet_id,
-                PetAIInsight.insight_type == insight_type,
+                PetAiInsight.pet_id == pet_id,
+                PetAiInsight.insight_type == insight_type,
             )
-            .order_by(desc(PetAIInsight.created_at))
+            .order_by(desc(PetAiInsight.created_at))
             .all()
         )
 
@@ -368,8 +368,8 @@ class AuditRepository:
             "deferred_plans": self.db.query(func.count(DeferredCarePlanPending.id)).filter(
                 DeferredCarePlanPending.pet_id == pet_id
             ).scalar() or 0,
-            "insights": self.db.query(func.count(PetAIInsight.id)).filter(
-                PetAIInsight.pet_id == pet_id
+            "insights": self.db.query(func.count(PetAiInsight.id)).filter(
+                PetAiInsight.pet_id == pet_id
             ).scalar() or 0,
         }
 

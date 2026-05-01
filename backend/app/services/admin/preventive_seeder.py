@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Phase 1 — Preventive Master Seeder (Module 6)
 
 Seeds the frozen preventive master table with standard preventive
@@ -20,6 +20,7 @@ Circle groupings are defined in SEED_DATA, and the effective seeded set is
 filtered by current scope rules in seed_preventive_master().
 """
 import logging
+from typing import List
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session

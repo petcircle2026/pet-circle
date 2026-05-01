@@ -262,8 +262,7 @@ class OrderRepository:
                 Order.status.in_(qualifying_statuses),
             )
             .filter(
-                (Order.product_name.ilike(f"%{product_label}%")) |
-                (Order.items_description.ilike(f"%{product_label}%"))
+                Order.items_description.ilike(f"%{product_label}%")
             )
             .order_by(Order.created_at.desc())
             .first()

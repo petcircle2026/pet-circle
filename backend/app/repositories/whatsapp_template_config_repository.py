@@ -6,7 +6,7 @@ Manages WhatsApp template configurations and body text lookups.
 
 from sqlalchemy.orm import Session
 
-from app.models.messaging.whatsapp_template_config import WhatsappTemplateConfig
+from app.models.lookup.whatsapp_template_config import WhatsappTemplateConfig
 
 
 class WhatsappTemplateConfigRepository:

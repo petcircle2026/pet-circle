@@ -1,7 +1,7 @@
 ﻿import asyncio
 from types import SimpleNamespace
 
-from app.services import message_router
+from app.services.whatsapp import message_router
 
 
 class _PetQuery:
@@ -158,12 +158,16 @@ def test_route_message_onboarding_uses_button_payload_as_text(monkeypatch):
     async def fake_send_text(_db, _to, _text):
         return None
 
-    async def fake_onboarding_step(_db, _user, text, _send_fn, message_data=None):
-        captured["text"] = text
+    class FakeOnboardingService:
+        def __init__(self, _db):
+            pass
+
+        async def handle_message(self, _user, text, _send_fn, message_data=None):
+            captured["text"] = text
 
     monkeypatch.setattr(message_router, "get_or_create_user", fake_get_or_create_user)
     monkeypatch.setattr(message_router, "send_text_message", fake_send_text)
-    monkeypatch.setattr(message_router, "handle_onboarding_step", fake_onboarding_step)
+    monkeypatch.setattr(message_router, "OnboardingService", FakeOnboardingService)
 
     msg = {
         "from_number": "919188877766",
@@ -198,12 +202,16 @@ def test_route_message_onboarding_uses_uppercase_button_payload_as_text(monkeypa
     async def fake_send_text(_db, _to, _text):
         return None
 
-    async def fake_onboarding_step(_db, _user, text, _send_fn, message_data=None):
-        captured["text"] = text
+    class FakeOnboardingService:
+        def __init__(self, _db):
+            pass
+
+        async def handle_message(self, _user, text, _send_fn, message_data=None):
+            captured["text"] = text
 
     monkeypatch.setattr(message_router, "get_or_create_user", fake_get_or_create_user)
     monkeypatch.setattr(message_router, "send_text_message", fake_send_text)
-    monkeypatch.setattr(message_router, "handle_onboarding_step", fake_onboarding_step)
+    monkeypatch.setattr(message_router, "OnboardingService", FakeOnboardingService)
 
     msg = {
         "from_number": "919188877766",

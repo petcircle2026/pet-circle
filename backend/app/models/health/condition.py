@@ -17,7 +17,7 @@ Constraints:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, Column, Date, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -48,13 +48,14 @@ class Condition(Base):
     name = Column(String(200), nullable=False)
     diagnosis = Column(String(500), nullable=True)
     condition_type = Column(String(20), nullable=False, default="episodic")  # chronic | episodic | recurrent | resolved
-    condition_status = Column(String(20), nullable=True)  # active | monitoring | resolved (set by aggregation layer)
-    episode_dates = Column(JSONB, nullable=False, default=list)  # sorted list of YYYY-MM-DD strings
+    condition_status = Column(String(20), nullable=True)  # active | monitoring | resolved (computed at runtime)
+    episode_dates = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list)  # sorted list of YYYY-MM-DD strings
     diagnosed_at = Column(Date, nullable=True)
+    medication_end_date = Column(Date, nullable=True)  # MAX(medications.end_date) for this condition (denormalized for query perf)
     notes = Column(String(1000), nullable=True)
     icon = Column(String(10), nullable=True)  # Emoji icon for condition display
     managed_by = Column(String(200), nullable=True)  # Managing doctor/vet name and location
-    source = Column(String(20), nullable=False, default="extraction")  # extraction | manual
+    source = Column(String(20), nullable=False, default="extraction")  # extraction | inferred | manual
     is_active = Column(Boolean, default=True)
 
     # Set by aggregation service after grouping into complaint families

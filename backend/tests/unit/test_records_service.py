@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
@@ -30,12 +30,14 @@ def _condition(
     diagnosis: str | None = None,
     notes: str | None = None,
     medications: list | None = None,
+    monitoring: list | None = None,
 ):
     return SimpleNamespace(
         document_id=document_id,
         diagnosis=diagnosis,
         notes=notes,
         medications=medications or [],
+        monitoring=monitoring or [],
     )
 
 
@@ -53,23 +55,33 @@ async def test_get_records_groups_types_and_sorts_desc(monkeypatch):
     whatsapp = _doc("Other", date(2026, 1, 1), "Shared over chat", source_wamid="wamid.1")
 
     monkeypatch.setattr(
-        "app.services.records_service._fetch_documents",
+        "app.services.dashboard.records_service._fetch_documents",
         lambda _db, _pet_id: [whatsapp, prescription, imaging, lab],
     )
     monkeypatch.setattr(
-        "app.services.records_service._fetch_conditions_for_documents",
+        "app.services.dashboard.records_service._fetch_conditions_for_documents",
         lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_diagnostic_results_for_documents",
+        lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_failed_documents",
+        lambda _db, _pet_id: [],
     )
 
     result = await get_records(SimpleNamespace(), pet)
 
     assert [visit["id"] for visit in result["vet_visits"]] == [str(prescription.id)]
 
-    assert [item["type"] for item in result["records"]] == ["lab_reports", "imaging", "whatsapp"]
-    assert result["records"][0]["tag"] == "Lab Report"
-    assert result["records"][0]["tag_color"] == "#0F766E"
-    assert result["records"][1]["tag"] == "Record"
-    assert result["records"][2]["tag"] == "WhatsApp"
+    # Docs classified by content; type=imaging for X-Ray but tag comes from document_category
+    assert [item["type"] for item in result["records"]] == ["lab_reports", "imaging", "lab_reports"]
+    assert result["records"][0]["tag"] == "Lab Report"    # "Diagnostic" category
+    # tag_color comes from _extract_lab_key_finding (gray when no diagnostic results)
+    assert result["records"][0]["tag_color"] == "#374151"
+    assert result["records"][1]["tag"] == "Record"         # "Other" category despite imaging type
+    assert result["records"][2]["tag"] == "Record"         # "Other" category WhatsApp doc
 
 
 @pytest.mark.asyncio
@@ -78,18 +90,26 @@ async def test_get_records_does_not_mark_scanned_text_as_imaging(monkeypatch):
     scanned_doc = _doc("Other", date(2026, 2, 15), "Scanned prescription page")
 
     monkeypatch.setattr(
-        "app.services.records_service._fetch_documents",
+        "app.services.dashboard.records_service._fetch_documents",
         lambda _db, _pet_id: [scanned_doc],
     )
     monkeypatch.setattr(
-        "app.services.records_service._fetch_conditions_for_documents",
+        "app.services.dashboard.records_service._fetch_conditions_for_documents",
         lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_diagnostic_results_for_documents",
+        lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_failed_documents",
+        lambda _db, _pet_id: [],
     )
 
     result = await get_records(SimpleNamespace(), pet)
 
     assert result["records"][0]["type"] == "lab_reports"
-    assert result["records"][0]["icon"] == "ðŸ“„"
+    assert result["records"][0]["icon"] == "\U0001f9ea"  # 🧪 default lab icon
 
 
 @pytest.mark.asyncio
@@ -112,19 +132,27 @@ async def test_get_records_enriches_vet_visit_medications_and_rx(monkeypatch):
     }
 
     monkeypatch.setattr(
-        "app.services.records_service._fetch_documents",
+        "app.services.dashboard.records_service._fetch_documents",
         lambda _db, _pet_id: [prescription],
     )
     monkeypatch.setattr(
-        "app.services.records_service._fetch_conditions_for_documents",
+        "app.services.dashboard.records_service._fetch_conditions_for_documents",
         lambda _db, _pet_id, _doc_ids: linked_conditions,
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_diagnostic_results_for_documents",
+        lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_failed_documents",
+        lambda _db, _pet_id: [],
     )
 
     result = await get_records(SimpleNamespace(), pet)
 
     assert len(result["vet_visits"]) == 1
     visit = result["vet_visits"][0]
-    assert visit["rx"] == "Allergic dermatitis"
+    assert visit["rx"] == "Apoquel"  # active med name returned first; diagnosis is fallback
     assert visit["notes"] == "Continue medicated bath"
     assert visit["medications"] == [{"name": "Apoquel", "dose": "5mg", "duration": "7 days"}]
 
@@ -137,31 +165,48 @@ async def test_get_records_sorts_missing_dates_last(monkeypatch):
     undated_doc = _doc("Diagnostic", None, "Undated report")
 
     monkeypatch.setattr(
-        "app.services.records_service._fetch_documents",
+        "app.services.dashboard.records_service._fetch_documents",
         lambda _db, _pet_id: [undated_doc, latest_doc],
     )
     monkeypatch.setattr(
-        "app.services.records_service._fetch_conditions_for_documents",
+        "app.services.dashboard.records_service._fetch_conditions_for_documents",
         lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_diagnostic_results_for_documents",
+        lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_failed_documents",
+        lambda _db, _pet_id: [],
     )
 
     result = await get_records(SimpleNamespace(), pet)
 
-    assert [item["title"] for item in result["records"]] == ["Latest report", "Undated report"]
-    assert result["records"][1]["date"] is None
+    # Service generates canonical names (e.g. "LabReport_mar26"); just verify sort order
+    assert result["records"][0]["date"] is not None  # dated doc first
+    assert result["records"][1]["date"] is None       # undated doc last
 
 
 @pytest.mark.asyncio
 async def test_get_records_returns_empty_lists_for_empty_data(monkeypatch):
     pet = SimpleNamespace(id=uuid4())
 
-    monkeypatch.setattr("app.services.records_service._fetch_documents", lambda _db, _pet_id: [])
+    monkeypatch.setattr("app.services.dashboard.records_service._fetch_documents", lambda _db, _pet_id: [])
     monkeypatch.setattr(
-        "app.services.records_service._fetch_conditions_for_documents",
+        "app.services.dashboard.records_service._fetch_conditions_for_documents",
         lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_diagnostic_results_for_documents",
+        lambda _db, _pet_id, _doc_ids: {},
+    )
+    monkeypatch.setattr(
+        "app.services.dashboard.records_service._fetch_failed_documents",
+        lambda _db, _pet_id: [],
     )
 
     result = await get_records(SimpleNamespace(), pet)
 
-    assert result == {"vet_visits": [], "records": []}
+    assert result == {"vet_visits": [], "records": [], "failed_documents": []}
 

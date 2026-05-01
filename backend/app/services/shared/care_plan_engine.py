@@ -1,4 +1,4 @@
-"""
+﻿"""
 PetCircle Dashboard Rebuild — Care Plan Classification Engine
 
 Implements the 7-step classification algorithm that assigns each preventive
@@ -21,7 +21,7 @@ import statistics
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import StrEnum
-from typing import NotRequired, TypedDict
+from typing import List, NotRequired, TypedDict
 from uuid import UUID
 
 from sqlalchemy.orm import Session, joinedload

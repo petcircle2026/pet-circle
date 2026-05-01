@@ -9,7 +9,7 @@ Payload IDs (from constants — never hardcoded):
     - REMINDER_DONE:          "Done — Log It" (Due stage) — mark done today
     - REMINDER_ALREADY_DONE:  "Already Done" (T-7 stage) — same as DONE
     - REMINDER_SNOOZE_7:      "Remind Me Later" — snooze by category-specific days
-    - REMINDER_ORDER_NOW:     "Order Now" — trigger agentic_order flow
+    - REMINDER_ORDER_NOW:     "Order Now" — trigger order flow
     - REMINDER_STILL_PENDING: "Still Pending" — acknowledge but do nothing
     - REMINDER_SCHEDULE:      "Schedule For ()" — set awaiting_reschedule_date state
     - REMINDER_RESCHEDULE:    Legacy — same as REMINDER_SCHEDULE
@@ -31,7 +31,7 @@ State transitions:
         → reminder.status = 'snoozed'
 
     REMINDER_ORDER_NOW:
-        → Triggers agentic_order flow (caller must initiate)
+        → Triggers order flow (caller must initiate)
         → reminder.status = 'snoozed' (pending order)
 
     REMINDER_STILL_PENDING:
@@ -48,9 +48,12 @@ State transitions:
 """
 import logging
 from datetime import date, timedelta
+from typing import List
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+
+from app.models.preventive.reminder import Reminder
 
 from app.core.constants import (
     REMINDER_ALREADY_DONE,
@@ -326,7 +329,7 @@ def _handle_order_now(db: Session, reminder: Reminder) -> dict:
     Handle REMINDER_ORDER_NOW — user wants to order via WhatsApp.
 
     Marks the reminder as snoozed (pending order).
-    The caller (message_router) is responsible for initiating the agentic_order flow.
+    The caller (message_router) is responsible for initiating the order flow.
     """
     reminder.status = "snoozed"
     db.commit()
@@ -335,7 +338,7 @@ def _handle_order_now(db: Session, reminder: Reminder) -> dict:
         "status": "order_initiated",
         "reminder_id": str(reminder.id),
         "action": REMINDER_ORDER_NOW,
-        "initiate_order": True,  # signal to caller to start agentic_order
+        "initiate_order": True,  # signal to caller to start order flow
     }
 
 

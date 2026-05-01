@@ -25,8 +25,8 @@ from datetime import date, timedelta
 from app.database import SessionLocal
 from app.models.core.user import User
 from app.models.core.pet import Pet
-from app.models.preventive_record import PreventiveRecord
-from app.models.reminder import Reminder
+from app.models.preventive.preventive_record import PreventiveRecord
+from app.models.preventive.reminder import Reminder
 from app.core.encryption import encrypt_field, hash_field
 from app.utils.date_utils import get_today_ist
 

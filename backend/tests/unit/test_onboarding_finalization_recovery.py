@@ -1,6 +1,6 @@
 ﻿from types import SimpleNamespace
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 class _FakeDB:

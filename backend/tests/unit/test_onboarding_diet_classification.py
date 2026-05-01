@@ -14,21 +14,22 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
-from app.services import onboarding
+from app.services.whatsapp import onboarding
 
 
 def _mock_gpt_response(items: list[dict]) -> SimpleNamespace:
-    """Build a fake OpenAI chat.completions response returning the given items."""
+    """Build a fake Anthropic-style response returning the given items."""
     payload = json.dumps({"items": items})
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=payload))]
+        content=[SimpleNamespace(text=payload)]
     )
 
 
 @pytest.mark.asyncio
 async def test_parse_diet_input_returns_kind_field(monkeypatch) -> None:
     fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())),
+        messages=SimpleNamespace(create=AsyncMock()),
     )
     monkeypatch.setattr(
         onboarding, "_get_openai_onboarding_client", lambda: fake_client
@@ -59,7 +60,8 @@ async def test_parse_diet_input_defaults_missing_kind_to_ingredient(
     monkeypatch,
 ) -> None:
     fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())),
+        messages=SimpleNamespace(create=AsyncMock()),
     )
     monkeypatch.setattr(
         onboarding, "_get_openai_onboarding_client", lambda: fake_client
@@ -85,7 +87,8 @@ async def test_parse_diet_input_on_gpt_failure_marks_as_ingredient(
     monkeypatch,
 ) -> None:
     fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock()))
+        chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock())),
+        messages=SimpleNamespace(create=AsyncMock()),
     )
     monkeypatch.setattr(
         onboarding, "_get_openai_onboarding_client", lambda: fake_client
@@ -141,7 +144,9 @@ async def test_store_meal_items_drops_everything_if_no_brand(monkeypatch) -> Non
 
     await onboarding._store_meal_items(db=None, pet=pet, items=items, food_type="home")
 
-    assert stored == []
+    # home food type saves all items (even non-brand ingredients)
+    assert len(stored) == 2
+    assert all(item[1] == "homemade" for item in stored)
 
 
 @pytest.mark.asyncio
