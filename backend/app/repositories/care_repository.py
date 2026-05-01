@@ -480,6 +480,53 @@ class CareRepository:
         )
         return [med for med in rows if is_medication_active(med, med.condition)]
 
+    def find_distinct_active_medications(self, pet_id: UUID) -> list:
+        """
+        Returns one ConditionMedication per distinct lowercase name for the pet.
+        Picks the row with the latest end_date (NULL wins = open-ended prescription).
+        Active status: end_date >= today OR end_date IS NULL, then episode-based check.
+        Used by care_plan_engine for the clinical medication DISTINCT display.
+        """
+        from app.models.health.condition_medication import ConditionMedication
+        from app.models.health.condition import Condition
+        from app.services.dashboard.condition_aggregation_service import is_medication_active
+        from sqlalchemy.orm import joinedload
+        from sqlalchemy import or_
+        from datetime import date
+
+        today = date.today()
+        rows = (
+            self.db.query(ConditionMedication)
+            .join(Condition, ConditionMedication.condition_id == Condition.id)
+            .options(joinedload(ConditionMedication.condition))
+            .filter(
+                Condition.pet_id == pet_id,
+                ConditionMedication.item_type == "medicine",
+                or_(
+                    ConditionMedication.end_date >= today,
+                    ConditionMedication.end_date.is_(None),
+                ),
+            )
+            .all()
+        )
+
+        active = [med for med in rows if is_medication_active(med, med.condition)]
+
+        # DISTINCT ON LOWER(name): prefer null end_date (open-ended), then latest end_date
+        best: dict[str, ConditionMedication] = {}
+        for med in active:
+            key = med.name.strip().lower()
+            existing = best.get(key)
+            if existing is None:
+                best[key] = med
+            elif (
+                existing.end_date is not None
+                and (med.end_date is None or med.end_date > existing.end_date)
+            ):
+                best[key] = med
+
+        return list(best.values())
+
     def find_active_conditions_for_pet(self, pet_id: UUID) -> list:
         """
         Fetch all active conditions for a pet.

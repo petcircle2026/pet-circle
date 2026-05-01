@@ -3192,15 +3192,15 @@ def _build_preventive_summary_text(db, pet) -> str:
         "blood_test": [],
     }
     for rec, master in records:
-        cat = (master.category or "").lower()
-        if "vaccine" in cat or "vaccination" in cat:
-            category_map["vaccine"].append((master.name, rec.last_done_date, rec.medicine_name))
+        cat = (master.item_name or "").lower()
+        if "vaccine" in cat or "vaccination" in cat or "dhppi" in cat or "feline core" in cat or "fvrcp" in cat:
+            category_map["vaccine"].append((master.item_name, rec.last_done_date, rec.medicine_name))
         elif "deworm" in cat:
-            category_map["deworming"].append((master.name, rec.last_done_date, rec.medicine_name))
+            category_map["deworming"].append((master.item_name, rec.last_done_date, rec.medicine_name))
         elif "flea" in cat or "tick" in cat:
-            category_map["flea_tick"].append((master.name, rec.last_done_date, rec.medicine_name))
+            category_map["flea_tick"].append((master.item_name, rec.last_done_date, rec.medicine_name))
         elif "blood" in cat or "test" in cat:
-            category_map["blood_test"].append((master.name, rec.last_done_date, rec.medicine_name))
+            category_map["blood_test"].append((master.item_name, rec.last_done_date, rec.medicine_name))
 
     def _fmt_date(d) -> str:
         if not d:

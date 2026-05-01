@@ -1305,26 +1305,33 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         # ── Active clinical prescription medications → Attend To ─────────────
         # Medications that are actively prescribed but don't map to any preventive
         # test_type (e.g. antibiotics, anti-nausea, ORS) go directly into the
-        # Attend To section. They don't require a refill_due_date to appear here —
-        # just status="active" and item_type="medicine" is enough.
+        # Attend To section. Deduplication: one entry per distinct canonical drug
+        # name (the prescription with the latest / null end_date wins).
         try:
             care_repo = CareRepository(db)
-            all_condition_meds = care_repo.find_active_condition_medications_all(pet.id)
-            for clin_med in all_condition_meds:
-                # Filter out expired medicines: if end_date is set, it must be today or later
-                if clin_med.end_date and clin_med.end_date < today:
-                    continue
+            distinct_meds = care_repo.find_distinct_active_medications(pet.id)
+            for clin_med in distinct_meds:
                 med_test_type = _normalize_item_name(clin_med.name)
                 # Only handle clinical medications (non-preventive types).
                 # Preventive types (vaccine, deworming, tick_flea, etc.) are
                 # already handled by the prescriptions_by_key path above.
                 if med_test_type != "other":
                     continue
-                clin_key = f"rx_med:{clin_med.id}"
+                clin_key = f"rx_med:{clin_med.name.strip().lower()}"
                 clin_condition = clin_med.condition.name if clin_med.condition else None
                 reason_parts: list[str] = []
                 if clin_condition:
                     reason_parts.append(f"Prescribed for {clin_condition}")
+                # Append latest episode date to surface the condition episode linkage
+                episode_dates = getattr(clin_med.condition, "episode_dates", None) or []
+                if episode_dates:
+                    try:
+                        latest_episode = max(episode_dates)
+                        from datetime import datetime as _dt
+                        ep_display = _dt.strptime(latest_episode, "%Y-%m-%d").strftime("%d/%m/%y")
+                        reason_parts.append(f"Episode: {ep_display}")
+                    except Exception:
+                        pass
                 if clin_med.dose:
                     reason_parts.append(clin_med.dose)
                 if clin_med.frequency:

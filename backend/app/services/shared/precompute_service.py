@@ -178,38 +178,154 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             db.close()
 
     async def _run_health_conditions_v2() -> None:
-        from app.repositories.care_repository import CareRepository
+        from app.database import SessionLocal as _SL
+        from app.models.core.pet import Pet as _Pet
+        from app.models.health.aggregated_condition import AggregatedCondition
+        from app.models.health.condition import Condition as _Condition
+        from app.models.health.condition_medication import ConditionMedication
+        from app.models.health.diagnostic_test_result import DiagnosticTestResult
+        from app.models.nutrition.diet_item import DietItem
+        from app.services.shared.care_plan_engine import _get_life_stage, _get_pet_age_months
+        from app.services.dashboard.ai_insights_service import _generate_health_conditions_v2_gpt
+        from sqlalchemy import text as sa_text
+        from datetime import date as _date
+
         db: Session = SessionLocal()
         try:
-            from app.services.dashboard.ai_insights_service import (
-                _aggregate_conditions_for_health_prompt,
-                _generate_health_conditions_v2_gpt,
+            pet = db.query(_Pet).filter(_Pet.id == pet_id).first()
+            if not pet:
+                return
+
+            today = _date.today()
+            age_months = _get_pet_age_months(pet)
+            age_years = round(age_months / 12, 1) if age_months else None
+            life_stage = _get_life_stage(pet)
+
+            pet_profile = {
+                "name": pet.name,
+                "species": pet.species,
+                "breed": pet.breed,
+                "age_years": age_years,
+                "life_stage": life_stage,
+                "gender": pet.gender,
+                "neutered": pet.neutered,
+            }
+
+            # Aggregated conditions — one row per condition family.
+            # condition_status is recomputed fresh; stored value is never trusted.
+            agg_rows = (
+                db.query(AggregatedCondition)
+                .filter(AggregatedCondition.pet_id == pet_id)
+                .order_by(AggregatedCondition.last_record_date.desc())
+                .all()
             )
 
-            care_repo = CareRepository(db)
-            condition_rows = care_repo.find_active_conditions_for_pet(pet_id)
+            def compute_status(row):
+                if (row.condition_status or "") == "resolved":
+                    return "resolved"
+                if row.condition_type == "chronic":
+                    return "active"
+                med_end = row.medication_end_date
+                if med_end:
+                    if med_end >= today:
+                        return "active"
+                    if (today - med_end).days <= 30:
+                        return "monitoring"
+                    return "resolved"
+                if row.last_record_date:
+                    if (today - row.last_record_date).days <= 45:
+                        return "monitoring"
+                return "resolved"
 
-            conditions_for_prompt = []
-            for cond in condition_rows:
-                meds = [
-                    {"end_date": str(m.end_date) if m.end_date else None}
-                    for m in (cond.medications or [])
-                ]
-                monitoring = [
-                    {"recheck_due_date": str(m.recheck_due_date) if m.recheck_due_date else None}
-                    for m in (cond.monitoring or [])
-                ]
-                conditions_for_prompt.append({
-                    "name": cond.name,
-                    "condition_type": cond.condition_type,
-                    "episode_dates": cond.episode_dates or [],
-                    "medications": meds,
-                    "monitoring": monitoring,
-                    "diagnostic_values": [],
-                })
+            conditions_payload = [
+                {
+                    "condition_family_id": str(row.id),
+                    "name": row.name,
+                    "condition_type": row.condition_type,
+                    "condition_status": compute_status(row),
+                    "episode_dates": row.episode_dates or [],
+                    "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
+                    "last_record_date": str(row.last_record_date) if row.last_record_date else None,
+                }
+                for row in agg_rows
+            ]
 
-            aggregated = _aggregate_conditions_for_health_prompt(conditions_for_prompt)
-            result = await _generate_health_conditions_v2_gpt(aggregated, "")
+            # Active medications — one row per unique med name, latest episode wins.
+            active_meds = db.execute(
+                sa_text("""
+                    SELECT DISTINCT ON (LOWER(cm.name))
+                        cm.name         AS med_name,
+                        cm.dose,
+                        cm.frequency,
+                        cm.end_date,
+                        c.name          AS condition_name
+                    FROM condition_medications cm
+                    JOIN conditions c ON cm.condition_id = c.id
+                    WHERE c.pet_id = :pet_id
+                      AND (cm.end_date >= :today OR cm.end_date IS NULL)
+                    ORDER BY LOWER(cm.name), c.diagnosed_at DESC NULLS LAST
+                """),
+                {"pet_id": str(pet_id), "today": today},
+            ).fetchall()
+
+            medications_payload = [
+                {
+                    "name": m.med_name,
+                    "dose": m.dose,
+                    "frequency": m.frequency,
+                    "end_date": str(m.end_date) if m.end_date else "lifelong",
+                    "for_condition": m.condition_name,
+                }
+                for m in active_meds
+            ]
+
+            # Abnormal lab results from DiagnosticTestResult (status_flag low/high/abnormal).
+            abnormal_results = (
+                db.query(DiagnosticTestResult)
+                .filter(
+                    DiagnosticTestResult.pet_id == pet_id,
+                    DiagnosticTestResult.status_flag.in_(["low", "high", "abnormal"]),
+                )
+                .order_by(DiagnosticTestResult.observed_at.desc())
+                .limit(50)
+                .all()
+            )
+
+            labs_payload = [
+                {
+                    "test_name": r.parameter_name,
+                    "value": str(r.value_numeric) if r.value_numeric is not None else r.value_text,
+                    "unit": r.unit,
+                    "status_flag": r.status_flag,
+                    "report_date": str(r.observed_at),
+                }
+                for r in abnormal_results
+            ]
+
+            # Current diet items.
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+
+            diet_payload = [
+                {
+                    "item_name": d.label,
+                    "item_type": d.type,
+                    "daily_portion_g": d.daily_portion_g,
+                    "pack_size_g": d.pack_size_g,
+                    "doses_per_day": d.doses_per_day,
+                }
+                for d in diet_rows
+            ]
+
+            user_payload = {
+                "today": today.isoformat(),
+                "pet": pet_profile,
+                "conditions": conditions_payload,
+                "active_medications": medications_payload,
+                "abnormal_labs": labs_payload,
+                "current_diet": diet_payload,
+            }
+
+            result = await _generate_health_conditions_v2_gpt(user_payload)
             _upsert_insight(db, pet_id, "health_conditions_v2", result)
             logger.info("precompute: health_conditions_v2 cached for pet=%s", pet_id_str)
         except Exception as exc:
