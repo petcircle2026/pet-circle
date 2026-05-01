@@ -5558,13 +5558,24 @@ def seed_preventive_records_for_pet(db: Session, pet: Pet) -> int:
     existing_master_ids = preventive_repo.find_existing_master_ids_for_pet(pet.id)
 
     # Compute pet age for age-gated seeding decisions.
-    _seed_age_weeks = (
-        (date.today() - pet.dob).days / 7 if pet.dob else None
-    )
+    _seed_age_days = (date.today() - pet.dob).days if pet.dob else None
+    _seed_age_weeks = _seed_age_days / 7 if _seed_age_days is not None else None
+    # Puppy series: one-time doses marked with recurrence_days >= 36500.
+    # Only seed them when the pet is still in the puppy window (< 6 months).
+    # Adult dogs that never had those doses should add them via document upload,
+    # not via phantom "not_started" records that pollute the care plan.
+    _is_puppy = _seed_age_days is None or _seed_age_days < 180
 
     count = 0
     for master in masters:
         if master.id in existing_master_ids:
+            continue
+        # Skip one-time puppy-series items for non-puppy dogs.
+        if (
+            not _is_puppy
+            and master.recurrence_days
+            and master.recurrence_days >= 36500
+        ):
             continue
         # Tick/Flea products are not safe for dogs younger than 8 weeks.
         # Skip seeding the record so the care plan does not surface it.

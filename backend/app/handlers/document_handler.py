@@ -39,16 +39,11 @@ class DocumentHandler(BaseHandler):
             logger.warning("DocumentHandler received unexpected type: %s", msg_type)
             return
 
-        # Import here to avoid circular deps
-        from app.services.shared.document_upload import handle_document_upload
+        # Import here to avoid circular deps (message_router imports this module)
+        from app.services.whatsapp.message_router import _handle_media
 
         try:
-            await handle_document_upload(
-                db=db,
-                user=user,
-                message_data=message_data,
-                send_fn=send_fn,
-            )
+            await _handle_media(db=db, user=user, message_data=message_data)
         except Exception as e:
             logger.exception("Document handler failed: %s", str(e))
             raise

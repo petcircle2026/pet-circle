@@ -271,7 +271,6 @@ from app.domain.onboarding import OnboardingService
 from app.handlers import (
     ConflictHandler,
     DocumentHandler,
-    QueryHandler,
     ReminderHandler,
 )
 from app.models.auth.document import Document
@@ -772,7 +771,10 @@ async def _dispatch_to_handlers(
         ConflictHandler(),
         ReminderHandler(),
         DocumentHandler(),
-        QueryHandler(),
+        # QueryHandler intentionally excluded: _handle_text (the fallback below)
+        # already handles all text routing — commands, dashboard, orders, greetings —
+        # and falls back to _handle_query for actual questions. Keeping QueryHandler
+        # here would intercept every text message before _handle_text runs.
     ]
 
     for handler in handlers:
@@ -1192,12 +1194,12 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
             )
         return
 
-    # "dashboard" / "link" command — exact match or phrase detection.
-    # Handles: "dashboard", "link", "my dashboard", "send me the link",
-    # "send dashboard link", "show link for ahu", etc.
+    # "dashboard" / "link" / "care plan" command — exact match or phrase detection.
+    # Handles: "dashboard", "link", "my dashboard", "care plan", "my plan",
+    # "send me the link", "send dashboard link", "show link for ahu", etc.
     # Word-boundary check avoids false positives like "blinking".
-    _dashboard_exact = {"dashboard", "link", "my dashboard"}
-    _dashboard_phrases = ("dashboard", " link", "link ")
+    _dashboard_exact = {"dashboard", "link", "my dashboard", "care plan", "my plan"}
+    _dashboard_phrases = ("dashboard", " link", "link ", "care plan", "my plan")
     if text_lower in _dashboard_exact or text_lower.startswith("link") or any(
         phrase in text_lower for phrase in _dashboard_phrases
     ):

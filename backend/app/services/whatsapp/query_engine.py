@@ -35,6 +35,7 @@ Rules:
     - If data not available, explicit "I don't have that information" response.
 """
 import logging
+from datetime import date
 from uuid import UUID
 from typing import List
 
@@ -205,9 +206,26 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
     # --- Preventive records ---
     records = preventive_repo.find_with_master_ordered_by_due(pet_id)
 
+    # Life-stage filter: skip puppy-series one-time items for adult pets.
+    # recurrence_days >= 36500 is the sentinel used across the codebase.
+    _pet_age_days = (date.today() - pet.dob).days if pet.dob else None
+    _is_puppy = _pet_age_days is None or _pet_age_days < 180
+
+    # Deduplicate per master: when multiple records exist for the same item
+    # (e.g. a seeded not_started + an extracted record with a date), prefer
+    # the one with last_done_date set so GPT doesn't see both.
+    _best: dict = {}  # master_id → (record, master)
+    for record, master in records:
+        if not _is_puppy and master.recurrence_days and master.recurrence_days >= 36500:
+            continue
+        mid = str(master.id)
+        existing_rec, _ = _best.get(mid, (None, None))
+        if existing_rec is None or (record.last_done_date and not existing_rec.last_done_date):
+            _best[mid] = (record, master)
+
     context_parts.append("\n=== Preventive Health Records ===")
-    if records:
-        for record, master in records:
+    if _best:
+        for record, master in _best.values():
             if record.last_done_date:
                 context_parts.append(
                     f"- {master.item_name} ({master.category}): "
