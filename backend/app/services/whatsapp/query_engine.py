@@ -237,7 +237,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
         context_parts.append("No active reminders.")
 
     # --- Documents (fetched here, detailed output below) ---
-    documents = document_repo.find_by_pet(pet_id)
+    documents = document_repo.find_by_pet_id(pet_id)
 
     # --- Conditions ---
     conditions = health_repo.get_all_conditions_by_pet(pet_id)
