@@ -133,6 +133,11 @@ class User(Base):
     # Nullable — None when user is not in an order flow.
     order_state = Column(String(30), nullable=True)
 
+    # JSONB context bag for the in-progress order conversation.
+    # Keys: pet_id, sku_options, selected_sku, supp_item_ids, rx_medicines, …
+    # Cleared to None when the order flow ends.
+    order_context = Column(JSONB, nullable=True)
+
     # --- Edit Flow State ---
     # Set to "editing" when user is in a profile edit conversation.
     # Cleared to None when the edit session completes or is cancelled.

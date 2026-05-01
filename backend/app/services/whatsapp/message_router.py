@@ -1020,6 +1020,15 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     if not text:
         return
 
+    # --- Agentic edit flow (in-progress) ---
+    # Must be checked before the deferred care-plan block so an active edit
+    # session (e.g. user replied "8" to the update menu) is never swallowed
+    # by the care-plan suppression logic below.
+    if getattr(user, "edit_state", None) == "editing":
+        from app.services.whatsapp.edit_service import handle_edit_step
+        await handle_edit_step(db, user, message_data, send_text_message)
+        return
+
     # --- Global suppression while care plan delivery is in progress ---
     # When a deferred care-plan marker is active, no question is being
     # asked of the user. Any incoming text (yes/no/ok/dashboard/anything)
@@ -1097,14 +1106,6 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     # next text message as a date input to apply_reschedule_date().
     reschedule_result = await _try_handle_reschedule_date(db, user, text, from_number)
     if reschedule_result:
-        return
-
-    # --- Agentic edit flow (in-progress) ---
-    # Route all messages to the edit agent while user.edit_state is active.
-    # Checked before order routing so "cancel" inside an edit session is handled correctly.
-    if getattr(user, "edit_state", None) == "editing":
-        from app.services.whatsapp.edit_service import handle_edit_step
-        await handle_edit_step(db, user, message_data, send_text_message)
         return
 
     # --- Order flow — text states ---
