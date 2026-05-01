@@ -1038,7 +1038,7 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
     from app.repositories.pet_repository import PetRepository
     pet_repo = PetRepository(db)
     _deferred_pet = pet_repo.find_most_recent_by_user(user.id)
-    if _deferred_pet and _has_pending_deferred_care_plan(db, _deferred_pet.id, user=user):
+    if _deferred_pet and _has_pending_deferred_care_plan(db, _deferred_pet.id, user=user) and not user.order_state:
         _deferred_dashboard_kw = ("dashboard", "link", "care plan", "my plan")
         if any(kw in text_lower for kw in _deferred_dashboard_kw):
             # User is asking for the dashboard/care plan while deferred delivery is active.
@@ -1341,10 +1341,26 @@ async def _try_handle_reschedule_date(
     return True
 
 
+_ORDER_BUTTON_PAYLOADS = (
+    ORDER_CATEGORY_PAYLOADS
+    | FOOD_DIET_PAYLOADS
+    | MED_TYPE_PAYLOADS
+    | MED_PREV_PAYLOADS
+    | CART_ACTION_PAYLOADS
+    | ORDER_CONFIRM_PAYLOADS
+)
+
+
 async def _handle_button(db: Session, user, message_data: dict) -> None:
     """Handle a button response — route to reminder, conflict, or order handler."""
     payload = message_data.get("button_payload", "")
     from_number = _get_mobile(user)
+
+    # If the user taps an order button while mid-edit, abandon the edit session
+    # so the order flow isn't blocked by the edit-state guard in _handle_text.
+    if getattr(user, "edit_state", None) == "editing" and payload in _ORDER_BUTTON_PAYLOADS:
+        from app.services.whatsapp.edit_service import _clear_state as _clear_edit_state
+        _clear_edit_state(user, db)
 
     if payload in REMINDER_PAYLOADS:
         await _handle_reminder_button(db, user, payload)

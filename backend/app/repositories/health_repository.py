@@ -120,7 +120,7 @@ class HealthRepository:
             .filter(and_(Condition.pet_id == pet_id, Condition.is_active == True))
             .options(
                 selectinload(Condition.medications),
-                selectinload(Condition.monitoring_items),
+                selectinload(Condition.monitoring),
             )
             .all()
         )
@@ -136,7 +136,7 @@ class HealthRepository:
             .filter(Condition.id == condition_id)
             .options(
                 selectinload(Condition.medications),
-                selectinload(Condition.monitoring_items),
+                selectinload(Condition.monitoring),
             )
             .first()
         )

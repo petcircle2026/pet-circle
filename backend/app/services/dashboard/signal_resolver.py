@@ -1181,12 +1181,12 @@ def _serialize_medicine_product(product, is_highlighted: bool) -> dict:
         "category": "medicine",
         "brand_name": product.brand_name,
         "product_name": product.product_name,
-        "product_type": product.product_type,
+        "product_type": product.type,
         "form": getattr(product, "form", None),
         "pack_size": getattr(product, "pack_size", None),
         "weight_band": weight_band,
-        "mrp": int(product.mrp),
-        "discounted_price": int(product.discounted_price),
+        "mrp": product.mrp_paise // 100,
+        "discounted_price": product.discounted_paise // 100,
         "in_stock": bool(product.in_stock),
         "vet_diet_flag": False,
         "is_highlighted": is_highlighted,
@@ -1219,10 +1219,18 @@ def _build_medicine_result(level: SignalLevel, products: list) -> SignalResult:
 def _query_medicine_catalog(db: Session, product_type: str, species: str, pet=None) -> list:
     from app.models import ProductMedicines
 
+    if product_type == "flea_tick":
+        type_filter = or_(
+            ProductMedicines.type.ilike("%Tick%"),
+            ProductMedicines.type.ilike("%Flea%"),
+        )
+    else:
+        type_filter = ProductMedicines.type.ilike(f"%{product_type}%")
+
     rows = (
         db.query(ProductMedicines)
         .filter(
-            ProductMedicines.product_type == product_type,
+            type_filter,
             ProductMedicines.active.is_(True),
         )
         .order_by(ProductMedicines.popularity_rank.asc())

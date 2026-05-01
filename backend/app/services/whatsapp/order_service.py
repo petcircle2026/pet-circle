@@ -149,7 +149,7 @@ def _format_sku_list(sku_options: list[dict]) -> str:
     lines = []
     for i, sku in enumerate(sku_options, 1):
         brand = sku.get("brand_name", "")
-        line_name = sku.get("product_line", "")
+        line_name = sku.get("product_line") or sku.get("product_name", "")
         price = sku.get("discounted_price") or sku.get("mrp", 0)
         pack = sku.get("pack_size", "")
         label = f"{brand} {line_name}".strip()
@@ -394,11 +394,9 @@ async def _resolve_and_show_food(db, user, pet, diet_items, conditions, ctx, mob
             life_stage = _get_pet_life_stage(pet)
             from app.models import ProductFood as _PF
             filters = [
-                _PF.life_stage_tags.ilike(f"%{life_stage}%"),
+                _PF.life_stage.ilike(f"%{life_stage}%"),
                 _PF.in_stock.is_(True),
             ]
-            if pet.species:
-                filters.insert(0, _PF.species_tags.ilike(f"%{pet.species}%"))
             rows = (
                 db.query(_PF)
                 .filter(*filters)
@@ -418,7 +416,10 @@ async def _resolve_and_show_food(db, user, pet, diet_items, conditions, ctx, mob
             logger.warning("order_service: food fallback error: %s", exc)
 
     ctx["sku_options"] = sku_options
-    _set_order_state(user, db, "food_awaiting_sku_sel", ctx)
+    if sku_options:
+        _set_order_state(user, db, "food_awaiting_sku_sel", ctx)
+    else:
+        _clear_order_state(db, user)
     await _send_sku_results(db, mobile, pet.name, sku_options)
 
 
@@ -443,7 +444,7 @@ async def handle_food_sku_selection(db: Session, user, text: str) -> None:
     _set_order_state(user, db, "awaiting_cart_action", ctx)
 
     brand = selected.get("brand_name", "")
-    line = selected.get("product_line", "")
+    line = selected.get("product_line") or selected.get("product_name", "")
     price = selected.get("discounted_price") or selected.get("mrp", 0)
     pack = selected.get("pack_size", "")
     label = f"{brand} {line}".strip()
@@ -545,8 +546,6 @@ async def _resolve_and_show_supplement(db, user, pet, diet_item, ctx, mobile):
         try:
             from app.models import ProductSupplement as _PS
             filters = [_PS.in_stock.is_(True)]
-            if pet.species:
-                filters.insert(0, _PS.species_tags.ilike(f"%{pet.species}%"))
             rows = (
                 db.query(_PS)
                 .filter(*filters)
@@ -557,7 +556,7 @@ async def _resolve_and_show_supplement(db, user, pet, diet_item, ctx, mobile):
             sku_options = [
                 {
                     "sku_id": r.sku_id, "brand_name": r.brand_name,
-                    "product_line": r.product_line,
+                    "product_name": r.product_name, "pack_size": r.pack_size,
                     "mrp": int(r.mrp), "discounted_price": int(r.discounted_price),
                 }
                 for r in rows
@@ -566,7 +565,10 @@ async def _resolve_and_show_supplement(db, user, pet, diet_item, ctx, mobile):
             logger.warning("order_service: supplement fallback error: %s", exc)
 
     ctx["sku_options"] = sku_options
-    _set_order_state(user, db, "supp_sel_recommended", ctx)
+    if sku_options:
+        _set_order_state(user, db, "supp_sel_recommended", ctx)
+    else:
+        _clear_order_state(db, user)
     await _send_sku_results(db, mobile, pet.name, sku_options)
 
 
@@ -653,7 +655,10 @@ async def _resolve_and_show_medicine(db, user, pet, sub_type: str, ctx: dict, mo
         logger.warning("order_service: medicine signal error: %s", exc)
 
     ctx["sku_options"] = sku_options
-    _set_order_state(user, db, "med_prev_sku_sel", ctx)
+    if sku_options:
+        _set_order_state(user, db, "med_prev_sku_sel", ctx)
+    else:
+        _clear_order_state(db, user)
     await _send_sku_results(db, mobile, pet.name, sku_options)
 
 

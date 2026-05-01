@@ -734,6 +734,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         )
     )
 
+    preventive_data = [(r, r.preventive_master) for r in selected_records]
+
     preventive_records = []
     for record in selected_records:
         master = record.preventive_master

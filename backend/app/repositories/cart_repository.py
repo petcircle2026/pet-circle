@@ -221,11 +221,13 @@ class CartRepository:
         Returns:
             List of matching cart items.
         """
+        prefix_map = {"food": "F%", "supplement": "S%", "medicine": "SKU-%"}
+        prefix = prefix_map.get(product_type, f"{product_type}%")
         return (
             self.db.query(CartItem)
             .filter(
                 CartItem.user_id == user_id,
-                CartItem.product_type == product_type,
+                CartItem.product_id.ilike(prefix),
             )
             .all()
         )

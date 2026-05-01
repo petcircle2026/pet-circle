@@ -33,7 +33,7 @@ class ProductRepository:
         """Find food products by type."""
         return (
             self.db.query(ProductFood)
-            .filter(ProductFood.product_type == product_type)
+            .filter(ProductFood.product_line == product_type)
             .all()
         )
 
