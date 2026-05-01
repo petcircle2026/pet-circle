@@ -133,6 +133,8 @@ class HealthService:
                 record.preventive_master
                 and record.preventive_master.type == preventive_type
             ):
+                if record.next_due_date is None:
+                    return False
                 status = get_preventive_status(record.next_due_date, today)
                 return status in ("up_to_date", "upcoming")
 

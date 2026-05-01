@@ -6,7 +6,7 @@ Mirrors the 'preventive_records' table exactly as defined in the frozen SQL sche
 Constraints:
     - pet_id: FK to pets(id), ON DELETE CASCADE
     - preventive_master_id: FK to preventive_master(id)
-    - status: CHECK IN ('up_to_date', 'upcoming', 'overdue', 'cancelled')
+    - status: CHECK IN ('up_to_date', 'upcoming', 'overdue', 'cancelled', 'not_started')
     - UNIQUE(pet_id, preventive_master_id, last_done_date) — prevents duplicate
       records for the same pet, preventive item, and date. This is the core
       idempotency protection for the preventive system.
@@ -67,10 +67,11 @@ class PreventiveRecord(Base):
     next_due_date = Column(Date, nullable=True)
 
     # Current status based on date comparison:
-    # 'up_to_date' — next_due_date is far enough away
-    # 'upcoming' — within reminder_before_days of next_due_date
-    # 'overdue' — past next_due_date
-    # 'cancelled' — user explicitly cancelled this preventive item
+    # 'up_to_date'  — next_due_date is far enough away
+    # 'upcoming'    — within reminder_before_days of next_due_date (requires next_due_date)
+    # 'overdue'     — past next_due_date
+    # 'cancelled'   — user explicitly cancelled this preventive item
+    # 'not_started' — baseline record seeded at onboarding, no history or dates yet
     status = Column(String(20), nullable=False)
 
     # Per-pet custom recurrence override (days). When set, used instead of

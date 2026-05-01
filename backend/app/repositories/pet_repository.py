@@ -27,6 +27,10 @@ class PetRepository:
         """Fetch a single pet by ID."""
         return self.db.query(Pet).filter(Pet.id == pet_id).first()
 
+    def find_by_id(self, pet_id: UUID) -> Pet | None:
+        """Alias for get_by_id."""
+        return self.get_by_id(pet_id)
+
     def get_by_id_with_relations(self, pet_id: UUID) -> Pet | None:
         """
         Fetch pet WITH related data (conditions, preventive records).

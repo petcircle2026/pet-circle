@@ -5608,11 +5608,13 @@ def seed_preventive_records_for_pet(db: Session, pet: Pet) -> int:
                     status="upcoming" if next_birthday <= today else "up_to_date",
                 )
             else:
-                # Standard preventive record with empty dates
+                # Baseline record — no history yet, dates unknown.
+                # 'not_started' satisfies the DB constraint that requires
+                # a non-null next_due_date when status is 'upcoming'.
                 record = PreventiveRecord(
                     pet_id=pet.id,
                     preventive_master_id=master.id,
-                    status="upcoming",
+                    status="not_started",
                 )
 
             db.add(record)
