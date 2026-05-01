@@ -5013,6 +5013,7 @@ async def _finalize_onboarding(db, user, send_fn, declined_documents: bool = Fal
     try:
         from datetime import datetime as _dt
 
+        user_repo = UserRepository(db)
         rows_updated = user_repo.mark_onboarding_complete(user.id)
 
         if rows_updated == 0:
