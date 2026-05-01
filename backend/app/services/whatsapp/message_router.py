@@ -556,6 +556,8 @@ _EDIT_STARTS_WITH = (
     "update ", "edit ", "change my ", "fix my ", "correct my ",
     "i want to update", "i want to change", "i want to edit",
     "i need to update", "i need to change", "i need to edit",
+    "add vet", "add my vet", "add a vet",
+    "add contact", "add my contact", "add a contact", "add new contact",
 )
 
 _EDIT_WRONG_PHRASES = (
@@ -1071,7 +1073,15 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
                 "Deferred care plan active — suppressing message %r for pet=%s",
                 text_lower[:40], str(_deferred_pet.id),
             )
-            await _handle_query(db, user, text)
+            # Still honour structured intents even while care plan is pending.
+            if not user.order_state and _is_edit_intent(text_lower):
+                from app.services.whatsapp.edit_service import handle_edit_intent
+                await handle_edit_intent(db, user, message_data, send_text_message)
+            elif text_lower in ORDER_COMMANDS or any(word in ORDER_COMMANDS for word in text_lower.split()):
+                from app.services.whatsapp.order_service import start_order_flow
+                await start_order_flow(db, user)
+            else:
+                await _handle_query(db, user, text)
         return
 
     # --- Check for pending reschedule before any other routing ---

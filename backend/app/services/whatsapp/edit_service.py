@@ -37,8 +37,58 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Category menu text
+# Category menu text + direct-dispatch detection
 # ---------------------------------------------------------------------------
+
+_CAT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "1": (  # Pet Profile
+        "update name", "change name", "update breed", "change breed",
+        "update weight", "change weight", "update age", "change age",
+        "update birthday", "change birthday", "update gender", "change gender",
+        "update neutered", "update spayed", "update pet profile", "change pet profile",
+        "update my pet's", "change my pet's",
+    ),
+    "2": (  # Diet & Nutrition
+        "add food", "add diet", "update diet", "change diet",
+        "update food", "change food", "update my diet", "change my diet",
+        "add my diet", "add nutrition", "update nutrition",
+    ),
+    "3": (  # Preventive Care
+        "add vaccine", "update vaccine", "add vaccination", "update vaccination",
+        "add deworming", "update deworming", "add preventive", "update preventive",
+        "add tick", "add flea", "update tick", "update flea",
+    ),
+    "4": (  # Conditions
+        "add condition", "update condition", "add health condition",
+        "add medical condition", "new condition",
+    ),
+    "5": (  # Reminders
+        "update reminder", "change reminder", "snooze reminder", "edit reminder",
+    ),
+    "6": (  # RX Medicines
+        "add medicine", "add medication", "add rx", "add prescription",
+        "add my medicine", "add my medication", "new medicine", "new medication",
+    ),
+    "7": (  # Contacts
+        "add vet", "add my vet", "add a vet", "update vet", "change vet",
+        "add contact", "add my contact", "add a contact", "add new contact",
+        "update contact", "change contact", "vet contact", "my vet name",
+        "add vet name", "add my vet name",
+    ),
+    "8": (  # Owner Name
+        "update my name", "change my name", "fix my name", "correct my name",
+        "update owner name", "change owner name",
+    ),
+}
+
+
+def _detect_edit_category(text_lower: str) -> str | None:
+    """Return the _CAT_MAP key (1–8) if the message unambiguously maps to one category."""
+    for cat_num, phrases in _CAT_KEYWORDS.items():
+        for phrase in phrases:
+            if phrase in text_lower:
+                return cat_num
+    return None
 
 _CAT_MENU = (
     "What would you like to update? Reply with a number:\n\n"
@@ -273,7 +323,13 @@ async def handle_edit_intent(db: Session, user, message_data: dict, send_text_me
             f"Which pet would you like to update?\n\n{pet_list}\n\nType *cancel* to exit.",
         )
     else:
-        await send_text_message(db, mobile, _CAT_MENU)
+        text_lower = (message_data.get("text") or "").strip().lower()
+        detected = _detect_edit_category(text_lower)
+        if detected:
+            pet = pets[0]
+            await _route_step(db, user, pets, pet, "cat_select", {}, detected, mobile, send_text_message)
+        else:
+            await send_text_message(db, mobile, _CAT_MENU)
 
 
 async def handle_edit_step(db: Session, user, message_data: dict, send_text_message) -> None:
