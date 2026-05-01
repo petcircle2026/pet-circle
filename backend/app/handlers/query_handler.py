@@ -43,16 +43,9 @@ class QueryHandler(BaseHandler):
             logger.warning("QueryHandler received empty text")
             return
 
-        # Import here to avoid circular deps
-        from app.services.whatsapp.query_engine import answer_pet_question
-
         try:
-            await answer_pet_question(
-                db=db,
-                user=user,
-                text=text,
-                send_fn=send_fn,
-            )
+            from app.services.whatsapp.message_router import _handle_query
+            await _handle_query(db, user, text)
         except Exception as e:
             logger.exception("Query handler failed: %s", str(e))
             raise

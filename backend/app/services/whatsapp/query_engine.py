@@ -181,7 +181,7 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
     if not pet:
         return "No pet data available."
 
-    user = user_repo.get_by_id(pet.user_id) if pet.user_id else None
+    user = user_repo.find_by_id(pet.user_id) if pet.user_id else None
 
     context_parts = []
 
