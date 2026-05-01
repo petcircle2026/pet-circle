@@ -60,8 +60,8 @@ class ReminderRepository:
 
     def find_active_for_pet_with_details(self, pet_id: UUID) -> list:
         """Find active reminders for a pet with preventive record and master details."""
-        from app.models.health.preventive_record import PreventiveRecord
-        from app.models.health.preventive_master import PreventiveMaster
+        from app.models.preventive.preventive_record import PreventiveRecord
+        from app.models.lookup.preventive_master import PreventiveMaster
         return (
             self.db.query(Reminder, PreventiveRecord, PreventiveMaster)
             .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)

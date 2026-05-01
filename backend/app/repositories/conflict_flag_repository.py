@@ -93,7 +93,7 @@ class ConflictFlagRepository:
 
     def find_latest_pending_for_user(self, user_id: UUID) -> ConflictFlag | None:
         """Find the most recently created pending conflict for any of the user's pets."""
-        from app.models.health.preventive_record import PreventiveRecord
+        from app.models.preventive.preventive_record import PreventiveRecord
         from app.models.core.pet import Pet
         return (
             self.db.query(ConflictFlag)
@@ -110,7 +110,7 @@ class ConflictFlagRepository:
 
     def find_pet_by_conflict_id(self, conflict_id: UUID):
         """Find the pet associated with a conflict flag."""
-        from app.models.health.preventive_record import PreventiveRecord
+        from app.models.preventive.preventive_record import PreventiveRecord
         from app.models.core.pet import Pet
         return (
             self.db.query(Pet)
