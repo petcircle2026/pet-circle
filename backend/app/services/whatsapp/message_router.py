@@ -1069,18 +1069,26 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
                     _all_results, _success_count, _fail_count, _failed_names,
                 )
         else:
-            logger.info(
-                "Deferred care plan active — suppressing message %r for pet=%s",
-                text_lower[:40], str(_deferred_pet.id),
-            )
             # Still honour structured intents even while care plan is pending.
             if not user.order_state and _is_edit_intent(text_lower):
+                logger.info(
+                    "Deferred care plan active — routing edit intent %r for pet=%s",
+                    text_lower[:40], str(_deferred_pet.id),
+                )
                 from app.services.whatsapp.edit_service import handle_edit_intent
                 await handle_edit_intent(db, user, message_data, send_text_message)
             elif text_lower in ORDER_COMMANDS or any(word in ORDER_COMMANDS for word in text_lower.split()):
+                logger.info(
+                    "Deferred care plan active — routing order intent %r for pet=%s",
+                    text_lower[:40], str(_deferred_pet.id),
+                )
                 from app.services.whatsapp.order_service import start_order_flow
                 await start_order_flow(db, user)
             else:
+                logger.info(
+                    "Deferred care plan active — suppressing message %r for pet=%s",
+                    text_lower[:40], str(_deferred_pet.id),
+                )
                 await _handle_query(db, user, text)
         return
 
@@ -1505,7 +1513,7 @@ async def _handle_nudge_button(db: Session, user, payload: str) -> None:
     from_number = _get_mobile(user)
 
     # Find user's active pet
-    pet = pet_repo.find_by_user(user.id)
+    pet = pet_repo.find_most_recent_by_user(user.id)
 
     if not pet:
         await send_text_message(db, from_number, "No active pet found.")
@@ -2392,7 +2400,7 @@ async def _send_dashboard_links(db, user) -> None:
     from_number = _get_mobile(user)
 
     pet_repo = PetRepository(db)
-    pets = pet_repo.find_by_user(user.id)
+    pets = pet_repo.find_by_user_id(user.id)
 
     if not pets:
         await send_text_message(db, from_number, "No pets found.")

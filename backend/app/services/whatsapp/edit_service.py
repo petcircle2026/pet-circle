@@ -293,7 +293,7 @@ async def handle_edit_intent(db: Session, user, message_data: dict, send_text_me
         return
 
     pet_repo = PetRepository(db)
-    pets = pet_repo.find_by_user_not_deleted(user.id)
+    pets = pet_repo.find_by_user_id(user.id)
     if not pets:
         await send_text_message(db, mobile, "No active pets found. Send *add pet* to register one.")
         return
@@ -349,7 +349,7 @@ async def handle_edit_step(db: Session, user, message_data: dict, send_text_mess
     ctx = edit_data.get("ctx") or {}
 
     pet_repo = PetRepository(db)
-    pets = pet_repo.find_by_user_not_deleted(user.id)
+    pets = pet_repo.find_by_user_id(user.id)
     if not pets:
         _clear_state(user, db)
         await send_text_message(db, mobile, "No active pets found.")

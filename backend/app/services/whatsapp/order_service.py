@@ -93,7 +93,7 @@ def _get_mobile(user) -> str:
 
 def _get_active_pets(db: Session, user) -> list:
     pet_repo = PetRepository(db)
-    pets = [p for p in pet_repo.find_by_user(user.id) if not p.is_deleted]
+    pets = pet_repo.find_by_user_id(user.id)
     return sorted(pets, key=lambda p: p.name or "")
 
 
