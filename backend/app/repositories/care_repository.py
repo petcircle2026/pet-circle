@@ -348,23 +348,34 @@ class CareRepository:
         """
         Fetch (ConditionMedication, Condition, Pet, User) for active medications.
         Used by reminder_engine for chronic medicine candidate collection.
+
+        Active status is computed from end_date + episode_dates (Sheet 6 Fix B),
+        not from the stored status column.
         """
         from app.models.health.condition import Condition
         from app.models.health.condition_medication import ConditionMedication
         from app.models.core.pet import Pet
         from app.models.core.user import User
-        return (
+        from app.services.dashboard.condition_aggregation_service import is_medication_active
+        from datetime import date as _date
+
+        today = _date.today()
+        rows = (
             self.db.query(ConditionMedication, Condition, Pet, User)
             .join(Condition, ConditionMedication.condition_id == Condition.id)
             .join(Pet, Condition.pet_id == Pet.id)
             .join(User, Pet.user_id == User.id)
             .filter(
-                ConditionMedication.status == "active",
                 Pet.is_deleted == False,
                 User.is_deleted == False,
             )
             .all()
         )
+        return [
+            (med, cond, pet, user)
+            for med, cond, pet, user in rows
+            if is_medication_active(med, cond)
+        ]
 
     def find_monitoring_with_due_date_and_pets(self):
         """
@@ -419,51 +430,55 @@ class CareRepository:
         self, pet_id: UUID
     ) -> list:
         """
-        Fetch active condition medications with refill_due_date for a pet.
+        Fetch condition medications with refill_due_date for a pet that are
+        currently active (computed from end_date + episode_dates, Sheet 6 Fix B).
         Used by care_plan_engine to build prescriptions dict.
 
         Returns list of ConditionMedication with eager-loaded condition.
         """
         from app.models.health.condition_medication import ConditionMedication
         from app.models.health.condition import Condition
+        from app.services.dashboard.condition_aggregation_service import is_medication_active
         from sqlalchemy.orm import joinedload
 
-        return (
+        rows = (
             self.db.query(ConditionMedication)
             .join(Condition, ConditionMedication.condition_id == Condition.id)
             .options(joinedload(ConditionMedication.condition))
             .filter(
                 Condition.pet_id == pet_id,
-                ConditionMedication.status == "active",
                 ConditionMedication.refill_due_date.isnot(None),
             )
             .all()
         )
+        return [med for med in rows if is_medication_active(med, med.condition)]
 
     def find_active_condition_medications_all(
         self, pet_id: UUID
     ) -> list:
         """
         Fetch all active condition medications (item_type='medicine') for a pet.
+        Active status computed from end_date + episode_dates (Sheet 6 Fix B).
         Used by care_plan_engine for clinical medication section.
 
         Returns list of ConditionMedication with eager-loaded condition.
         """
         from app.models.health.condition_medication import ConditionMedication
         from app.models.health.condition import Condition
+        from app.services.dashboard.condition_aggregation_service import is_medication_active
         from sqlalchemy.orm import joinedload
 
-        return (
+        rows = (
             self.db.query(ConditionMedication)
             .join(Condition, ConditionMedication.condition_id == Condition.id)
             .options(joinedload(ConditionMedication.condition))
             .filter(
                 Condition.pet_id == pet_id,
-                ConditionMedication.status == "active",
                 ConditionMedication.item_type == "medicine",
             )
             .all()
         )
+        return [med for med in rows if is_medication_active(med, med.condition)]
 
     def find_active_conditions_for_pet(self, pet_id: UUID) -> list:
         """

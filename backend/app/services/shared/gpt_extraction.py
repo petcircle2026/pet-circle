@@ -926,9 +926,14 @@ EXTRACTION_SYSTEM_PROMPT = (
     '(e.g. "Hip Dysplasia", "Diabetes Mellitus", "Otitis Externa", "Skin Allergy"). '
     'NEVER use a medication, drug, supplement, or vaccine brand as condition_name '
     '(e.g. do NOT write "Simparica", "Doxycycline", "NexGard", "Omega-3" as a condition_name).\n'
-    '    - "condition_type": "chronic" | "acute" | "episodic" | "recurrent"\n'
-    '      NOTE: "acute" and "episodic" are interchangeable --- use whichever term appears in the document.\n'
-    '      If neither term appears explicitly, default to "acute" for single or short-term conditions.\n'
+    '    - "condition_type": "chronic" | "episodic"\n'
+    '      "episodic" = a single self-limiting episode (use for all non-chronic conditions including recurring ones — '
+    'recurrence is detected across documents, not per-document).\n'
+    '      "chronic" = ongoing condition requiring long-term management (hypothyroidism, diabetes, CKD, cardiac disease, '
+    'epilepsy, Addison\'s, Cushing\'s, incontinence, IBD, liver disease, megaoesophagus, or lifelong drug prescribed: '
+    'thyroxine, insulin, enalapril, furosemide, phenobarbitone, potassium bromide, trilostane, fludrocortisone, '
+    'benazepril, pimobendan).\n'
+    '      Default = "episodic". Never use "acute" or "recurrent".\n'
     '      "resolved" is NOT a valid condition_type --- it belongs in condition_status only.\n'
     '    - "condition_status": "active" | "resolved" | null\n'
     '      Set to "resolved" if the document explicitly states the condition is resolved, cured, or no longer active.\n'
@@ -1097,10 +1102,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "the category to 'Prescription' — it remains 'Imaging'.\n"
     "- For conditions: extract diagnosed diseases/disorders/syndromes with their medications and monitoring.\n"
     "- condition_name must be the DISEASE/DISORDER name only --- never a drug, supplement, or vaccine brand.\n"
-    "- \"acute\" and \"episodic\" are interchangeable labels for condition_type. Use the term from the document; "
-    "default to \"acute\" if neither is written and the condition is short-term or single-episode.\n"
+    "- condition_type must be \"chronic\" or \"episodic\" only. Never use \"acute\" or \"recurrent\".\n"
+    "  Default = \"episodic\". Use \"chronic\" only for explicitly named lifelong conditions or lifelong management drugs.\n"
     "- \"resolved\" is NOT a valid condition_type value. If the document states a condition is resolved, "
-    "set condition_type to whatever clinical type applies (chronic/acute/episodic/recurrent) AND set "
+    "set condition_type to the appropriate clinical type (chronic/episodic/recurrent) AND set "
     "condition_status to \"resolved\".\n"
     "- episode_dates must capture every date the condition is mentioned, treated, or encountered in this "
     "document. This enables downstream recurrence analysis across multiple documents.\n"
@@ -1228,7 +1233,7 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                         "condition_name": {"type": "string"},
                         "condition_type": {
                             "type": "string",
-                            "enum": ["chronic", "acute", "episodic", "recurrent"],
+                            "enum": ["chronic", "episodic"],
                         },
                         "condition_status": {
                             "type": ["string", "null"],
@@ -3129,23 +3134,16 @@ async def extract_and_process_document(
                 )
                 continue
             try:
-                # Map new extraction condition_type values to DB-valid values.
-                # DB column still uses: chronic | episodic | resolved.
-                # New prompt produces: chronic | acute | episodic | recurrent.
-                # "acute" and "recurrent" map to "episodic" for DB storage.
-                # "resolved" type from old prompts also maps to "episodic" + condition_status="resolved".
-                raw_condition_type = str(raw_condition.get("condition_type") or "chronic").strip().lower()
+                # Document-level condition_type is chronic or episodic only.
+                # Recurrent is an aggregation-layer concept — never stored per-document.
+                # Legacy "acute" / "recurrent" / "resolved" all collapse to "episodic".
+                raw_condition_type = str(raw_condition.get("condition_type") or "episodic").strip().lower()
                 if raw_condition_type == "chronic":
                     condition_type = "chronic"
-                elif raw_condition_type in ("episodic", "acute"):
-                    condition_type = "episodic"
-                elif raw_condition_type == "recurrent":
-                    condition_type = "episodic"
                 elif raw_condition_type == "resolved":
-                    # Legacy: old prompt used "resolved" as a type.
-                    condition_type = "episodic"
+                    condition_type = "episodic"  # legacy: old prompt used "resolved" as a type
                 else:
-                    condition_type = "chronic"
+                    condition_type = "episodic"  # episodic, recurrent, acute, unknown → episodic
 
                 # condition_status: "active" | "resolved" | null
                 raw_status = raw_condition.get("condition_status")
@@ -3195,62 +3193,23 @@ async def extract_and_process_document(
                             str(raw_condition["diagnosed_at"]), str(document_id), condition_name,
                         )
 
-                # Upsert by (pet_id, name) — update if exists, create if not.
+                # One condition row per document per condition name.
+                # Aggregation across documents happens in condition_aggregation_service.
                 from app.repositories.care_repository import CareRepository
                 care_repo = CareRepository(db)
-                existing_condition = care_repo.find_condition_by_pet_and_name(pet.id, condition_name)
-                if existing_condition:
-                    # Ensure the condition is marked as active (re-activation on new documents)
-                    existing_condition.is_active = True
-
-                    # condition_type: upgrade-only (chronic > episodic), never downgrade.
-                    # Prevents an older "acute" prescription from overwriting a
-                    # well-established "chronic" classification.
-                    _TYPE_RANK = {"chronic": 2, "episodic": 1}
-                    if _TYPE_RANK.get(condition_type, 0) > _TYPE_RANK.get(existing_condition.condition_type, 0):
-                        existing_condition.condition_type = condition_type
-
-                    # condition_status: only set if currently unset; or allow
-                    # "resolved" to propagate when explicitly stated in the new doc.
-                    if condition_status:
-                        if not existing_condition.condition_status:
-                            existing_condition.condition_status = condition_status
-                        elif condition_status == "resolved" and existing_condition.condition_status not in ("resolved",):
-                            existing_condition.condition_status = condition_status
-
-                    # diagnosis: fill in if currently empty — don't overwrite
-                    # an existing, more-established description.
-                    if raw_condition.get("diagnosis") and not existing_condition.diagnosis:
-                        existing_condition.diagnosis = str(raw_condition["diagnosis"])[:500]
-
-                    # diagnosed_at: keep the earliest known date (first occurrence).
-                    if diagnosed_at:
-                        if not existing_condition.diagnosed_at or diagnosed_at < existing_condition.diagnosed_at:
-                            existing_condition.diagnosed_at = diagnosed_at
-
-                    # episode_dates: always merge — new dates are additive.
-                    existing_dates = existing_condition.episode_dates or []
-                    merged_dates = sorted(set(existing_dates) | set(valid_episode_dates))
-                    existing_condition.episode_dates = merged_dates
-                    # Do NOT overwrite document_id — keep the original document link.
-                    # The records view queries conditions by document_id to populate
-                    # the vet visit card. Overwriting it would break the original
-                    # prescription's card (its conditions/medications would disappear).
-                    condition_obj = existing_condition
-                else:
-                    condition_obj = Condition(
-                        pet_id=pet.id,
-                        document_id=document.id,
-                        name=condition_name[:200],
-                        diagnosis=(str(raw_condition.get("diagnosis"))[:500] if raw_condition.get("diagnosis") else None),
-                        condition_type=condition_type,
-                        condition_status=condition_status,
-                        episode_dates=valid_episode_dates,
-                        diagnosed_at=diagnosed_at,
-                        source="extraction",
-                    )
-                    db.add(condition_obj)
-                    db.flush()
+                condition_obj = Condition(
+                    pet_id=pet.id,
+                    document_id=document.id,
+                    name=condition_name[:200],
+                    diagnosis=(str(raw_condition.get("diagnosis"))[:500] if raw_condition.get("diagnosis") else None),
+                    condition_type=condition_type,
+                    condition_status=condition_status,
+                    episode_dates=valid_episode_dates,
+                    diagnosed_at=diagnosed_at,
+                    source="extraction",
+                )
+                db.add(condition_obj)
+                db.flush()
 
                 # Add medications (deduplicate by condition_id + name).
                 raw_meds = raw_condition.get("medications") or []
@@ -3803,6 +3762,16 @@ async def extract_and_process_document(
                 logger.warning(
                     "Failed to invalidate health_conditions_v2 cache for pet=%s: %s",
                     str(pet.id), _cache_exc,
+                )
+
+            # Rebuild aggregated_conditions for this pet after each document extraction.
+            try:
+                from app.services.dashboard.condition_aggregation_service import aggregate_conditions_for_pet
+                await aggregate_conditions_for_pet(db, pet.id)
+            except Exception as _agg_exc:
+                logger.warning(
+                    "Failed to aggregate conditions for pet=%s: %s",
+                    str(pet.id), _agg_exc,
                 )
 
         db.commit()

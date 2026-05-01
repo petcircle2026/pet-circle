@@ -54,6 +54,7 @@ from app.repositories.contact_repository import ContactRepository
 from app.repositories.conflict_flag_repository import ConflictFlagRepository
 from app.repositories.pet_ai_insight_repository import PetAiInsightRepository
 from app.models import (
+    AggregatedCondition,
     Condition,
     ConflictFlag,
     Contact,
@@ -68,6 +69,7 @@ from app.models import (
     PreventiveRecord,
     Reminder,
 )
+from app.repositories.condition_repository import ConditionRepository
 from app.services.dashboard.ai_insights_service import AI_INSIGHT_CACHE_DAYS, generate_recognition_bullets
 from app.services.shared.care_plan_engine import compute_care_plan, get_preventive_baseline_days, _normalize_item_name
 from app.services.shared.document_upload import download_from_supabase
@@ -135,54 +137,134 @@ def _safe_iso_date(value: date | datetime | None) -> str | None:
     return value.isoformat()
 
 
-def _condition_severity(condition: Condition) -> str:
-    """Map condition type to UI severity color token."""
-    condition_type = (condition.condition_type or "").strip().lower()
-    if condition_type == "chronic":
+def _condition_severity_from_status(condition_status: str | None, condition_type: str | None) -> str:
+    """Map condition_status (from aggregated layer) to UI severity color token.
+
+    Severity ladder: needs_attention/active → red for chronic, yellow for others;
+    monitoring → yellow; managed/resolved → green.
+    Falls back to condition_type if status is not set.
+    """
+    status = (condition_status or "").strip().lower()
+    ctype = (condition_type or "").strip().lower()
+
+    if status == "needs_attention":
         return "red"
-    if condition_type == "episodic":
+    if status == "active":
+        return "red" if ctype == "chronic" else "yellow"
+    if status == "monitoring":
+        return "yellow"
+    if status in ("managed", "resolved"):
+        return "green"
+
+    # Fallback to condition_type if status unknown
+    if ctype == "chronic":
+        return "red"
+    if ctype in ("episodic", "recurrent"):
         return "yellow"
     return "green"
 
 
-def _condition_trend_label(condition: Condition) -> str:
-    """Build trend label text like 'Active · Since Feb 2025'."""
-    if condition.diagnosed_at:
-        return f"Active · Since {condition.diagnosed_at.strftime('%b %Y')}"
+def _agg_condition_trend_label(agg, runtime_status: str | None = None) -> str:
+    """Build trend label from aggregated condition data.
+
+    runtime_status is the freshly computed status (not the stored one) so the
+    label reflects the condition's state as of today.
+    """
+    ctype = (getattr(agg, "condition_type", None) or "").lower()
+    status = (runtime_status or "").lower()
+
+    if status == "resolved":
+        last = agg.last_record_date
+        if last:
+            return f"Resolved · {last.strftime('%b %Y')}"
+        return "Resolved"
+    if status == "monitoring":
+        last = agg.last_record_date
+        if last:
+            return f"Monitoring · Since {last.strftime('%b %Y')}"
+        return "Monitoring"
+    if ctype == "chronic" and agg.diagnosed_at:
+        return f"Active · Since {agg.diagnosed_at.strftime('%Y')}"
+    if ctype == "recurrent":
+        last = agg.last_record_date
+        if last:
+            return f"Last episode {last.strftime('%b %Y')}"
+        return "Recurrent"
+    if agg.last_record_date:
+        return f"Active · {agg.last_record_date.strftime('%b %Y')}"
+    if agg.diagnosed_at:
+        return f"Active · Since {agg.diagnosed_at.strftime('%b %Y')}"
     return "Active"
 
 
-def _condition_insight(condition: Condition) -> str:
-    """Build a one-line observational insight for condition summary."""
-    if condition.notes:
-        note = " ".join(condition.notes.strip().split())
-        if note:
-            return note[:180]
-
-    active_meds = [med for med in condition.medications if (med.status or "active") == "active"]
-    if active_meds:
-        first_med = active_meds[0].name or "current medication"
-        return f"Current management includes {first_med}; review response trend with your vet."
-
-    if condition.monitoring:
-        first_monitor = condition.monitoring[0].name or "follow-up monitoring"
-        return f"Track {first_monitor} cadence and discuss pattern changes with your vet."
-
+def _agg_condition_insight(agg) -> str:
+    """Build a one-line insight from aggregated condition data."""
+    meds = agg.medications or []
+    if meds:
+        first = meds[0].get("name") if isinstance(meds[0], dict) else None
+        if first:
+            return f"Current management includes {first}; review response trend with your vet."
+    monitoring = agg.monitoring or []
+    if monitoring:
+        first_mon = monitoring[0].get("name") if isinstance(monitoring[0], dict) else None
+        if first_mon:
+            return f"Track {first_mon} cadence and discuss pattern changes with your vet."
     return "Observed pattern tracked from uploaded records; discuss updates with your vet."
 
 
-def _build_health_conditions_summary(condition_rows: list[Condition]) -> list[dict]:
-    """Build health_conditions_summary payload from active conditions."""
+def _build_health_conditions_summary_from_aggregated(agg_rows: list) -> list[dict]:
+    """Build health_conditions_summary payload from AggregatedCondition rows.
+
+    condition_status is computed fresh at runtime from stored date fields so it
+    never goes stale between document uploads.
+    """
+    from app.services.dashboard.condition_aggregation_service import _compute_condition_status
     summary: list[dict] = []
+    for agg in agg_rows:
+        runtime_status = _compute_condition_status(
+            agg.condition_type or "episodic",
+            agg.medication_end_date,
+            agg.episode_dates or [],
+        )
+        summary.append(
+            {
+                "id": str(agg.id),
+                "icon": "🩺",
+                "title": agg.name,
+                "severity": _condition_severity_from_status(runtime_status, agg.condition_type),
+                "trend_label": _agg_condition_trend_label(agg, runtime_status),
+                "insight": _agg_condition_insight(agg),
+            }
+        )
+    return summary
+
+
+def _build_health_conditions_summary(condition_rows: list[Condition]) -> list[dict]:
+    """Build health_conditions_summary payload from document-level conditions (legacy fallback)."""
+    summary: list[dict] = []
+    from app.services.dashboard.condition_aggregation_service import is_medication_active
     for condition in condition_rows:
+        ctype = (condition.condition_type or "").lower()
+        severity = _condition_severity_from_status(condition.condition_status, condition.condition_type)
+        if condition.diagnosed_at:
+            trend_label = f"Active · Since {condition.diagnosed_at.strftime('%b %Y')}"
+        else:
+            trend_label = "Active"
+        active_meds = [med for med in condition.medications if is_medication_active(med, condition)]
+        if active_meds:
+            insight = f"Current management includes {active_meds[0].name}; review response trend with your vet."
+        elif condition.monitoring:
+            insight = f"Track {condition.monitoring[0].name} cadence and discuss pattern changes with your vet."
+        else:
+            insight = "Observed pattern tracked from uploaded records; discuss updates with your vet."
         summary.append(
             {
                 "id": str(condition.id),
                 "icon": condition.icon or "🩺",
                 "title": condition.name,
-                "severity": _condition_severity(condition),
-                "trend_label": _condition_trend_label(condition),
-                "insight": _condition_insight(condition),
+                "severity": severity,
+                "trend_label": trend_label,
+                "insight": insight,
             }
         )
     return summary
@@ -432,6 +514,18 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         finally:
             own_db.close()
 
+    def _fetch_agg_conditions_sync():
+        own_db = SessionLocal()
+        try:
+            rows = ConditionRepository(own_db).get_aggregated_conditions_for_pet(pet_id)
+            own_db.expunge_all()
+            return rows
+        except Exception as exc:
+            logger.warning("parallel _fetch_agg_conditions failed pet=%s: %s", _pet_id_str, exc)
+            return []
+        finally:
+            own_db.close()
+
     def _fetch_diet_sync():
         own_db = SessionLocal()
         try:
@@ -566,15 +660,16 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         finally:
             own_db.close()
 
-    # Submit all 7 to the default thread-pool executor.
+    # Submit all 8 to the default thread-pool executor.
     # They start running immediately while Phase 2 runs below.
-    _fut_conditions  = _exec_loop.run_in_executor(None, _fetch_conditions_sync)
-    _fut_diet        = _exec_loop.run_in_executor(None, _fetch_diet_sync)
-    _fut_insights    = _exec_loop.run_in_executor(None, _fetch_insights_sync)
-    _fut_documents   = _exec_loop.run_in_executor(None, _fetch_documents_sync)
-    _fut_diagnostics = _exec_loop.run_in_executor(None, _fetch_diagnostics_sync)
-    _fut_contacts    = _exec_loop.run_in_executor(None, _fetch_contacts_sync)
-    _fut_masters     = _exec_loop.run_in_executor(None, _fetch_health_masters_sync)
+    _fut_conditions     = _exec_loop.run_in_executor(None, _fetch_conditions_sync)
+    _fut_agg_conditions = _exec_loop.run_in_executor(None, _fetch_agg_conditions_sync)
+    _fut_diet           = _exec_loop.run_in_executor(None, _fetch_diet_sync)
+    _fut_insights       = _exec_loop.run_in_executor(None, _fetch_insights_sync)
+    _fut_documents      = _exec_loop.run_in_executor(None, _fetch_documents_sync)
+    _fut_diagnostics    = _exec_loop.run_in_executor(None, _fetch_diagnostics_sync)
+    _fut_contacts       = _exec_loop.run_in_executor(None, _fetch_contacts_sync)
+    _fut_masters        = _exec_loop.run_in_executor(None, _fetch_health_masters_sync)
 
     # =========================================================================
     # PHASE 2 — Sequential main-session queries (run while Phase 1 executes)
@@ -716,9 +811,9 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     # has taken ~4 RTTs (~600 ms), so futures are almost certainly complete
     # and this gather returns immediately.
     # =========================================================================
-    (condition_rows, diet_rows, _insight_cache,
+    (condition_rows, agg_condition_rows, diet_rows, _insight_cache,
      document_data, diagnostic_results, contacts_data, health_masters) = await asyncio.gather(
-        _fut_conditions, _fut_diet, _fut_insights,
+        _fut_conditions, _fut_agg_conditions, _fut_diet, _fut_insights,
         _fut_documents, _fut_diagnostics, _fut_contacts, _fut_masters,
     )
 
@@ -1004,7 +1099,10 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             "last_visit": _safe_iso_date(vet_summary.last_visit),
         }
 
-    health_conditions_summary = _build_health_conditions_summary(condition_rows)
+    if agg_condition_rows:
+        health_conditions_summary = _build_health_conditions_summary_from_aggregated(agg_condition_rows)
+    else:
+        health_conditions_summary = _build_health_conditions_summary(condition_rows)
     recognition_payload = {
         "report_count": sum(1 for doc in document_data if doc.get("extraction_status") not in ("rejected",)),
         "bullets": recognition_bullets,

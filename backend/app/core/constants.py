@@ -102,6 +102,12 @@ SYSTEM_TIMEZONE: str = "Asia/Kolkata"
 # Due-soon window used by dashboard care-plan status semantics.
 CARE_PLAN_DUE_SOON_DAYS: int = 7
 
+# --- Condition Priority Thresholds ---
+# Days overdue before a monitoring item or preventive record escalates to URGENT.
+URGENT_OVERDUE_DAYS: int = 30
+# Anything overdue by more than HIGH_OVERDUE_DAYS (but <= URGENT_OVERDUE_DAYS) is HIGH priority.
+HIGH_OVERDUE_DAYS: int = 0
+
 # --- Conflict Resolution ---
 # Number of days before an unresolved conflict auto-resolves.
 # After expiry, the system keeps the existing record (KEEP_EXISTING).

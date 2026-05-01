@@ -15,6 +15,7 @@ from app.models.auth import DashboardToken, Document
 from app.models.commerce import AgentOrderSession, CartItem, Order, OrderRecommendation
 from app.models.core import Contact, Pet, User
 from app.models.health import (
+    AggregatedCondition,
     Condition,
     ConditionMedication,
     ConditionMonitoring,
@@ -58,6 +59,7 @@ from app.models.cache import (
 __all__ = [
     # Domain models
     "AgentOrderSession",
+    "AggregatedCondition",
     "CartItem",
     "Condition",
     "ConditionMedication",
