@@ -605,7 +605,7 @@ class PreventiveRepository:
 
     def find_all_with_master_for_pet(self, pet_id: UUID) -> list:
         """Find all preventive records with master details for a pet."""
-        from app.models.health.preventive_master import PreventiveMaster
+        from app.models.lookup.preventive_master import PreventiveMaster
         return (
             self.db.query(PreventiveRecord, PreventiveMaster)
             .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
