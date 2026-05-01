@@ -946,6 +946,7 @@ async def _step_welcome(db, user, text, send_fn, message_data: dict | None = Non
         return
 
     # Check pet limit.
+    pet_repo = PetRepository(db)
     pet_count = pet_repo.count_by_user(user.id)
     if pet_count >= MAX_PETS_PER_USER:
         await send_fn(
