@@ -1054,10 +1054,6 @@ async def _step_breed_age(db, user, text, send_fn):
     if breed_raw:
         pet.breed = await normalize_breed(breed_raw, species=species_gpt)
 
-        # Infer species from breed dictionaries if GPT didn't provide it.
-        if not species_gpt:
-            species_gpt = _infer_species_from_breed(breed_raw)
-
     # Set species if newly identified.
     if species_gpt == "dog":
         pet.species = species_gpt
@@ -4786,28 +4782,6 @@ def _normalize_preventive_medicine_categories(parsed: dict) -> dict:
 
 
 
-
-_DOG_BREED_SIGNALS = frozenset({
-    "retriever", "shepherd", "husky", "rottweiler", "doberman", "dachshund",
-    "pomeranian", "chihuahua", "terrier", "labrador", "collie", "corgi",
-    "bulldog", "poodle", "beagle", "boxer", "mastiff", "dalmatian",
-    "pinscher", "pariah", "indie", "mutt", "corso",
-})
-_CAT_BREED_SIGNALS = frozenset({
-    "persian", "siamese", "maine coon", "ragdoll", "bengal", "sphynx",
-    "abyssinian", "tabby", "rex", "scottish fold", "russian blue",
-    "shorthair", "longhair",
-})
-
-
-def _infer_species_from_breed(breed_key: str) -> str | None:
-    """Infer species from a breed name using signal keyword sets."""
-    lower = breed_key.lower().strip()
-    if any(sig in lower for sig in _DOG_BREED_SIGNALS):
-        return "dog"
-    if any(sig in lower for sig in _CAT_BREED_SIGNALS):
-        return "cat"
-    return None
 
 
 async def _parse_grooming_input(text: str) -> list[tuple[str, int, str]]:
