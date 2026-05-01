@@ -296,6 +296,7 @@ def create_pending_user(db: Session, mobile_number: str) -> User:
         The created or existing User model instance.
     """
     mobile_h = hash_field(mobile_number)
+    user_repo = UserRepository(db)
 
     # --- Guard against duplicates ---
     # Re-check inside create to handle race conditions where two webhook
