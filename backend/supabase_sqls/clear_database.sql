@@ -1,8 +1,8 @@
 -- Clear all data from the database.
 -- Tables PRESERVED (reference/seed data — never cleared):
---   preventive_master, product_catalog, nudge_config,
---   nudge_message_library, breed_consequence_library,
---   whatsapp_template_configs
+--   preventive_master, product_food, product_medicines, product_supplement,
+--   nudge_config, nudge_message_library, breed_consequence_library,
+--   whatsapp_template_configs, reminder_config
 -- Truncates tables in FK-safe order (children first) using CASCADE.
 --
 -- TARGETED RESET (single test number — replace phone number below):
@@ -24,7 +24,6 @@
 TRUNCATE TABLE message_logs CASCADE;
 TRUNCATE TABLE nudge_delivery_log CASCADE;
 TRUNCATE TABLE nudge_engagement CASCADE;
-TRUNCATE TABLE shown_fun_facts CASCADE;
 
 -- AI insights & agent sessions
 TRUNCATE TABLE pet_ai_insights CASCADE;
@@ -47,6 +46,7 @@ TRUNCATE TABLE diagnostic_test_results CASCADE;
 TRUNCATE TABLE condition_medications CASCADE;
 TRUNCATE TABLE condition_monitoring CASCADE;
 TRUNCATE TABLE conditions CASCADE;
+TRUNCATE TABLE aggregated_conditions CASCADE;
 
 -- Nutrition & diet
 TRUNCATE TABLE diet_items CASCADE;
