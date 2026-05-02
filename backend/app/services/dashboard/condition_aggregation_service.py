@@ -363,25 +363,15 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
         merged_type = "episodic"
 
     # ── episode_dates: union, normalised to ISO, deduplicated, sorted ───────────
-    # Conditions with no episode_dates are treated as a recent episode within the
-    # 15-month window so they participate in the recurrence threshold calculation.
-    # A small per-condition day offset ensures multiple undated conditions each
-    # count as a distinct episode rather than collapsing to the same date.
-    all_episodes: list[str] = []
-    _undated_idx = 0
+    all_episodes: set[str] = set()
     for c in family:
-        dates_for_cond = c.episode_dates or []
-        if not dates_for_cond:
-            all_episodes.append(str(date.today() - timedelta(days=_undated_idx)))
-            _undated_idx += 1
-        else:
-            for _ed in dates_for_cond:
-                try:
-                    from app.utils.date_utils import parse_date as _pd
-                    all_episodes.append(str(_pd(str(_ed))))  # normalise to YYYY-MM-DD
-                except Exception:
-                    all_episodes.append(str(_ed))  # keep raw if unparseable
-    merged_episodes = sorted(set(all_episodes))
+        for _ed in (c.episode_dates or []):
+            try:
+                from app.utils.date_utils import parse_date as _pd
+                all_episodes.add(str(_pd(str(_ed))))  # normalise to YYYY-MM-DD
+            except Exception:
+                all_episodes.add(str(_ed))  # keep raw if unparseable
+    merged_episodes = sorted(all_episodes)
 
     # ── Promote to chronic if name/drugs match trigger list ───────────────────
     all_meds_raw: list[dict] = []
@@ -393,9 +383,20 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
         merged_type = "chronic"
 
     # ── Recurrence threshold for non-chronic families ─────────────────────────
+    # Build a runtime-only episode list for the threshold check: conditions with
+    # no episode_dates get a synthetic recent date (today minus a small per-condition
+    # offset) so each undated episode counts distinctly. These synthetic dates are
+    # never stored — merged_episodes above (used for DB storage, last_record_date,
+    # medication activity, etc.) contains only real extracted dates.
     recurrence_watch = False
     if merged_type != "chronic":
-        type_from_threshold, recurrence_watch = _apply_recurrence_threshold(merged_episodes)
+        _threshold_episodes: list[str] = list(merged_episodes)
+        _undated_idx = 0
+        for c in family:
+            if not (c.episode_dates or []):
+                _threshold_episodes.append(str(date.today() - timedelta(days=_undated_idx)))
+                _undated_idx += 1
+        type_from_threshold, recurrence_watch = _apply_recurrence_threshold(_threshold_episodes)
         if _TYPE_RANK.get(type_from_threshold, 0) > _TYPE_RANK.get(merged_type, 0):
             merged_type = type_from_threshold
 

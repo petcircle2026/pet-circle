@@ -9,7 +9,7 @@ Constraints:
     - pet_id: FK to pets(id), ON DELETE CASCADE
     - document_id: FK to documents(id), ON DELETE SET NULL (source document)
     - condition_type: CHECK IN ('chronic', 'episodic', 'recurrent', 'resolved')
-    - source: CHECK IN ('extraction', 'manual')
+    - source: CHECK IN ('extraction', 'inferred', 'manual')
     - is_active: soft delete flag
     - condition_family_id: FK to aggregated_conditions(id), written by aggregation service
 """
@@ -36,6 +36,7 @@ class Condition(Base):
 
     source:
         - extraction: automatically extracted from an uploaded document
+        - inferred: deduced by GPT from medications (no explicit diagnosis written)
         - manual: manually added by the user via dashboard
     """
 

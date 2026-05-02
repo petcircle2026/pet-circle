@@ -519,6 +519,8 @@ def _clear_deferred_care_plan_marker(db: Session, pet_id, user=None) -> int:
     Callers can use this as a "claim" check to ensure only one concurrent
     sender wins the race to deliver the deferred care plan.
     """
+    from app.repositories.deferred_care_plan_repository import DeferredCarePlanRepository
+    deferred_repo = DeferredCarePlanRepository(db)
     rows_cleared = deferred_repo.mark_cleared(pet_id)
     if user is not None and getattr(user, "dashboard_link_pending", False):
         user.dashboard_link_pending = False
@@ -2307,7 +2309,7 @@ async def _delayed_batch_extraction(
         # when CLOUDAMQP_URL is not set (local dev / broker down).
         doc_ids_str = [str(d.id) for d in pending_docs]
         try:
-            from app.services import queue_service
+            from app.services.admin import queue_service
             published = await queue_service.publish_extraction_job(
                 pet_id=str(pet_id),
                 document_ids=doc_ids_str,

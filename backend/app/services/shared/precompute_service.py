@@ -185,7 +185,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
         from app.models.health.condition_medication import ConditionMedication
         from app.models.health.diagnostic_test_result import DiagnosticTestResult
         from app.models.nutrition.diet_item import DietItem
-        from app.services.shared.care_plan_engine import _get_life_stage, _get_pet_age_months
+        from app.services.shared.care_plan_engine import _get_life_stage, _get_pet_age_months, _get_breed_size
         from app.services.dashboard.ai_insights_service import _generate_health_conditions_v2_gpt
         from sqlalchemy import text as sa_text
         from datetime import date as _date
@@ -199,7 +199,8 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             today = _date.today()
             age_months = _get_pet_age_months(pet)
             age_years = round(age_months / 12, 1) if age_months else None
-            life_stage = _get_life_stage(pet)
+            breed_size = _get_breed_size(float(pet.weight) if pet.weight else None, pet.breed)
+            life_stage = _get_life_stage(age_months or 0, breed_size)
 
             pet_profile = {
                 "name": pet.name,
