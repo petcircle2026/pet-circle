@@ -1942,6 +1942,9 @@ async def _step_preventive(db, user, text, send_fn):
     needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
     # Never ask for flea brand when flea is excluded (e.g. puppy under 8 weeks).
     needs_flea_brand_q = _is_flea_without_brand(parsed) and not flea_excluded
+    if needs_flea_brand_q:
+        _inject_flea_brand_from_text(parsed, text)
+        needs_flea_brand_q = _is_flea_without_brand(parsed) and not flea_excluded
 
     if needs_vaccine_type_q:
         # Save parsed data for use after vaccine type answer.
@@ -2140,6 +2143,9 @@ async def _step_prev_retry(db, user, text, send_fn):
         # don't loop — vaccine type and flea brand questions still apply.
         needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
         needs_flea_brand_q = _is_flea_without_brand(parsed)
+        if needs_flea_brand_q:
+            _inject_flea_brand_from_text(parsed, text)
+            needs_flea_brand_q = _is_flea_without_brand(parsed)
 
         if needs_vaccine_type_q:
             _set_onboarding_data(user, "pending_preventive_parsed", parsed)
