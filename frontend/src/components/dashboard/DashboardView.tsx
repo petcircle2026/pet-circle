@@ -182,9 +182,9 @@ export default function DashboardView({
     <div ref={containerRef} className="app">
       <ProfileBanner data={data} token={token} onGoToReminders={onGoToReminders} />
       <RecognitionCard data={data} onGoToRecords={onGoToRecords} />
-      <LifeStageCard data={data} />
+      {/* <LifeStageCard data={data} /> */}
       <HealthConditionsCard data={data} onGoToTrends={onGoToTrends} isExtracting={isExtracting} />
-      <DietAnalysisCard nutrition={data.nutrition_analysis} />
+      {/* <DietAnalysisCard nutrition={data.nutrition_analysis} /> */}
       <CarePlanCard
         petName={data.pet.name}
         buckets={buckets}

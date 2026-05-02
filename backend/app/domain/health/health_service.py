@@ -129,29 +129,23 @@ class HealthService:
     ) -> bool:
         """Check if a preventive type is up to date."""
         for record in records:
-            if (
-                record.preventive_master
-                and record.preventive_master.type == preventive_type
-            ):
+            item = record.item
+            if item and item.item_name == preventive_type:
                 if record.next_due_date is None:
                     return False
                 status = get_preventive_status(record.next_due_date, today)
                 return status in ("up_to_date", "upcoming")
 
-        # If no records found, not up to date
         return False
 
     def _get_last_checkup_days_ago(self, pet_id: UUID, today: date) -> int | None:
         """Get days since last checkup."""
-        # Look for checkup records in preventive_records
         checkup_records = self.preventive_repo.get_by_pet_with_master(pet_id)
 
         last_checkup_date = None
         for record in checkup_records:
-            if (
-                record.preventive_master
-                and record.preventive_master.type == "checkup"
-            ):
+            item = record.item
+            if item and item.item_name == "Vet Checkup":
                 if (
                     last_checkup_date is None
                     or record.last_done_date > last_checkup_date
@@ -191,9 +185,6 @@ class HealthService:
 
     def _get_preventive_item_name(self, record) -> str:
         """Get human-readable name of preventive item."""
-        if record.preventive_master:
-            return record.preventive_master.name
-        if record.custom_preventive_item:
-            return record.custom_preventive_item.name
-        return "Unknown"
+        item = record.item
+        return item.item_name if item else "Unknown"
 

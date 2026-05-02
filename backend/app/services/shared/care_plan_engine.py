@@ -978,8 +978,6 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         from app.repositories.preventive_repository import PreventiveRepository
         preventive_repo = PreventiveRepository(db)
         record_rows = preventive_repo.get_by_pet_with_master(pet.id)
-        # Transform to (record, master, custom_item) tuples for compatibility
-        record_rows = [(r, r.preventive_master, r.custom_preventive_item) for r in record_rows]
 
         # Skip one-time puppy-series items (recurrence_days >= 36500) for
         # non-puppy pets.  Adults should only see the annual DHPPi + Rabies.
@@ -995,19 +993,16 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             and _pet_age_days < 56  # 8 weeks × 7 days
         )
 
-        for record, master, custom_item in record_rows:
-            if master and _skip_puppy_series and master.recurrence_days and master.recurrence_days >= 36500:
+        for record in record_rows:
+            item = record.item
+            if item is None:
                 continue
-            if _skip_flea_tick and master and master.item_name == "Tick/Flea":
+            if _skip_puppy_series and item.recurrence_days and item.recurrence_days >= 36500:
                 continue
-
-            item_name = (
-                (master.item_name if master else None)
-                or (custom_item.item_name if custom_item else None)
-            )
-            if not item_name:
+            if _skip_flea_tick and item.item_name == "Tick/Flea":
                 continue
 
+            item_name = item.item_name
             test_type = _normalize_item_name(item_name)
             if test_type == "other":
                 continue
@@ -1026,7 +1021,7 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             if (
                 test_type == "vaccine"
                 and record.last_done_date is None
-                and not bool(getattr(master, "is_mandatory", False))
+                and not bool(getattr(item, "is_mandatory", False))
             ):
                 continue
 

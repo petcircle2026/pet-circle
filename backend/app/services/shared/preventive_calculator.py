@@ -263,11 +263,11 @@ def calculate_and_update_record(
             f"Preventive record not found: {preventive_record_id}"
         )
 
-    master = PreventiveMasterRepository(db).find_by_id(record.preventive_master_id)
+    item = record.item
 
-    if not master:
+    if not item:
         raise ValueError(
-            f"Preventive master not found for record: {preventive_record_id}"
+            f"Preventive item not found for record: {preventive_record_id}"
         )
 
     # Skip if last_done_date is not set (newly seeded record with no data).
@@ -279,10 +279,10 @@ def calculate_and_update_record(
         return record
 
     # Resolve effective recurrence using unified priority logic.
-    effective_days = get_effective_recurrence_days(db, master, record, pet)
+    effective_days = get_effective_recurrence_days(db, item, record, pet)
 
     new_next_due = compute_next_due_date(record.last_done_date, effective_days)
-    new_status = compute_status(new_next_due, master.reminder_before_days)
+    new_status = compute_status(new_next_due, item.reminder_before_days)
 
     record.next_due_date = new_next_due
     record.status = new_status
@@ -425,16 +425,20 @@ def recalculate_all_for_pet(db: Session, pet_id: UUID, pet=None) -> int:
     Returns:
         Number of records updated.
     """
-    rows = PreventiveRepository(db).find_with_master_non_cancelled(pet_id)
+    records = PreventiveRepository(db).get_by_pet_with_master(pet_id)
 
     updated = 0
-    for record, master in rows:
-        if record.last_done_date is None:
+    for record in records:
+        if record.status == "cancelled" or record.last_done_date is None:
             continue
 
-        effective_days = get_effective_recurrence_days(db, master, record, pet)
+        item = record.item
+        if item is None:
+            continue
+
+        effective_days = get_effective_recurrence_days(db, item, record, pet)
         new_next_due = compute_next_due_date(record.last_done_date, effective_days)
-        new_status = compute_status(new_next_due, master.reminder_before_days)
+        new_status = compute_status(new_next_due, item.reminder_before_days)
 
         record.next_due_date = new_next_due
         record.status = new_status

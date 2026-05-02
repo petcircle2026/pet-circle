@@ -117,6 +117,16 @@ class PreventiveRecord(Base):
     # Back-reference to the pet this record belongs to.
     pet = relationship("Pet", back_populates="preventive_records")
 
+    @property
+    def item(self):
+        """Return the linked item — PreventiveMaster or CustomPreventiveItem.
+
+        Exactly one FK is always set. Use this instead of accessing
+        preventive_master or custom_preventive_item directly so callers
+        don't need to handle the two-source pattern themselves.
+        """
+        return self.preventive_master or self.custom_preventive_item
+
     # Back-reference to the preventive master item (standard items).
     preventive_master = relationship("PreventiveMaster", back_populates="preventive_records")
 

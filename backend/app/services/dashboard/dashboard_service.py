@@ -714,15 +714,17 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     )
 
     for record in preventive_records_list:
-        master = record.preventive_master
-        if _is_adult_dog and master.recurrence_days and master.recurrence_days >= 36500:
+        item = record.item
+        if item is None:
             continue
-        if _is_vaccine_item_name(master.item_name) and not master.is_mandatory and not record.last_done_date:
+        if _is_adult_dog and item.recurrence_days and item.recurrence_days >= 36500:
             continue
-        if _is_vaccine_item_name(master.item_name):
-            existing = vaccine_latest_by_name.get(master.item_name)
+        if _is_vaccine_item_name(item.item_name) and not getattr(item, "is_mandatory", False) and not record.last_done_date:
+            continue
+        if _is_vaccine_item_name(item.item_name):
+            existing = vaccine_latest_by_name.get(item.item_name)
             if not existing or _record_sort_key(record) >= _record_sort_key(existing):
-                vaccine_latest_by_name[master.item_name] = record
+                vaccine_latest_by_name[item.item_name] = record
         else:
             non_vaccine_records.append(record)
 
@@ -734,29 +736,24 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         )
     )
 
-    preventive_data = [(r, r.preventive_master) for r in selected_records]
-
     preventive_records = []
     for record in selected_records:
-        master = record.preventive_master
-        test_type = _normalize_item_name(master.item_name)
-        effective_recurrence = get_effective_recurrence_days(db, master, record, pet)
-
-        display_next_due = str(record.next_due_date) if record.next_due_date else None
+        item = record.item
+        effective_recurrence = get_effective_recurrence_days(db, item, record, pet)
 
         preventive_records.append({
-            "item_name": master.item_name,
-            "category": master.category,
-            "circle": master.circle,
+            "item_name": item.item_name,
+            "category": item.category,
+            "circle": item.circle,
             "last_done_date": str(record.last_done_date) if record.last_done_date else None,
-            "next_due_date": display_next_due,
+            "next_due_date": str(record.next_due_date) if record.next_due_date else None,
             "status": record.status,
             "recurrence_days": effective_recurrence,
             "custom_recurrence_days": record.custom_recurrence_days,
-            "medicine_dependent": master.medicine_dependent,
-            "medicine_name": record.medicine_name if hasattr(record, "medicine_name") and record.medicine_name else None,
+            "medicine_dependent": item.medicine_dependent,
+            "medicine_name": record.medicine_name or None,
             "created_at": record.created_at.isoformat() if record.created_at else None,
-            "is_core": bool(master.is_core) if master.is_core is not None else False,
+            "is_core": bool(getattr(item, "is_core", False)),
         })
 
     # --- Load active reminders ---
