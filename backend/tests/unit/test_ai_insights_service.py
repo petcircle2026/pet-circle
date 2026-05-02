@@ -260,9 +260,6 @@ async def test_generate_care_plan_reasons_maps_reasons_per_item(monkeypatch):
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_life_stage", lambda _age, _size: LifeStage.ADULT)
 
-    async def fake_get_diet_summary(_db, _pet):
-        return {"missing_micros": [{"name": "Omega-3"}]}
-
     async def fake_retry(_call):
         return json.dumps(
             {
@@ -271,7 +268,6 @@ async def test_generate_care_plan_reasons_maps_reasons_per_item(monkeypatch):
             }
         )
 
-    monkeypatch.setattr("app.services.dashboard.ai_insights_service.get_diet_summary", fake_get_diet_summary)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service.retry_openai_call", fake_retry)
 
     reasons = await generate_care_plan_reasons(
@@ -281,6 +277,7 @@ async def test_generate_care_plan_reasons_maps_reasons_per_item(monkeypatch):
             {"item_id": "food-1", "name": "Joint Care Food"},
             {"item_id": "supp-2", "name": "Omega Supplement"},
         ],
+        diet_summary={"missing_micros": [{"name": "Omega-3"}]},
     )
 
     assert set(reasons.keys()) == {"food-1", "supp-2"}
@@ -304,26 +301,23 @@ async def test_generate_care_plan_reasons_returns_empty_dict_on_gpt_failure(monk
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_breed_size", lambda _w, _b: BreedSize.MEDIUM)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_life_stage", lambda _age, _size: LifeStage.ADULT)
 
-    async def fake_get_diet_summary(_db, _pet):
-        return {"missing_micros": []}
-
     async def broken_retry(_call):
         raise RuntimeError("openai unavailable")
 
-    monkeypatch.setattr("app.services.dashboard.ai_insights_service.get_diet_summary", fake_get_diet_summary)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service.retry_openai_call", broken_retry)
 
     reasons = await generate_care_plan_reasons(
         cast(Any, db),
         cast(Any, pet),
         [{"item_id": "food-1", "name": "Joint Care Food"}],
+        diet_summary={"missing_micros": []},
     )
 
     assert reasons == {}
 
 
 @pytest.mark.asyncio
-async def test_generate_care_plan_reasons_returns_empty_dict_on_diet_summary_failure(monkeypatch):
+async def test_generate_care_plan_reasons_returns_empty_dict_on_gpt_exception(monkeypatch):
     db = _FakeSession(all_rows=[[], [SimpleNamespace(name="Dermatitis")]])
     pet = SimpleNamespace(
         id=uuid4(),
@@ -338,15 +332,16 @@ async def test_generate_care_plan_reasons_returns_empty_dict_on_diet_summary_fai
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_breed_size", lambda _w, _b: BreedSize.MEDIUM)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_life_stage", lambda _age, _size: LifeStage.ADULT)
 
-    async def broken_diet_summary(_db, _pet):
-        raise RuntimeError("nutrition service unavailable")
+    async def broken_retry(_call):
+        raise RuntimeError("openai unavailable")
 
-    monkeypatch.setattr("app.services.dashboard.ai_insights_service.get_diet_summary", broken_diet_summary)
+    monkeypatch.setattr("app.services.dashboard.ai_insights_service.retry_openai_call", broken_retry)
 
     reasons = await generate_care_plan_reasons(
         cast(Any, db),
         cast(Any, pet),
         [{"item_id": "food-1", "name": "Joint Care Food"}],
+        diet_summary={"missing_micros": []},
     )
 
     assert reasons == {}
@@ -368,19 +363,16 @@ async def test_generate_care_plan_reasons_handles_invalid_weight(monkeypatch):
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_breed_size", lambda _w, _b: BreedSize.LARGE)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service._get_life_stage", lambda _age, _size: LifeStage.ADULT)
 
-    async def fake_get_diet_summary(_db, _pet):
-        return {"missing_micros": []}
-
     async def fake_retry(_call):
         return json.dumps({"food-1": "Supports ongoing adult-stage care context"})
 
-    monkeypatch.setattr("app.services.dashboard.ai_insights_service.get_diet_summary", fake_get_diet_summary)
     monkeypatch.setattr("app.services.dashboard.ai_insights_service.retry_openai_call", fake_retry)
 
     reasons = await generate_care_plan_reasons(
         cast(Any, db),
         cast(Any, pet),
         [{"item_id": "food-1", "name": "Joint Care Food"}],
+        diet_summary={"missing_micros": []},
     )
 
     assert reasons == {"food-1": "Supports ongoing adult-stage care context."}

@@ -44,7 +44,6 @@ from app.repositories.pet_ai_insight_repository import PetAiInsightRepository
 from app.repositories.condition_repository import ConditionRepository
 from app.repositories.diet_repository import DietRepository
 from app.services.shared.care_plan_engine import _get_breed_size, _get_life_stage, _get_pet_age_months
-from app.services.dashboard.nutrition_service import get_diet_summary
 from app.utils.retry import retry_openai_call
 
 logger = logging.getLogger(__name__)
@@ -1280,7 +1279,7 @@ async def generate_care_plan_reasons(
 
         # Use caller-supplied diet_summary to avoid a redundant OpenAI call when
         # the dashboard has already fetched it in the parallel enrichment phase.
-        nutrition_summary = diet_summary if diet_summary is not None else await get_diet_summary(db, pet)
+        nutrition_summary = diet_summary or {"macros": [], "missing_micros": []}
         missing_micros = nutrition_summary.get("missing_micros", [])
         nutrition_gap_names = [
             str(gap.get("name"))

@@ -1139,6 +1139,14 @@ async def _handle_text(db: Session, user, message_data: dict) -> None:
             from app.services.whatsapp.order_service import cancel_order_flow
             await cancel_order_flow(db, user)
             return
+        # If the user sends a clear edit/update intent while mid-order (e.g.
+        # "update vet name"), abandon the order selection and handle the edit.
+        if _is_edit_intent(text_lower):
+            from app.services.whatsapp.order_service import cancel_order_flow
+            from app.services.whatsapp.edit_service import handle_edit_intent
+            await cancel_order_flow(db, user)
+            await handle_edit_intent(db, user, message_data, send_text_message)
+            return
         handler_name, extra_arg = _ORDER_TEXT_STATES[user.order_state]
         from app.services.whatsapp import order_service as _os
         handler = getattr(_os, handler_name)

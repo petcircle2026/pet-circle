@@ -2515,13 +2515,12 @@ async def dashboard_cart_recommendations(
         nutrition_gaps = None
         try:
             analysis = await analyze_nutrition(db, dt.pet_id)
-            # Build gaps dict from vitamins, minerals, others
+            # Build gaps dict from flat micronutrient_gaps
             gaps = {}
-            for section in ["vitamins", "minerals", "others"]:
-                for nutrient in analysis.get(section, []):
-                    name_key = nutrient["name"].lower().replace("-", "_").replace(" ", "_")
-                    if nutrient.get("priority") in ("urgent", "high", "medium"):
-                        gaps[name_key] = {"status": nutrient["status"]}
+            for gap in (analysis.get("micronutrient_gaps") or []):
+                if gap.get("status") in ("low", "missing"):
+                    name_key = gap["name"].lower().replace("-", "_").replace(" ", "_")
+                    gaps[name_key] = {"status": gap["status"]}
             if gaps:
                 nutrition_gaps = gaps
         except Exception as e:

@@ -1,22 +1,18 @@
-﻿"""
+"""
 Unit tests for get_diet_summary() and _diet_summary_threshold() in nutrition_service.py.
 
 Covers:
   - _diet_summary_threshold: all 4 macros across every threshold boundary
-  - Omega-3 at exactly 15 % â†’ RED / "Critical gap"   (explicit requirement)
+  - Omega-3 at exactly 15 % -> RED / "Deficient"  (explicit requirement)
   - Green is never returned for >110 %
-  - get_diet_summary: correct colour mapping from analyse_nutrition mock output
-  - get_diet_summary: max 3 missing_micros, sorted by priority
-  - get_diet_summary: graceful empty fallback when analyze_nutrition raises
+  - get_diet_summary: correct colour mapping from analysis dict
+  - get_diet_summary: max 3 missing_micros, sorted by severity_score
+  - get_diet_summary: guardrail fallbacks (no diet items, empty analysis)
 
-All tests are pure Python â€” no DB, no network, no OpenAI.
-analyze_nutrition is patched via unittest.mock.patch so nothing I/O-bound runs.
+All tests are pure Python - no DB, no network, no OpenAI.
 """
 
-import asyncio
 import os
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("APP_ENV", "test")
 
@@ -26,7 +22,7 @@ from app.services.dashboard.nutrition_service import (
 )
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold â€” Calories
+# _diet_summary_threshold - Calories
 # ---------------------------------------------------------------------------
 
 
@@ -46,13 +42,13 @@ class TestDietSummaryThresholdCalories:
         assert note == "Slightly over target"
 
     def test_calories_well_over_is_amber_not_red(self):
-        # Calories has no red zone â€” only green / amber
+        # Calories has no red zone - only green / amber
         color, _ = _diet_summary_threshold("Calories", 200.0)
         assert color == "amber"
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold â€” Omega-3
+# _diet_summary_threshold - Omega-3
 # ---------------------------------------------------------------------------
 
 
@@ -105,7 +101,7 @@ class TestDietSummaryThresholdOmega3:
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold â€” Protein
+# _diet_summary_threshold - Protein
 # ---------------------------------------------------------------------------
 
 
@@ -135,7 +131,7 @@ class TestDietSummaryThresholdProtein:
 
 
 # ---------------------------------------------------------------------------
-# _diet_summary_threshold â€” Fat
+# _diet_summary_threshold - Fat
 # ---------------------------------------------------------------------------
 
 
@@ -158,53 +154,30 @@ class TestDietSummaryThresholdFat:
 
 
 # ---------------------------------------------------------------------------
-# get_diet_summary â€” integration with mocked analyze_nutrition
+# get_diet_summary - direct analysis input (synchronous formatter)
 # ---------------------------------------------------------------------------
-
-def _make_pet(pet_id="pet-001") -> SimpleNamespace:
-    return SimpleNamespace(id=pet_id)
 
 
 def _base_analysis() -> dict:
     """Return a realistic analyze_nutrition output for a healthy pet."""
     return {
         "calories_per_day": 1100,
+        "has_diet_items": True,
         "calories": {"actual": 1100, "target": 1200, "status": "adequate"},
         "macros": [
-            {"name": "Protein", "actual": 22.0, "target": 25.0, "unit": "%",
-             "status": "Low", "note": "Consider protein-rich supplements"},
-            {"name": "Fat", "actual": 14.5, "target": 14.0, "unit": "%",
-             "status": "Adequate", "note": "Essential for energy"},
-            {"name": "Carbohydrates", "actual": 50.0, "target": 50.0, "unit": "%",
-             "status": "Adequate", "note": ""},
-            {"name": "Fibre", "actual": 4.0, "target": 4.0, "unit": "%",
-             "status": "Adequate", "note": ""},
-            {"name": "Moisture", "actual": 10.0, "target": 10.0, "unit": "%",
-             "status": "Adequate", "note": ""},
+            {"name": "Protein", "actual": 22.0, "target": 25.0},
+            {"name": "Fat",     "actual": 14.5, "target": 14.0},
+            {"name": "Carbs",   "actual": 45.0, "target": 50.0},
+            {"name": "Fibre",   "actual": 4.0,  "target": 4.0},
         ],
-        "vitamins": [
-            {"name": "Vitamin E", "status": "Missing", "priority": "high",
-             "supplement": "Vit E 400 IU", "price": "Rs.349/mo"},
-            {"name": "Vitamin D3", "status": "Adequate", "priority": "ok",
-             "supplement": None, "price": None},
+        "micronutrient_gaps": [
+            {"name": "omega_3", "status": "missing", "severity_score": 0.9},
+            {"name": "vitamin_e", "status": "low", "severity_score": 0.6},
+            {"name": "glucosamine", "status": "low", "severity_score": 0.4},
+            {"name": "calcium", "status": "sufficient", "severity_score": 0.0},
+            {"name": "phosphorus", "status": "sufficient", "severity_score": 0.0},
+            {"name": "omega_6", "status": "sufficient", "severity_score": 0.0},
         ],
-        "minerals": [
-            {"name": "Glucosamine", "icon": "ðŸ¦´", "status": "Low", "priority": "medium",
-             "reason": "Supports joint health", "actual": 200, "target": 500},
-            {"name": "Calcium", "icon": "ðŸ¦·", "status": "Adequate", "priority": "ok",
-             "reason": "Essential for bones", "actual": 1.0, "target": 1.0},
-            {"name": "Phosphorus", "icon": "âš¡", "status": "Adequate", "priority": "ok",
-             "reason": "Works with calcium", "actual": 0.8, "target": 0.8},
-        ],
-        "others": [
-            {"name": "Omega-3", "icon": "ðŸŸ", "status": "Missing", "priority": "urgent",
-             "reason": "Critical for skin and joints", "actual": 45, "target": 300},
-            {"name": "Omega-6", "icon": "ðŸŒ»", "status": "Adequate", "priority": "ok",
-             "actual": 1500, "target": 1500},
-            {"name": "Probiotics", "icon": "ðŸ¦ ", "status": "Low", "priority": "medium",
-             "actual": 0, "target": 1},
-        ],
-        "improvements": [],
         "overall_label": "moderate",
         "recommendation": "Consider Omega-3 supplementation.",
         "diet_summary": "Current diet: Royal Canin.",
@@ -214,37 +187,21 @@ def _base_analysis() -> dict:
 
 
 class TestGetDietSummary:
-    """Tests for get_diet_summary using a mocked analyze_nutrition."""
-
-    def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
-
-    def _patch_analysis(self, analysis_data: dict):
-        """Context manager that patches analyze_nutrition with fixed data."""
-        return patch(
-            "app.services.dashboard.nutrition_service.analyze_nutrition",
-            new=AsyncMock(return_value=analysis_data),
-        )
+    """Tests for get_diet_summary - synchronous formatter from analysis dict."""
 
     # --- Macro structure ---
 
-    def test_returns_four_macros(self):
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
-        assert len(result["macros"]) == 4
+    def test_returns_five_macros(self):
+        result = get_diet_summary(_base_analysis())
+        assert len(result["macros"]) == 5
 
     def test_macro_names_are_correct(self):
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(_base_analysis())
         names = [m["name"] for m in result["macros"]]
-        assert names == ["Calories", "Protein", "Fat", "Fibre"]
+        assert names == ["Calories", "Protein", "Fat", "Carbs", "Fibre"]
 
     def test_macro_fields_present(self):
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(_base_analysis())
         for macro in result["macros"]:
             assert "name" in macro
             assert "pct_of_need" in macro
@@ -254,62 +211,52 @@ class TestGetDietSummary:
     # --- Colour correctness ---
 
     def test_calories_under_target_is_green(self):
-        """1100 kcal / 1200 target = ~91.7 % â†’ green."""
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+        """1100 kcal / 1200 target = ~91.7 % -> green."""
+        result = get_diet_summary(_base_analysis())
         calories_macro = next(m for m in result["macros"] if m["name"] == "Calories")
         assert calories_macro["color"] == "green"
 
     def test_fibre_critical_deficiency_is_red(self):
-        """Fibre actual=2, target=4 → 50% → RED ‘Deficient’."""
-        pet = _make_pet()
+        """Fibre actual=2, target=4 -> 50% -> RED 'Deficient'."""
         analysis = _base_analysis()
         for m in analysis["macros"]:
             if m["name"] == "Fibre":
                 m["actual"] = 2.0
                 m["target"] = 4.0
                 break
-        with self._patch_analysis(analysis):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(analysis)
         fibre_macro = next(m for m in result["macros"] if m["name"] == "Fibre")
         assert fibre_macro["color"] == "red"
         assert fibre_macro["note"] == "Deficient"
         assert fibre_macro["pct_of_need"] == 50.0
 
     def test_fat_slightly_over_is_amber(self):
-        """fat actual=16, target=14 â†’ 114.3 % â†’ amber."""
-        pet = _make_pet()
+        """fat actual=16, target=14 -> 114.3 % -> amber."""
         analysis = _base_analysis()
         for m in analysis["macros"]:
             if m["name"] == "Fat":
                 m["actual"] = 16.0
                 m["target"] = 14.0
                 break
-        with self._patch_analysis(analysis):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(analysis)
         fat_macro = next(m for m in result["macros"] if m["name"] == "Fat")
         assert fat_macro["color"] == "amber"
 
     def test_protein_deficient_is_red(self):
-        """protein actual=18, target=25 â†’ 72 % â†’ red."""
-        pet = _make_pet()
+        """protein actual=18, target=25 -> 72 % -> red."""
         analysis = _base_analysis()
         for m in analysis["macros"]:
             if m["name"] == "Protein":
                 m["actual"] = 18.0
                 m["target"] = 25.0
                 break
-        with self._patch_analysis(analysis):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(analysis)
         protein_macro = next(m for m in result["macros"] if m["name"] == "Protein")
         assert protein_macro["color"] == "red"
 
     def test_no_green_for_over_110_pct(self):
         """All macros with >110 % must not return green."""
-        pet = _make_pet()
         analysis = _base_analysis()
-        # Pump up protein, fat, and fibre way over 110 %
         for m in analysis["macros"]:
             if m["name"] == "Protein":
                 m["actual"] = 30.0
@@ -317,15 +264,16 @@ class TestGetDietSummary:
             if m["name"] == "Fat":
                 m["actual"] = 20.0
                 m["target"] = 14.0    # ~143 %
+            if m["name"] == "Carbs":
+                m["actual"] = 60.0
+                m["target"] = 50.0    # 120 %
             if m["name"] == "Fibre":
                 m["actual"] = 6.0
                 m["target"] = 4.0     # 150 %
-        # Pump calories over 100 %
         analysis["calories"]["actual"] = 1500
         analysis["calories"]["target"] = 1200  # 125 %
 
-        with self._patch_analysis(analysis):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(analysis)
 
         for macro in result["macros"]:
             assert macro["color"] != "green", (
@@ -336,68 +284,41 @@ class TestGetDietSummary:
 
     def test_missing_micros_max_3(self):
         """Even if many nutrients are deficient, only 3 are returned."""
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(_base_analysis())
         assert len(result["missing_micros"]) <= 3
 
-    def test_missing_micros_sorted_by_priority(self):
-        """Urgent nutrients appear before high, which appear before medium."""
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
-        priority_order = {"urgent": 0, "high": 1, "medium": 2}
-        # Map returned micro names back to priorities in the analysis
-        analysis = _base_analysis()
-        all_nutrients = analysis["minerals"] + analysis["others"] + analysis["vitamins"]
-        name_to_priority = {n["name"]: n.get("priority", "ok") for n in all_nutrients}
-        ranks = [
-            priority_order.get(name_to_priority.get(m["name"], "ok"), 3)
-            for m in result["missing_micros"]
-        ]
-        assert ranks == sorted(ranks), "missing_micros not sorted by priority"
+    def test_missing_micros_sorted_by_severity(self):
+        """Higher severity_score appears first."""
+        result = get_diet_summary(_base_analysis())
+        names = [m["name"] for m in result["missing_micros"]]
+        # omega_3 (0.9) > vitamin_e (0.6) > glucosamine (0.4)
+        assert names == ["omega_3", "vitamin_e", "glucosamine"]
 
     def test_missing_micro_fields_present(self):
-        pet = _make_pet()
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+        result = get_diet_summary(_base_analysis())
         for micro in result["missing_micros"]:
             assert "icon" in micro
             assert "name" in micro
             assert "reason" in micro
 
-    def test_missing_micros_excludes_adequate_nutrients(self):
-        """Nutrients with status 'Adequate' / priority 'ok' must not appear."""
-        pet = _make_pet()
-        adequate_names = {"Calcium", "Phosphorus", "Omega-6", "Vitamin D3"}
-        with self._patch_analysis(_base_analysis()):
-            result = self._run(get_diet_summary(None, pet))
+    def test_missing_micros_excludes_sufficient_nutrients(self):
+        """Nutrients with status 'sufficient' must not appear."""
+        result = get_diet_summary(_base_analysis())
         returned_names = {m["name"] for m in result["missing_micros"]}
-        assert not returned_names.intersection(adequate_names), (
-            f"Adequate nutrients appeared in missing_micros: "
-            f"{returned_names.intersection(adequate_names)}"
-        )
+        assert "calcium" not in returned_names
+        assert "phosphorus" not in returned_names
+        assert "omega_6" not in returned_names
 
-    # --- Graceful fallback ---
+    # --- Guardrail fallbacks ---
 
-    def test_fallback_on_exception(self):
-        """If analyze_nutrition raises, get_diet_summary returns empty dicts."""
-        pet = _make_pet()
-        with patch(
-            "app.services.dashboard.nutrition_service.analyze_nutrition",
-            new=AsyncMock(side_effect=ValueError("pet not found")),
-        ):
-            result = self._run(get_diet_summary(None, pet))
+    def test_no_diet_items_returns_empty(self):
+        """has_diet_items=False suppresses all results."""
+        analysis = _base_analysis()
+        analysis["has_diet_items"] = False
+        result = get_diet_summary(analysis)
         assert result == {"macros": [], "missing_micros": []}
 
-    def test_fallback_returns_dict_structure(self):
-        """Fallback return value always has the two expected keys."""
-        pet = _make_pet()
-        with patch(
-            "app.services.dashboard.nutrition_service.analyze_nutrition",
-            new=AsyncMock(side_effect=RuntimeError("db down")),
-        ):
-            result = self._run(get_diet_summary(None, pet))
-        assert "macros" in result
-        assert "missing_micros" in result
-
+    def test_empty_analysis_returns_empty(self):
+        """Empty dict (LLM could not analyse) returns empty."""
+        result = get_diet_summary({})
+        assert result == {"macros": [], "missing_micros": []}

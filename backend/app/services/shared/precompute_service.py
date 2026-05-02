@@ -138,20 +138,11 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
     # ------------------------------------------------------------------
 
     async def _run_diet_summary(analysis: dict) -> dict:
-        """Reformat a pre-computed nutrition analysis into the diet_summary shape.
-
-        Accepts the already-computed analysis dict from refresh_nutrition_analysis so
-        analyze_nutrition() is not called a second time.
-        """
-        from app.repositories.pet_repository import PetRepository
+        """Reformat a pre-computed nutrition analysis into the diet_summary shape."""
+        from app.services.dashboard.nutrition_service import get_diet_summary
         db: Session = SessionLocal()
         try:
-            pet_repo = PetRepository(db)
-            pet = pet_repo.get_by_id(pet_id)
-            if not pet:
-                return {"macros": [], "missing_micros": []}
-            from app.services.dashboard.nutrition_service import get_diet_summary
-            result = await get_diet_summary(db, pet, analysis=analysis)
+            result = get_diet_summary(analysis)
             _upsert_insight(db, pet_id, "diet_summary", result)
             logger.info("precompute: diet_summary cached for pet=%s", pet_id_str)
             return result

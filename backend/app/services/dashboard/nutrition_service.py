@@ -885,14 +885,6 @@ def _status_for_ratio(ratio: float) -> str:
     return "Missing"
 
 
-def _priority_for_status(status: str, is_critical: bool = False) -> str:
-    """Determine priority based on status."""
-    if status == "Missing":
-        return "urgent" if is_critical else "high"
-    elif status == "Low":
-        return "high" if is_critical else "medium"
-    return "ok"
-
 
 def _safe_ratio(actual: float, target: float) -> float:
     """Safe division for ratio calculation."""
@@ -965,21 +957,26 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
 
     targets, meal_result = await asyncio.gather(_safe_targets(), _safe_meal_estimate())
 
-    # Populate actual values from combined meal result
-    actual = {
-        "calories": 0, "protein": 0, "fat": 0, "carbs": 0, "fibre": 0,
-        "gaps": {},
-        "top_improvements": [],
-        "llm_calories_per_day": None,
-        "llm_calorie_target": None,
-        "llm_calorie_gap_pct": None,
-        "llm_serving_description": None,
-        "llm_show_warning": None,
-        "llm_warning_message": None,
-    }
-
+    # Normalise severity scores from LLM (guard against 0-10 scale instead of 0-1)
     if meal_result:
-        _accumulate_from_estimation(actual, meal_result)
+        for g in meal_result.get("micronutrient_gaps") or []:
+            s = float(g.get("severity_score", 0))
+            if s > 1.0:
+                s = s / 10.0
+            g["severity_score"] = round(min(1.0, max(0.0, s)), 4)
+
+    mr = meal_result or {}
+    _calories            = int(mr.get("calories_per_day", 0) or 0)
+    _protein             = float(mr.get("protein_pct", 0) or 0)
+    _fat                 = float(mr.get("fat_pct", 0) or 0)
+    _carbs               = float(mr.get("carbs_pct", 0) or 0)
+    _fibre               = float(mr.get("fibre_pct", 0) or 0)
+    _top_improvements    = mr.get("top_improvements") or []
+    _serving_description = mr.get("serving_description")
+    _calorie_gap_pct     = mr.get("calorie_gap_pct")
+    _show_warning_raw    = mr.get("show_warning")
+    _show_warning        = bool(_show_warning_raw) if _show_warning_raw is not None else False
+    _warning_message     = mr.get("warning_message") if _show_warning else None
 
     # No diet items — skip all gap analysis, return empty result so the
     # dashboard shows a "no diet logged" state instead of fabricated gaps.
@@ -987,10 +984,6 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
         return {
             "calories": {"actual": 0, "target": targets.get("calories", 1200), "status": "deficit"},
             "macros": [],
-            "vitamins": [],
-            "minerals": [],
-            "others": [],
-            "improvements": [],
             "overall_label": "no_data",
             "recommendation": "Add your pet's food in the Nutrition tab to see a personalised analysis.",
             "diet_summary": "No diet items added yet. Add your pet's food in the Nutrition tab for a detailed analysis.",
@@ -1014,25 +1007,19 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
 
     # Calculate calorie status
     target_cal = targets.get("calories", 1200)
-    cal_ratio = actual["calories"] / target_cal if target_cal else 1
+    cal_ratio = _calories / target_cal if target_cal else 1
     cal_status = "adequate" if cal_ratio >= 0.9 else ("low" if cal_ratio >= 0.6 else "deficit")
 
     # Build macros array
-    macros = _build_macros(actual, targets, breed_key)
+    macros = _build_macros(_protein, _fat, _carbs, _fibre, targets, breed_key)
 
-    # Build vitamins, minerals, others dynamically from prompt gap output
-    vitamins, minerals, others = _build_micronutrient_sections(actual, targets, has_hip_dysplasia)
-
-    # Build improvements list
-    all_nutrients = minerals + others + vitamins
-    improvements = _build_improvements(all_nutrients)
-    gap_count = sum(1 for n in all_nutrients if n.get("priority") in ("urgent", "high", "medium"))
-
-    # Generate personalized recommendation via AI
+    # Gap count and summary read directly from LLM micronutrient_gaps
+    _micro_gaps = (meal_result or {}).get("micronutrient_gaps") or []
+    gap_count = sum(1 for g in _micro_gaps if g.get("status") in ("low", "missing"))
     gap_summary = ", ".join(
-        f"{n['name']} ({n['status'].lower()})"
-        for n in all_nutrients
-        if n.get("priority") in ("urgent", "high", "medium")
+        f"{g['name']} ({g['status']})"
+        for g in _micro_gaps
+        if g.get("status") in ("low", "missing")
     ) or "none"
 
     split_items = split_diet_items_by_type(diet_items)
@@ -1068,12 +1055,12 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
     condition_context = " + " + conditions[0].name if conditions else ""
 
     # ── New flat fields for DietAnalysisCard — all sourced from LLM ─────────
-    food_label_str = actual.get("llm_serving_description") or (
+    food_label_str = _serving_description or (
         ", ".join(food_labels[:3]) if food_labels else None
     )
-    calorie_gap_pct = actual.get("llm_calorie_gap_pct")
-    show_warning = bool(actual.get("llm_show_warning")) if actual.get("llm_show_warning") is not None else False
-    warning_message: str | None = actual.get("llm_warning_message") if show_warning else None
+    calorie_gap_pct = _calorie_gap_pct
+    show_warning = _show_warning
+    warning_message: str | None = _warning_message
 
     # prescription_context: first vet-prescribed dietary condition, then fallback
     # to vet-tagged diet items (from document extraction or chat).
@@ -1098,15 +1085,14 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
     # micronutrient_gaps flat array for DietAnalysisCard (non-sufficient only)
     micro_gaps_flat = [
         {
-            "name": name,
-            "status": gap["status"],
-            "severity_score": gap["severity_score"],
+            "name": g["name"],
+            "status": g["status"],
+            "severity_score": g["severity_score"],
             "prescribed": False,
         }
-        for name, gap in actual["gaps"].items()
-        if gap.get("status") != "sufficient"
+        for g in _micro_gaps
+        if g.get("status") != "sufficient"
     ]
-    # Sort by severity_score descending
     micro_gaps_flat.sort(key=lambda g: g["severity_score"], reverse=True)
 
     # Build explicit diet summary describing current diet and its strengths
@@ -1118,9 +1104,9 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
         )
         # Strengths: nutrients the LLM explicitly marked as sufficient
         sufficient_nutrients = [
-            _NUTRIENT_META[name]["display"]
-            for name, gap in actual["gaps"].items()
-            if gap.get("status") == "sufficient" and name in _NUTRIENT_META
+            _NUTRIENT_META[g["name"]]["display"]
+            for g in _micro_gaps
+            if g.get("status") == "sufficient" and g["name"] in _NUTRIENT_META
         ]
         strength_text = (" Strengths: " + ", ".join(sufficient_nutrients) + ".") if sufficient_nutrients else ""
         diet_summary = f"Current food: {food_list}.{supplements_text}{strength_text}"
@@ -1128,13 +1114,8 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
         diet_summary = "No diet items added yet. Add your pet's food in the Nutrition tab for a detailed analysis."
 
     return {
-        # ── Legacy fields (kept for backward compat: get_diet_summary, product recs) ──
-        "calories": {"actual": actual["calories"], "target": target_cal, "status": cal_status},
+        "calories": {"actual": _calories, "target": target_cal, "status": cal_status},
         "macros": macros,
-        "vitamins": vitamins,
-        "minerals": minerals,
-        "others": others,
-        "improvements": improvements,
         "overall_label": overall_label,
         "recommendation": recommendation,
         "diet_summary": diet_summary,
@@ -1142,114 +1123,43 @@ async def analyze_nutrition(db: Session, pet_id) -> dict:
         "gap_count": gap_count,
         "has_diet_items": bool(diet_items),
         # ── New flat fields for DietAnalysisCard — sourced from LLM ─────────
-        "calories_per_day": actual.get("llm_calories_per_day") or actual["calories"],
-        "calorie_target": actual.get("llm_calorie_target") or target_cal,
+        "calories_per_day": int(mr.get("calories_per_day") or 0) or _calories,
+        "calorie_target": int(mr.get("calorie_target") or 0) or target_cal,
         "calorie_gap_pct": calorie_gap_pct,
         "food_label": food_label_str,
         "show_warning": show_warning,
         "warning_message": warning_message,
         "prescription_context": prescription_context,
-        "protein_pct": actual["protein"],
-        "fat_pct": actual["fat"],
-        "carbs_pct": actual["carbs"],
-        "fibre_pct": actual["fibre"],
+        "protein_pct": _protein,
+        "fat_pct": _fat,
+        "carbs_pct": _carbs,
+        "fibre_pct": _fibre,
         "micronutrient_gaps": micro_gaps_flat,
-        "top_improvements": actual.get("top_improvements") or [],
+        "top_improvements": _top_improvements,
     }
 
 
-# ─── Accumulation Helpers ────────────────────────────────────────────
-
-def _accumulate_from_estimation(actual: dict, est: dict) -> None:
-    """Accumulate nutritional values from AI-estimated food nutrition.
-
-    Handles the new prompt output format:
-    - Macros: calories_per_day, protein_pct, fat_pct, carbs_pct, fibre_pct (numeric)
-    - Micronutrients: micronutrient_gaps array (qualitative status + severity_score)
-    - top_improvements: list of {title, detail, severity} from combined meal analysis
-    """
-    actual["calories"] += int(est.get("calories_per_day", 0) or est.get("calories_per_serving", 0))
-    actual["protein"] = max(actual["protein"], float(est.get("protein_pct", 0)))
-    actual["fat"] = max(actual["fat"], float(est.get("fat_pct", 0)))
-    actual["carbs"] = max(actual.get("carbs", 0), float(est.get("carbs_pct", 0)))
-    actual["fibre"] = max(actual["fibre"], float(est.get("fibre_pct", 0)))
-
-    # Capture top_improvements from combined meal result (first non-empty result wins)
-    if not actual.get("top_improvements") and est.get("top_improvements"):
-        actual["top_improvements"] = est["top_improvements"]
-
-    # Capture all LLM-computed display fields (first non-None result wins)
-    if actual.get("llm_calories_per_day") is None and est.get("calories_per_day"):
-        actual["llm_calories_per_day"] = est["calories_per_day"]
-    if actual.get("llm_calorie_target") is None and est.get("calorie_target"):
-        actual["llm_calorie_target"] = est["calorie_target"]
-    if actual.get("llm_calorie_gap_pct") is None and est.get("calorie_gap_pct") is not None:
-        actual["llm_calorie_gap_pct"] = est["calorie_gap_pct"]
-    if actual.get("llm_serving_description") is None and est.get("serving_description"):
-        actual["llm_serving_description"] = est["serving_description"]
-    if actual.get("llm_show_warning") is None and est.get("show_warning") is not None:
-        actual["llm_show_warning"] = est["show_warning"]
-        actual["llm_warning_message"] = est.get("warning_message")
-
-    # Merge micronutrient gaps — worst status (highest severity_score) wins
-    # when multiple foods report the same nutrient. Supplement suggestion is
-    # carried from whichever food item had the highest severity.
-    for gap in est.get("micronutrient_gaps", []):
-        name = gap.get("name", "")
-        status = gap.get("status", "")
-        severity = float(gap.get("severity_score", 0))
-        if severity > 1.0:
-            severity = severity / 10.0  # Normalize LLM returning 0-10 scale instead of 0-1
-        severity = min(1.0, max(0.0, severity))
-        supplement = gap.get("supplement") or None
-        reason = gap.get("reason") or None
-        if name and status in ("missing", "low", "sufficient"):
-            existing = actual["gaps"].get(name)
-            if existing is None or severity > existing["severity_score"]:
-                actual["gaps"][name] = {
-                    "status": status,
-                    "severity_score": severity,
-                    "supplement": supplement,
-                    "reason": reason,
-                }
-
-
-# ─── Builder Helpers ─────────────────────────────────────────────────
-
-def _status_from_gap(gaps: dict, name: str, default: str = "Adequate") -> str:
-    """Translate qualitative gap status to display status string.
-
-    Falls back to `default` (Adequate) when the nutrient is not flagged as a gap,
-    meaning the prompt considered it sufficient or did not assess it.
-    """
-    gap = gaps.get(name)
-    if not gap:
-        return default
-    return {"missing": "Missing", "low": "Low", "sufficient": "Adequate"}.get(
-        gap.get("status", "sufficient"), "Adequate"
-    )
-
-
-def _build_macros(actual: dict, targets: dict, breed_key: str) -> list[dict]:
-    """Build macronutrients array for the response.
-
-    Returns 3 macros (Protein, Fat, Fibre) with actual percentages and targets.
-    Structure matches calories for consistency: {"name", "actual", "target"}.
-    """
+def _build_macros(protein: float, fat: float, carbs: float, fibre: float, targets: dict, breed_key: str) -> list[dict]:
+    """Build macronutrients array for the response."""
     return [
         {
             "name": "Protein",
-            "actual": actual["protein"],
+            "actual": protein,
             "target": targets.get("protein", DEFAULT_TARGETS["protein"]),
         },
         {
             "name": "Fat",
-            "actual": actual["fat"],
+            "actual": fat,
             "target": targets.get("fat", DEFAULT_TARGETS["fat"]),
         },
         {
+            "name": "Carbs",
+            "actual": carbs,
+            "target": targets.get("carbs", DEFAULT_TARGETS["carbs"]),
+        },
+        {
             "name": "Fibre",
-            "actual": actual["fibre"],
+            "actual": fibre,
             "target": targets.get("fibre", DEFAULT_TARGETS["fibre"]),
         },
     ]
@@ -1282,81 +1192,6 @@ _NUTRIENT_META: dict[str, dict] = {
     "taurine":     {"display": "Taurine",     "icon": "\U0001f496",  "category": "others",
                     "target_key": "taurine",    "default_target": 0,   "hip_critical": False},
 }
-
-
-def _build_micronutrient_sections(
-    actual: dict, targets: dict, has_hip_dysplasia: bool
-) -> tuple[list[dict], list[dict], list[dict]]:
-    """
-    Build vitamins, minerals, and others arrays dynamically from the prompt's
-    micronutrient_gaps. Only nutrients that the prompt flagged appear in the output;
-    nothing is hardcoded.
-
-    Returns (vitamins, minerals, others) tuple.
-    """
-    gaps = actual.get("gaps", {})
-    vitamins: list[dict] = []
-    minerals: list[dict] = []
-    others: list[dict] = []
-
-    for nutrient_key, gap_data in gaps.items():
-        meta = _NUTRIENT_META.get(nutrient_key)
-        if not meta:
-            continue  # Unknown nutrient name — skip
-
-        status = _status_from_gap(gaps, nutrient_key)
-        is_critical = has_hip_dysplasia and meta.get("hip_critical", False)
-        priority = _priority_for_status(status, is_critical=is_critical)
-        default_target = float(targets.get(meta["target_key"], meta["default_target"]))
-
-        # Supplement and reason come from the LLM prompt response, not hardcoded
-        supplement = gap_data.get("supplement") or None
-        reason = gap_data.get("reason") or None
-
-        item: dict = {
-            "name": meta["display"],
-            "icon": meta["icon"],
-            "status": status,
-            "priority": priority,
-            "reason": reason,   # LLM-provided; None when not returned by prompt
-            "supplement": supplement,
-            "price": None,      # Pricing not provided by prompt
-        }
-
-        category = meta["category"]
-        if category == "vitamins":
-            vitamins.append(item)
-        elif category == "minerals":
-            item.update({"actual": 0, "target": default_target})
-            minerals.append(item)
-        else:
-            item.update({"actual": 0, "target": default_target})
-            others.append(item)
-
-    return vitamins, minerals, others
-
-
-def _build_improvements(all_nutrients: list[dict]) -> list[dict]:
-    """Build sorted improvements list from all nutrient arrays."""
-    improvements = []
-    gap_colors = {"urgent": "#FF3B30", "high": "#FF9500", "medium": "#FFCC00"}
-
-    sorted_nutrients = sorted(
-        all_nutrients,
-        key=lambda x: {"urgent": 0, "high": 1, "medium": 2}.get(x.get("priority", "ok"), 3),
-    )
-
-    for n in sorted_nutrients:
-        if n.get("priority") in ("urgent", "high", "medium"):
-            dot = gap_colors.get(n["priority"], "#FFCC00")
-            reason = n.get("reason", f"{n['name']} supplementation recommended")
-            supplement_text = f" \u2192 {n['supplement']}" if n.get("supplement") else ""
-            improvements.append({
-                "dot": dot,
-                "text": f"{n['name']} {n['status'].lower()}{supplement_text} - {reason}",
-            })
-
-    return improvements
 
 
 # ─── Diet Summary for Dashboard Donut ────────────────────────────────
@@ -1393,36 +1228,16 @@ def _diet_summary_threshold(macro_name: str, pct_of_need: float) -> tuple[str, s
     return "green", "On track"
 
 
-async def get_diet_summary(db: Session, pet, analysis: dict | None = None) -> dict:
+def get_diet_summary(analysis: dict) -> dict:
     """
-    Format existing nutrition analysis as donut summaries with guardrail thresholds.
-
-    Re-formats the result into 4 donut-chart macro segments (Calories, Protein,
-    Fat, Fibre) plus up to 3 missing micronutrients for the dashboard card.
-
-    If ``analysis`` is provided (pre-computed by the caller), it is used directly
-    and no AI call is made. Otherwise, analyze_nutrition() is called internally.
+    Format a pre-computed nutrition analysis as donut summaries with guardrail thresholds.
 
     Returns:
         {
-            "macros": [
-                {"name": str, "pct_of_need": float, "color": str, "note": str},
-                ...   # 4 items: Calories, Protein, Fat, Fibre
-            ],
-            "missing_micros": [
-                {"icon": str, "name": str, "reason": str},
-                ...   # max 3, sorted by priority (urgent → high → medium)
-            ],
+            "macros": [{"name", "pct_of_need", "color", "note"}, ...],  # 4 items
+            "missing_micros": [{"icon", "name", "reason"}, ...],        # max 3
         }
-
-    Falls back to empty lists if the analysis pipeline raises an exception.
     """
-    try:
-        if analysis is None:
-            analysis = await analyze_nutrition(db, pet.id)
-    except Exception as e:
-        logger.error("get_diet_summary: analyze_nutrition failed for pet %s: %s", pet.id, e)
-        return {"macros": [], "missing_micros": []}
 
     # No diet items → no supplement recommendations should be shown
     if not analysis.get("has_diet_items", True):
@@ -1444,15 +1259,16 @@ async def get_diet_summary(db: Session, pet, analysis: dict | None = None) -> di
     cal_actual = cal_info.get("actual", 0)
     cal_target = cal_info.get("target", DEFAULT_TARGETS["calories"])
 
-    # --- Macros list from analyze_nutrition (Protein, Fat, Fibre) ---
+    # --- Macros list from analyze_nutrition (Protein, Fat, Carbs, Fibre) ---
     macros_list = analysis.get("macros", [])
 
     def _find_macro(name: str) -> dict:
         return next((m for m in macros_list if m.get("name") == name), {})
 
     protein_m = _find_macro("Protein")
-    fat_m = _find_macro("Fat")
-    fibre_m = _find_macro("Fibre")
+    fat_m     = _find_macro("Fat")
+    carbs_m   = _find_macro("Carbs")
+    fibre_m   = _find_macro("Fibre")
 
     def _safe_pct(actual: float, target: float) -> float:
         """Return % of daily target, capped floor at 0."""
@@ -1469,17 +1285,22 @@ async def get_diet_summary(db: Session, pet, analysis: dict | None = None) -> di
         float(fat_m.get("actual", 0)),
         float(fat_m.get("target", DEFAULT_TARGETS["fat"])),
     )
+    carbs_pct = _safe_pct(
+        float(carbs_m.get("actual", 0)),
+        float(carbs_m.get("target", DEFAULT_TARGETS["carbs"])),
+    )
     fibre_pct = _safe_pct(
         float(fibre_m.get("actual", 0)),
         float(fibre_m.get("target", DEFAULT_TARGETS["fibre"])),
     )
 
-    # Build 4 donut segments: Calories, Protein, Fat, Fibre
+    # Build 5 donut segments: Calories, Protein, Fat, Carbs, Fibre
     donut_macros: list[dict] = []
     for macro_name, pct in [
         ("Calories", cal_pct),
         ("Protein", protein_pct),
         ("Fat", fat_pct),
+        ("Carbs", carbs_pct),
         ("Fibre", fibre_pct),
     ]:
         color, note = _diet_summary_threshold(macro_name, pct)
@@ -1490,27 +1311,27 @@ async def get_diet_summary(db: Session, pet, analysis: dict | None = None) -> di
             "note": note,
         })
 
-    # --- Missing micronutrients (max 3) from gap analysis ---
-    # Combine minerals + others + vitamins; filter to non-ok priorities
-    all_micros = (
-        analysis.get("minerals", [])
-        + analysis.get("others", [])
-        + analysis.get("vitamins", [])
-    )
-    _priority_rank = {"urgent": 0, "high": 1, "medium": 2}
+    # --- Missing micronutrients (max 3) \u2014 read directly from flat LLM output ---
+    _MICRO_ICONS = {
+        "omega_3": "\U0001f41f", "omega_6": "\U0001f33b", "vitamin_e": "\U0001fad0",
+        "vitamin_d3": "\u2600\ufe0f", "glucosamine": "\U0001f9b4", "calcium": "\U0001f9b7",
+        "phosphorus": "\u26a1", "iron": "\U0001fa78", "zinc": "\U0001f48a",
+        "taurine": "\u2764\ufe0f", "fibre": "\U0001f33e",
+    }
+    gaps_raw = analysis.get("micronutrient_gaps") or []
     deficient = sorted(
-        [n for n in all_micros if n.get("priority") in _priority_rank],
-        key=lambda n: _priority_rank.get(n.get("priority", "ok"), 3),
+        [g for g in gaps_raw if g.get("status") in ("low", "missing")],
+        key=lambda g: g.get("severity_score", 0),
+        reverse=True,
     )
     missing_micros = [
         {
-            "icon": n.get("icon", "\u26a0\ufe0f"),
-            "name": n["name"],
-            "reason": n.get("reason") or None,
-            # LLM-recommended product name; used as care plan item name when present
-            "supplement": n.get("supplement") or None,
+            "icon": _MICRO_ICONS.get(g["name"], "\u26a0\ufe0f"),
+            "name": g["name"],
+            "reason": None,
+            "supplement": None,
         }
-        for n in deficient[:3]
+        for g in deficient[:3]
     ]
 
     return {"macros": donut_macros, "missing_micros": missing_micros}
