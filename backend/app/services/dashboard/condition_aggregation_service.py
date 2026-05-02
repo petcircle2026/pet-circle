@@ -363,15 +363,25 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
         merged_type = "episodic"
 
     # ── episode_dates: union, normalised to ISO, deduplicated, sorted ───────────
-    all_episodes: set[str] = set()
+    # Conditions with no episode_dates are treated as a recent episode within the
+    # 15-month window so they participate in the recurrence threshold calculation.
+    # A small per-condition day offset ensures multiple undated conditions each
+    # count as a distinct episode rather than collapsing to the same date.
+    all_episodes: list[str] = []
+    _undated_idx = 0
     for c in family:
-        for _ed in (c.episode_dates or []):
-            try:
-                from app.utils.date_utils import parse_date as _pd
-                all_episodes.add(str(_pd(str(_ed))))  # normalise to YYYY-MM-DD
-            except Exception:
-                all_episodes.add(str(_ed))  # keep raw if unparseable
-    merged_episodes = sorted(all_episodes)
+        dates_for_cond = c.episode_dates or []
+        if not dates_for_cond:
+            all_episodes.append(str(date.today() - timedelta(days=_undated_idx)))
+            _undated_idx += 1
+        else:
+            for _ed in dates_for_cond:
+                try:
+                    from app.utils.date_utils import parse_date as _pd
+                    all_episodes.append(str(_pd(str(_ed))))  # normalise to YYYY-MM-DD
+                except Exception:
+                    all_episodes.append(str(_ed))  # keep raw if unparseable
+    merged_episodes = sorted(set(all_episodes))
 
     # ── Promote to chronic if name/drugs match trigger list ───────────────────
     all_meds_raw: list[dict] = []

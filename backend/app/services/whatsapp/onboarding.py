@@ -1780,7 +1780,12 @@ async def _step_preventive(db, user, text, send_fn):
             # a user who provides fresh data via the confirm-pending path still gets
             # asked which vaccines they use and which flea brand they apply.
             needs_vaccine_type_q = _is_generic_vaccine_mention(parsed)
+            # If the AI resolver didn't embed the brand into the modified example
+            # text, scan the raw user reply as a fallback so we don't re-ask.
             needs_flea_brand_q = _is_flea_without_brand(parsed)
+            if needs_flea_brand_q:
+                _inject_flea_brand_from_text(parsed, text)
+                needs_flea_brand_q = _is_flea_without_brand(parsed)
 
             if needs_vaccine_type_q:
                 _set_onboarding_data(user, "pending_preventive_parsed", parsed)
@@ -2248,6 +2253,39 @@ def _is_flea_without_brand(parsed: dict) -> bool:
         return bool(date_val) and not medicine
     # Plain string date — no medicine.
     return bool(str(flea_tick).strip())
+
+
+def _inject_flea_brand_from_text(parsed: dict, text: str) -> bool:
+    """
+    If parsed flea_tick has a date but no medicine, scan `text` for a known
+    flea/tick brand name (sourced from the product_medicines DB table) and
+    inject it.  Returns True if a brand was injected.
+    """
+    if not _is_flea_without_brand(parsed):
+        return False
+
+    from app.services.shared.gpt_extraction import (
+        _MEDICATION_TO_PREVENTIVE_CATEGORIES,
+        _initialize_medicine_mapping,
+    )
+    _initialize_medicine_mapping()
+
+    text_lower = (text or "").lower()
+    matched_brand: str | None = None
+    for brand_key, cats in _MEDICATION_TO_PREVENTIVE_CATEGORIES.items():
+        if "flea_tick" in cats and re.search(r"\b" + re.escape(brand_key) + r"\b", text_lower):
+            matched_brand = brand_key.title()
+            break
+
+    if not matched_brand:
+        return False
+
+    flea_tick = parsed.get("flea_tick")
+    if isinstance(flea_tick, dict):
+        flea_tick["medicine"] = matched_brand
+    else:
+        parsed["flea_tick"] = {"date": str(flea_tick), "medicine": matched_brand}
+    return True
 
 
 def _vaccine_type_question(pet_name: str) -> str:

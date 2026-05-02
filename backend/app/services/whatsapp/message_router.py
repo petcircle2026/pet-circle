@@ -1895,6 +1895,8 @@ async def run_extraction_batch(
 
     try:
         from app.repositories.document_repository import DocumentRepository
+        from app.repositories.user_repository import UserRepository
+        from app.repositories.pet_repository import PetRepository
         doc_repo = DocumentRepository(bg_db)
         pending_docs = doc_repo.find_pending_by_pet_and_ids(pet_id, document_ids)
 
@@ -1905,10 +1907,8 @@ async def run_extraction_batch(
             )
             # Docs were processed by another consumer or path — still clear any
             # lingering deferred marker so the user is not permanently locked out.
-            from app.repositories.user_repository import UserRepository
             user_repo = UserRepository(bg_db)
             user = user_repo.find_by_id(user_id)
-            from app.repositories.pet_repository import PetRepository
             bg_pet_repo = PetRepository(bg_db)
             pet = bg_pet_repo.find_by_id(pet_id)
             if pet and _has_pending_deferred_care_plan(bg_db, pet.id, user=user):
