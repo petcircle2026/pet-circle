@@ -12,7 +12,7 @@ not stored. The stored columns are: end_date (explicit), started_at, refill_due_
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -47,3 +47,18 @@ class ConditionMedication(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     condition = relationship("Condition", back_populates="medications")
+
+    @property
+    def status(self) -> str:
+        """Compute medication status from date fields.
+
+        'completed'  — end_date is in the past
+        'upcoming'   — started_at is in the future
+        'active'     — everything else (ongoing or no dates set)
+        """
+        today = date.today()
+        if self.end_date and self.end_date < today:
+            return "completed"
+        if self.started_at and self.started_at > today:
+            return "upcoming"
+        return "active"
