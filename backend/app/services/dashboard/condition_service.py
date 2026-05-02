@@ -476,7 +476,7 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
     vet = None
 
     # Look for the most recent document (prescription or vaccination) with a doctor name.
-    latest_vet_documents = [d for d in document_repo.find_by_pet(pet_id)
+    latest_vet_documents = [d for d in document_repo.find_by_pet_id(pet_id)
                            if d.document_category in ["prescription", "vaccination"] and d.event_date]
     latest_vet_document = latest_vet_documents[0] if latest_vet_documents else None
 

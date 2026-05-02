@@ -582,7 +582,7 @@ def _build_deworming_cadence(
         headline = f"Only {done_count} dose{'s' if done_count != 1 else ''} in {gap_label}. Significantly overdue."
     elif missed_count > 0 or has_now:
         headline = "Deworming overdue. Administer as soon as possible."
-    elif done_count == len(deworm_rows):
+    elif done_count == len(deworm_pairs):
         headline = "Deworming on track."
     else:
         headline = "Deworming cadence"

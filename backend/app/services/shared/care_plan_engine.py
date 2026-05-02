@@ -794,8 +794,19 @@ def _check_reorder_status(
         if not label:
             return None, _STATUS_ACTIVE
 
-        order_repo = OrderRepository(db)
-        latest_order = order_repo.find_latest_qualifying_order(pet_id, label, _QUALIFYING_ORDER_STATUSES)
+        # Preload all qualifying orders for this pet once per request,
+        # then filter by label in Python — avoids one query per diet item.
+        cache_key = f"_qualifying_orders_{pet_id}"
+        if cache_key not in db.info:
+            db.info[cache_key] = OrderRepository(db).find_qualifying_orders_for_pet(
+                pet_id, _QUALIFYING_ORDER_STATUSES
+            )
+        label_lower = label.lower()
+        matching = [
+            o for o in db.info[cache_key]
+            if label_lower in (o.items_description or "").lower()
+        ]
+        latest_order = matching[0] if matching else None  # already newest-first
         if latest_order is None:
             return None, _STATUS_ACTIVE
 
@@ -1424,8 +1435,8 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             )
 
         # ── Add document-extracted supplements to Attend To ────────────────────
-        # Supplements from uploaded documents that don't match WhatsApp-mentioned
-        # supplements and haven't expired should appear in Attend To.
+        # Supplements from uploaded documents that don't match any manually-added
+        # supplement appear in the Attend To bucket.
         try:
             diet_repo = DietRepository(db)
             # Get all manual supplements (from WhatsApp) to check for duplicates
@@ -1446,17 +1457,13 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 if doc_supp.label.lower().strip() in manual_supplement_names:
                     continue
 
-                # Skip if end_date has passed
-                if doc_supp.end_date and doc_supp.end_date < today:
-                    continue
-
                 # Add to Attend To
                 supp_key = f"doc_supp_{doc_supp.id}"
                 attend_items[supp_key] = {
                     "name": doc_supp.label,
                     "test_type": "supplement",
                     "freq": "As prescribed",
-                    "next_due": doc_supp.end_date.strftime("%d/%m/%y") if doc_supp.end_date else None,
+                    "next_due": None,
                     "status_tag": "Attend",
                     "classification": Classification.PRESCRIPTION_ACTIVE.value,
                     "reason": None,

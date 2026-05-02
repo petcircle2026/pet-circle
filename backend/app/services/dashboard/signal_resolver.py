@@ -56,6 +56,88 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Per-request product cache (eliminates N+1 queries in care-plan resolution)
+# ---------------------------------------------------------------------------
+
+class _ProductCache:
+    """Lazy per-request cache for product catalog queries.
+
+    Stored in db.info["_product_cache"] so all signal-resolver calls within
+    a single compute_care_plan share one preloaded dataset.
+
+    Only two queries are ever issued (find_active_foods_raw and
+    find_active_supplements_raw); every brand/line/type slice is derived
+    from those in Python — no additional round-trips.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+        self._foods_raw: list[ProductFood] | None = None
+        self._supplements_raw: list[ProductSupplement] | None = None
+        self._foods_by_brand: dict[str, list[ProductFood]] = {}
+        self._foods_by_brand_and_line: dict[tuple[str, str], list[ProductFood]] = {}
+        self._supps_by_brand_and_type: dict[tuple[str, str], list[ProductSupplement]] = {}
+
+    @property
+    def foods_raw(self) -> list[ProductFood]:
+        if self._foods_raw is None:
+            self._foods_raw = ProductRepository(self._db).find_active_foods_raw()
+        return self._foods_raw
+
+    @property
+    def supplements_raw(self) -> list[ProductSupplement]:
+        if self._supplements_raw is None:
+            self._supplements_raw = ProductRepository(self._db).find_active_supplements_raw()
+        return self._supplements_raw
+
+    @property
+    def food_brands(self) -> list[str]:
+        return list({f.brand_name for f in self.foods_raw if f.brand_name})
+
+    @property
+    def supplement_brands(self) -> list[str]:
+        return list({s.brand_name for s in self.supplements_raw if s.brand_name})
+
+    def lines_for_brand(self, brand: str) -> list[str]:
+        return list({
+            f.product_line for f in self.foods_raw
+            if f.brand_name == brand and f.product_line
+        })
+
+    def foods_for_brand(self, brand: str) -> list[ProductFood]:
+        if brand not in self._foods_by_brand:
+            self._foods_by_brand[brand] = [
+                f for f in self.foods_raw if f.brand_name == brand
+            ]
+        return self._foods_by_brand[brand]
+
+    def foods_for_brand_and_line(self, brand: str, line: str) -> list[ProductFood]:
+        key = (brand, line)
+        if key not in self._foods_by_brand_and_line:
+            self._foods_by_brand_and_line[key] = [
+                f for f in self.foods_raw
+                if f.brand_name == brand and f.product_line == line
+            ]
+        return self._foods_by_brand_and_line[key]
+
+    def supps_for_brand_and_type(self, brand: str, sup_type: str) -> list[ProductSupplement]:
+        key = (brand, sup_type)
+        if key not in self._supps_by_brand_and_type:
+            self._supps_by_brand_and_type[key] = [
+                s for s in self.supplements_raw
+                if s.brand_name == brand and s.type == sup_type
+            ]
+        return self._supps_by_brand_and_type[key]
+
+
+def _get_product_cache(db: Session) -> _ProductCache:
+    """Retrieve (or create) the per-session product cache via db.info."""
+    if "_product_cache" not in db.info:
+        db.info["_product_cache"] = _ProductCache(db)
+    return db.info["_product_cache"]
+
+
+# ---------------------------------------------------------------------------
 # Public enums / dataclasses
 # ---------------------------------------------------------------------------
 
@@ -140,8 +222,7 @@ def _extract_brand(db: Session, diet_item: DietItem) -> str | None:
     if not haystack_norm:
         return None
 
-    product_repo = ProductRepository(db)
-    brand_rows = product_repo.find_distinct_food_brands()
+    brand_rows = _get_product_cache(db).food_brands
     # Prefer the longest match so "Hills Science Diet" wins over "Hills".
     best: str | None = None
     best_len = 0
@@ -166,8 +247,7 @@ def _extract_product_line(
     if not label_norm:
         return None
 
-    product_repo = ProductRepository(db)
-    line_rows = product_repo.find_product_lines_by_brand(brand_name)
+    line_rows = _get_product_cache(db).lines_for_brand(brand_name)
     best: str | None = None
     best_len = 0
     for line in line_rows:
@@ -372,8 +452,7 @@ def _resolve_l5(
     line. If the requested pack size isn't found, the 'nearest' pack will
     still surface via the alt-size list and be highlighted instead.
     """
-    product_repo = ProductRepository(db)
-    lines = product_repo.find_active_foods_by_brand_and_line(brand_name, product_line)
+    lines = _get_product_cache(db).foods_for_brand_and_line(brand_name, product_line)
     if not lines:
         return []
 
@@ -396,8 +475,7 @@ def _resolve_l4(
     db: Session, brand_name: str, product_line: str
 ) -> list[ProductFood]:
     """A2: all pack sizes for the (brand, line) pair sorted by popularity."""
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_foods_by_brand_and_line(brand_name, product_line)
+    rows = _get_product_cache(db).foods_for_brand_and_line(brand_name, product_line)
     rows.sort(key=lambda p: p.popularity_rank)
     return _apply_oos_rule(rows)[:MAX_OPTIONS]
 
@@ -415,8 +493,7 @@ def _resolve_l3(
     A3: brand is known, product line isn't. Show up to 3 distinct product
     lines from that brand, ranked by profile match.
     """
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_foods_by_brand(brand_name)
+    rows = _get_product_cache(db).foods_for_brand(brand_name)
     rows = _apply_oos_rule(rows)
     rows.sort(
         key=lambda p: _score_product(
@@ -450,8 +527,7 @@ def _resolve_l2c(
     breed_norm: str,
 ) -> list[ProductFood]:
     """A4 (condition variant): top 3 brands, one best product per brand."""
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_foods_raw()
+    rows = _get_product_cache(db).foods_raw
 
     # Keep only condition-matching rows.
     matched = [
@@ -485,8 +561,7 @@ def _resolve_l2b(
     A5: breed known. Prefer lines whose ``breed_tags`` match the breed
     name; fall back to matching ``breed_size``.
     """
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_foods_raw()
+    rows = _get_product_cache(db).foods_raw
 
     breed_specific: list[ProductFood] = []
     if breed_norm:
@@ -525,11 +600,8 @@ def _resolve_l2(
     A4 (profile variant): life stage / breed size known, no breed-tag
     match, no condition. Top 3 brands by profile fit.
     """
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_foods_raw()
     rows = [
-        p
-        for p in rows
+        p for p in _get_product_cache(db).foods_raw
         if p.life_stage in (life_stage, "All")
         and p.breed_size in (breed_size, "All")
     ]
@@ -811,8 +883,7 @@ def _extract_supplement_brand(
     if not haystack:
         return None
 
-    product_repo = ProductRepository(db)
-    brand_rows = product_repo.find_distinct_supplement_brands()
+    brand_rows = _get_product_cache(db).supplement_brands
     best: str | None = None
     best_len = 0
     for brand in brand_rows:
@@ -923,8 +994,7 @@ def _resolve_supplement_l5(
     pack sizes of the same brand+type as fall-back alternatives). If the
     exact pack size is not in stock, the nearest sibling is surfaced.
     """
-    product_repo = ProductRepository(db)
-    siblings = product_repo.find_active_supplements_by_brand_and_type(brand_name, sup_type)
+    siblings = _get_product_cache(db).supps_for_brand_and_type(brand_name, sup_type)
     if form:
         # Form is a hint — tighten the results only if there are matches.
         form_filtered = [s for s in siblings if s.form == form]
@@ -950,8 +1020,7 @@ def _resolve_supplement_l4(
     db: Session, brand_name: str, sup_type: str
 ) -> list[ProductSupplement]:
     """B2: all pack sizes for (brand, type) sorted by popularity."""
-    product_repo = ProductRepository(db)
-    rows = product_repo.find_active_supplements_by_brand_and_type(brand_name, sup_type)
+    rows = list(_get_product_cache(db).supps_for_brand_and_type(brand_name, sup_type))
     rows.sort(key=lambda s: s.popularity_rank)
     return _apply_oos_rule_supplement(rows)[:MAX_OPTIONS]
 
@@ -964,8 +1033,7 @@ def _resolve_supplement_l3(
     popularity_rank) + 1 budget option (lowest discounted_price), each
     from a distinct brand where possible. Never more than 3.
     """
-    product_repo = ProductRepository(db)
-    all_supplements = product_repo.find_active_supplements_raw()
+    all_supplements = _get_product_cache(db).supplements_raw
     rows = [s for s in all_supplements if s.type == sup_type]
     rows = _apply_oos_rule_supplement(rows)
     if not rows:
@@ -1079,8 +1147,7 @@ def resolve_supplement_signal(
             for exp in expansions:
                 search_terms.append(exp.lower().replace("-", " "))
 
-        product_repo = ProductRepository(db)
-        all_supplements = product_repo.find_active_supplements_raw()
+        all_supplements = _get_product_cache(db).supplements_raw
         # Filter by key_ingredients matching any search term
         rows = [
             s for s in all_supplements
@@ -1150,12 +1217,17 @@ def _get_pet_species(pet) -> str:
     return (getattr(pet, "species", "") or "").strip().lower()
 
 
+_LIFE_STAGE_KEYWORDS = {"puppy", "adult", "senior", "kitten"}
+
+
 def _med_matches_species(product, species: str) -> bool:
-    tags_raw = getattr(product, "species_tags", "") or ""
+    # life_stage_tags stores species+lifestage combos: "dog", "cat", "dog-puppy", "dog,cat"
+    tags_raw = (product.life_stage_tags or "")
     if not tags_raw.strip():
         return True
-    tags = {t.strip().lower() for t in tags_raw.split(",") if t.strip()}
-    return not species or species in tags
+    # Split on comma and hyphen to get individual tokens, then check species
+    tokens = {t.strip().lower() for seg in tags_raw.split(",") for t in seg.split("-") if t.strip()}
+    return not species or species in tokens
 
 
 def _med_matches_weight(product, weight_kg: float) -> bool:
@@ -1245,6 +1317,7 @@ def _query_medicine_catalog(db: Session, product_type: str, species: str, pet=No
             rows = [
                 r for r in rows
                 if not (r.life_stage_tags or "").strip()
+                or not any(kw in (r.life_stage_tags or "").lower() for kw in _LIFE_STAGE_KEYWORDS)
                 or life_stage in (r.life_stage_tags or "").lower()
             ]
 

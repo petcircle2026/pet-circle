@@ -240,6 +240,22 @@ class OrderRepository:
             .all()
         )
 
+    def find_qualifying_orders_for_pet(
+        self, pet_id: UUID, qualifying_statuses: tuple[str, ...]
+    ) -> List[Order]:
+        """Fetch all qualifying orders for a pet, newest first.
+
+        Used to preload orders once per care-plan computation so that
+        per-item label matching can be done in Python rather than issuing
+        one query per diet item.
+        """
+        return (
+            self.db.query(Order)
+            .filter(Order.pet_id == pet_id, Order.status.in_(qualifying_statuses))
+            .order_by(Order.created_at.desc())
+            .all()
+        )
+
     def find_latest_qualifying_order(
         self, pet_id: UUID, product_label: str, qualifying_statuses: tuple[str, ...] = ("confirmed", "completed", "placed", "delivered")
     ) -> Order | None:

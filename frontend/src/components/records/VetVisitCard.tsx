@@ -57,8 +57,8 @@ export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCar
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, overflow: "hidden" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--t1)" }}>{visit.title}</div>
               <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 2 }}>{formatDate(visit.date)}</div>
             </div>
@@ -71,10 +71,11 @@ export default function VetVisitCard({ visit, defaultOpen, onView }: VetVisitCar
                 borderRadius: 999,
                 padding: "4px 10px",
                 whiteSpace: "nowrap",
-                maxWidth: 160,
+                maxWidth: 120,
+                minWidth: 0,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                flexShrink: 0,
+                flexShrink: 1,
               }}
             >
               {keyFindingLabel}
