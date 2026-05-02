@@ -362,30 +362,38 @@ class PreventiveRepository:
             .all()
         )
 
-    def find_with_master_non_cancelled(self, pet_id: UUID):
-        """Fetch (PreventiveRecord, PreventiveMaster) tuples for non-cancelled records."""
+    def find_with_master_non_cancelled(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """Fetch non-cancelled preventive records for a pet with both item relationships eager-loaded."""
         return (
-            self.db.query(PreventiveRecord, PreventiveMaster)
-            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            self.db.query(PreventiveRecord)
             .filter(
                 PreventiveRecord.pet_id == pet_id,
                 PreventiveRecord.status != "cancelled",
+            )
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
             )
             .all()
         )
 
-    def find_latest_by_pet_and_item_name(self, pet_id: UUID, item_name: str):
-        """Find the latest non-cancelled record for a pet and item name, ordered by completion date."""
+    def find_latest_by_pet_and_item_name(self, pet_id: UUID, item_name: str) -> PreventiveRecord | None:
+        """Find the latest non-cancelled record for a pet and item name (master or custom)."""
         return (
-            self.db.query(PreventiveRecord, PreventiveMaster)
-            .join(
-                PreventiveMaster,
-                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-            )
+            self.db.query(PreventiveRecord)
+            .outerjoin(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
+            .outerjoin(CustomPreventiveItem, PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id)
             .filter(
                 PreventiveRecord.pet_id == pet_id,
-                PreventiveMaster.item_name == item_name,
                 PreventiveRecord.status != "cancelled",
+                or_(
+                    PreventiveMaster.item_name == item_name,
+                    CustomPreventiveItem.item_name == item_name,
+                ),
+            )
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
             )
             .order_by(
                 PreventiveRecord.last_done_date.desc().nullslast(),
@@ -651,53 +659,30 @@ class PreventiveRepository:
         )
         return {row[0] for row in results if row[0] is not None}
 
-    def find_with_master_ordered_by_due(self, pet_id: UUID) -> list:
-        """Find all preventive records with master details for a pet, ordered by due date."""
+    def find_with_master_ordered_by_due(self, pet_id: UUID) -> list[PreventiveRecord]:
+        """Find all preventive records for a pet ordered by next_due_date, both item types eager-loaded."""
         return (
-            self.db.query(PreventiveRecord, PreventiveMaster)
-            .join(
-                PreventiveMaster,
-                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-            )
+            self.db.query(PreventiveRecord)
             .filter(PreventiveRecord.pet_id == pet_id)
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
+            )
             .order_by(PreventiveRecord.next_due_date.asc())
             .all()
         )
 
-    def find_with_master_ordered_by_last_done(self, pet_id: UUID, limit: int = 25) -> list:
-        """Find preventive records with master details for a pet, ordered by last_done_date (desc)."""
+    def find_with_master_ordered_by_last_done(self, pet_id: UUID, limit: int = 25) -> list[PreventiveRecord]:
+        """Find preventive records for a pet ordered by last_done_date desc, both item types eager-loaded."""
         return (
-            self.db.query(PreventiveRecord, PreventiveMaster)
-            .outerjoin(
-                PreventiveMaster,
-                PreventiveRecord.preventive_master_id == PreventiveMaster.id,
-            )
+            self.db.query(PreventiveRecord)
             .filter(PreventiveRecord.pet_id == pet_id)
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
+            )
             .order_by(PreventiveRecord.last_done_date.desc().nullslast())
             .limit(limit)
-            .all()
-        )
-
-    def find_with_master_by_pet(self, pet_id: UUID) -> list:
-        """Find preventive records with master items for a pet, ordered by last_done_date (desc)."""
-        return (
-            self.db.query(PreventiveRecord, PreventiveMaster)
-            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
-            .filter(PreventiveRecord.pet_id == pet_id)
-            .order_by(PreventiveRecord.last_done_date.desc().nullslast())
-            .all()
-        )
-
-    def find_with_custom_by_pet(self, pet_id: UUID) -> list:
-        """Find preventive records with custom items for a pet, ordered by last_done_date (desc)."""
-        return (
-            self.db.query(PreventiveRecord, CustomPreventiveItem)
-            .join(
-                CustomPreventiveItem,
-                PreventiveRecord.custom_preventive_item_id == CustomPreventiveItem.id,
-            )
-            .filter(PreventiveRecord.pet_id == pet_id)
-            .order_by(PreventiveRecord.last_done_date.desc().nullslast())
             .all()
         )
 

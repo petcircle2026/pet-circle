@@ -5024,9 +5024,11 @@ def _get_active_reminders_text(db: Session, pet_id) -> str:
 
         # Format reminders for display
         reminder_lines = []
-        for reminder, record, master in reminders:
+        for reminder, record in reminders:
+            item = record.item
+            item_name = item.item_name if item else "Unknown"
             due_date_str = reminder.next_due_date.strftime("%d/%m/%Y")
-            reminder_lines.append(f"• {master.item_name}: Due {due_date_str}")
+            reminder_lines.append(f"• {item_name}: Due {due_date_str}")
 
         result = "Active Reminders:\n" + "\n".join(reminder_lines) + "\n\n"
         return result

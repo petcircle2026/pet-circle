@@ -211,31 +211,35 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
     _pet_age_days = (date.today() - pet.dob).days if pet.dob else None
     _is_puppy = _pet_age_days is None or _pet_age_days < 180
 
-    # Deduplicate per master: when multiple records exist for the same item
+    # Deduplicate per item: when multiple records exist for the same item
     # (e.g. a seeded not_started + an extracted record with a date), prefer
     # the one with last_done_date set so GPT doesn't see both.
-    _best: dict = {}  # master_id → (record, master)
-    for record, master in records:
-        if not _is_puppy and master.recurrence_days and master.recurrence_days >= 36500:
+    _best: dict = {}  # item_id → record
+    for record in records:
+        item = record.item
+        if item is None:
             continue
-        mid = str(master.id)
-        existing_rec, _ = _best.get(mid, (None, None))
-        if existing_rec is None or (record.last_done_date and not existing_rec.last_done_date):
-            _best[mid] = (record, master)
+        if not _is_puppy and item.recurrence_days and item.recurrence_days >= 36500:
+            continue
+        mid = str(item.id)
+        existing = _best.get(mid)
+        if existing is None or (record.last_done_date and not existing.last_done_date):
+            _best[mid] = record
 
     context_parts.append("\n=== Preventive Health Records ===")
     if _best:
-        for record, master in _best.values():
+        for record in _best.values():
+            item = record.item
             if record.last_done_date:
                 context_parts.append(
-                    f"- {master.item_name} ({master.category}): "
+                    f"- {item.item_name} ({item.category}): "
                     f"Last done: {record.last_done_date}, "
                     f"Next due: {record.next_due_date}, "
                     f"Status: {record.status}"
                 )
             else:
                 context_parts.append(
-                    f"- {master.item_name} ({master.category}): "
+                    f"- {item.item_name} ({item.category}): "
                     f"(no history — recommendation only, not yet started by owner)"
                 )
     else:
@@ -246,9 +250,11 @@ def _build_pet_context(db: Session, pet_id: UUID) -> str:
 
     context_parts.append("\n=== Active Reminders ===")
     if reminders:
-        for reminder, record, master in reminders:
+        for reminder, record in reminders:
+            item = record.item
+            item_name = item.item_name if item else "Unknown"
             context_parts.append(
-                f"- {master.item_name}: Due {reminder.next_due_date}, "
+                f"- {item_name}: Due {reminder.next_due_date}, "
                 f"Status: {reminder.status}"
             )
     else:

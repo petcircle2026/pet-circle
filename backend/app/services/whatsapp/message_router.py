@@ -2464,9 +2464,11 @@ async def _send_dashboard_links(db, user) -> None:
 
                 if reminders:
                     pet_msg += "\n\nActive Reminders:"
-                    for reminder, record, master in reminders:
+                    for reminder, record in reminders:
+                        item = record.item
+                        item_name = item.item_name if item else "Unknown"
                         due_date_str = reminder.next_due_date.strftime("%d/%m/%Y")
-                        pet_msg += f"\n• {master.item_name}: Due {due_date_str}"
+                        pet_msg += f"\n• {item_name}: Due {due_date_str}"
             except Exception as e:
                 logger.error("Failed to fetch reminders for pet %s: %s", str(pet.id), str(e))
 

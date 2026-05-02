@@ -11,7 +11,7 @@ from uuid import UUID
 from typing import List
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func, desc
 
 from app.models.preventive.reminder import Reminder
@@ -59,16 +59,23 @@ class ReminderRepository:
         )
 
     def find_active_for_pet_with_details(self, pet_id: UUID) -> list:
-        """Find active reminders for a pet with preventive record and master details."""
+        """Find active reminders for a pet with preventive record details.
+
+        Returns (Reminder, PreventiveRecord) tuples. PreventiveRecord has both
+        preventive_master and custom_preventive_item eager-loaded so callers
+        can use record.item without triggering lazy loads.
+        """
         from app.models.preventive.preventive_record import PreventiveRecord
-        from app.models.lookup.preventive_master import PreventiveMaster
         return (
-            self.db.query(Reminder, PreventiveRecord, PreventiveMaster)
+            self.db.query(Reminder, PreventiveRecord)
             .join(PreventiveRecord, Reminder.preventive_record_id == PreventiveRecord.id)
-            .join(PreventiveMaster, PreventiveRecord.preventive_master_id == PreventiveMaster.id)
             .filter(
                 PreventiveRecord.pet_id == pet_id,
                 Reminder.status.in_(["pending", "sent"]),
+            )
+            .options(
+                selectinload(PreventiveRecord.preventive_master),
+                selectinload(PreventiveRecord.custom_preventive_item),
             )
             .order_by(Reminder.next_due_date.asc())
             .all()

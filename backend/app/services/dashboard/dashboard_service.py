@@ -122,12 +122,12 @@ def _is_vaccine_item_name(item_name: str | None) -> bool:
     return any(keyword in name for keyword in vaccine_keywords)
 
 
-def _is_core_vaccine(master: PreventiveMaster | None) -> bool:
-    """Return True when a preventive master row is both core and a vaccine."""
-    if not master:
+def _is_core_vaccine(item) -> bool:
+    """Return True when a preventive item is both core and a vaccine."""
+    if not item:
         return False
-    normalized_name = (master.item_name or "").strip().lower()
-    return bool(master.is_core) and normalized_name in _CORE_VACCINE_NAMES
+    normalized_name = (item.item_name or "").strip().lower()
+    return bool(getattr(item, "is_core", False)) and normalized_name in _CORE_VACCINE_NAMES
 
 
 def _safe_iso_date(value: date | datetime | None) -> str | None:
@@ -677,7 +677,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     # PHASE 2 — Sequential main-session queries (run while Phase 1 executes)
     # =========================================================================
     # Only queries with inter-dependencies stay on the main session:
-    # visit_count → preventive_data → reminders → conflict_flags.
+    # visit_count → preventive_records → reminders → conflict_flags.
     # =========================================================================
 
     # --- Record dashboard visit for nudge level tracking (N8) ---
@@ -760,10 +760,13 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     reminders = ReminderRepository(db).find_active_for_pet_with_details(pet_id)
 
     reminder_data = []
-    for reminder, record, master in reminders:
-        effective_recurrence = get_effective_recurrence_days(db, master, record, pet)
+    for reminder, record in reminders:
+        item = record.item
+        if item is None:
+            continue
+        effective_recurrence = get_effective_recurrence_days(db, item, record, pet)
         reminder_data.append({
-            "item_name": master.item_name,
+            "item_name": item.item_name,
             "next_due_date": str(reminder.next_due_date),
             "status": reminder.status,
             "sent_at": str(reminder.sent_at) if reminder.sent_at else None,
@@ -771,25 +774,17 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         })
 
     # --- Load pending conflict flags ---
-    # Store (record, master) tuples so the loop can read master.item_name
-    # directly from the tuple instead of triggering a lazy load on the
-    # record.preventive_master relationship.
     conflict_rows = []
-    pet_rec_map = {str(r.id): (r, m) for r, m in preventive_data}
+    pet_rec_map = {str(r.id): r for r in selected_records}
     if pet_rec_map:
         cf_rows = ConflictFlagRepository(db).find_pending_by_records(list(pet_rec_map.keys()))
         for cf in cf_rows:
-            r_m = pet_rec_map.get(str(cf.preventive_record_id))
-            item_name = None
-            if r_m:
-                r, m = r_m
-                item_name = m.item_name  # from tuple — no lazy load
-                if not item_name and r.custom_preventive_item:
-                    item_name = r.custom_preventive_item.item_name
+            r = pet_rec_map.get(str(cf.preventive_record_id))
+            item_name = r.item.item_name if r and r.item else None
             conflict_rows.append({
                 "id": str(cf.id),
                 "item_name": item_name,
-                "existing_date": str(r_m[0].last_done_date) if r_m and r_m[0].last_done_date else None,
+                "existing_date": str(r.last_done_date) if r and r.last_done_date else None,
                 "new_date": str(cf.new_date),
                 "status": cf.status,
                 "created_at": str(cf.created_at) if cf.created_at else None,
@@ -967,7 +962,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             for b in _cached_bullets
         )
         # Staleness check 2: cache says "0 preventive" but completed core records now exist.
-        # Use already-loaded preventive_data — avoids an extra COUNT query.
+        # Use already-loaded selected_records — avoids an extra COUNT query.
         _prev_stale = any(
             isinstance(b, dict) and "0 preventive" in (b.get("label") or "").lower()
             for b in _cached_bullets
@@ -987,8 +982,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
 
         _has_diet = len(diet_rows) > 0
         _has_preventive = any(
-            r.last_done_date is not None and (m.is_core or r.custom_preventive_item_id is not None)
-            for r, m in preventive_data
+            r.last_done_date is not None and (getattr(r.item, "is_core", False) or r.custom_preventive_item_id is not None)
+            for r in selected_records
         )
         if not (_diet_stale and _has_diet) and not (_prev_stale and _has_preventive) and not _prescribed_stale:
             recognition_bullets = _cached_bullets
@@ -1342,27 +1337,24 @@ def update_preventive_date(
             f"Preventive record not found for item: {item_name}"
         )
 
-    record, master = result
-    apply_to_all_vaccines = bulk_vaccine_update and _is_core_vaccine(master)
+    record = result
+    item = record.item
+    apply_to_all_vaccines = bulk_vaccine_update and _is_core_vaccine(item)
 
     if apply_to_all_vaccines:
         target_rows = PreventiveRepository(db).find_with_master_non_cancelled(pet_id)
-        targets = [
-            (r, m)
-            for r, m in target_rows
-            if _is_core_vaccine(m)
-        ]
+        targets = [r for r in target_rows if _is_core_vaccine(r.item)]
         if not targets:
-            targets = [(record, master)]
+            targets = [record]
     else:
-        targets = [(record, master)]
+        targets = [record]
 
     # Store old values from the first target for response compatibility.
-    first_record, _first_master = targets[0]
-    old_last_done = first_record.last_done_date
+    old_last_done = targets[0].last_done_date
 
     invalidated_count = 0
-    for target_record, target_master in targets:
+    for target_record in targets:
+        target_item = target_record.item
         old_next_due = target_record.next_due_date
 
         # --- Update last_done_date ---
@@ -1371,7 +1363,7 @@ def update_preventive_date(
         # --- Recalculate next_due_date ---
         # get_effective_recurrence_days handles medicine lookup + persistence internally.
         effective_recurrence_days = get_effective_recurrence_days(
-            db, target_master, target_record, pet
+            db, target_item, target_record, pet
         )
         target_record.next_due_date = compute_next_due_date(
             new_last_done_date, effective_recurrence_days
@@ -1379,7 +1371,7 @@ def update_preventive_date(
 
         # --- Recalculate status ---
         target_record.status = compute_status(
-            target_record.next_due_date, target_master.reminder_before_days
+            target_record.next_due_date, target_item.reminder_before_days
         )
 
         # --- Invalidate pending reminders for old due date ---
@@ -1392,8 +1384,8 @@ def update_preventive_date(
     db.commit()
 
     updated_count = len(targets)
-    new_next_due = first_record.next_due_date
-    new_status = first_record.status
+    new_next_due = targets[0].next_due_date
+    new_status = targets[0].status
 
     logger.info(
         "Preventive date updated via dashboard: pet_id=%s, item=%s, "
@@ -1538,14 +1530,15 @@ def get_health_trends(db: Session, token: str) -> dict:
     # Each item shows its last_done_date for the timeline view.
     item_timeline = []
     for record in preventive_records_list:
-        master = record.preventive_master
-        if record.last_done_date:
-            item_timeline.append({
-                "item_name": master.item_name,
-                "category": master.category,
-                "last_done_date": str(record.last_done_date),
-                "status": record.status,
-            })
+        item = record.item
+        if item is None or not record.last_done_date:
+            continue
+        item_timeline.append({
+            "item_name": item.item_name,
+            "category": item.category,
+            "last_done_date": str(record.last_done_date),
+            "status": record.status,
+        })
 
     vaccine_item_names = {"Rabies Vaccine", "Core Vaccine", "Feline Core"}
 
@@ -1554,17 +1547,19 @@ def get_health_trends(db: Session, token: str) -> dict:
     monthly_completions: dict[str, int] = defaultdict(int)
     vaccine_monthly: dict[str, int] = defaultdict(int)
     vaccine_timeline = []
-    for record, master in preventive_data:
-        if record.last_done_date:
-            month_key = record.last_done_date.strftime("%Y-%m")
-            monthly_completions[month_key] += 1
-            if master.item_name in vaccine_item_names:
-                vaccine_monthly[month_key] += 1
-                vaccine_timeline.append({
-                    "vaccine_name": master.item_name,
-                    "last_done_date": str(record.last_done_date),
-                    "next_due_date": str(record.next_due_date) if record.next_due_date else None,
-                })
+    for record in preventive_records_list:
+        item = record.item
+        if item is None or not record.last_done_date:
+            continue
+        month_key = record.last_done_date.strftime("%Y-%m")
+        monthly_completions[month_key] += 1
+        if item.item_name in vaccine_item_names:
+            vaccine_monthly[month_key] += 1
+            vaccine_timeline.append({
+                "vaccine_name": item.item_name,
+                "last_done_date": str(record.last_done_date),
+                "next_due_date": str(record.next_due_date) if record.next_due_date else None,
+            })
 
     # Sort months chronologically.
     sorted_months = sorted(monthly_completions.keys())
@@ -1577,9 +1572,9 @@ def get_health_trends(db: Session, token: str) -> dict:
         })
 
     # --- Current status summary ---
-    total = len(preventive_data)
+    total = len(preventive_records_list)
     status_counts = defaultdict(int)
-    for record, master in preventive_data:
+    for record in preventive_records_list:
         if record.status != "cancelled" and not record.last_done_date and not record.next_due_date:
             status_counts["incomplete"] += 1
         else:

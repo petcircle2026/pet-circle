@@ -483,8 +483,9 @@ async def _step_cat_select(db, user, pets, pet, ctx, text, mobile, send_text_mes
         records = preventive_repo.find_with_master_ordered_by_last_done(pet.id, limit=15)
         if records:
             lines = []
-            for rec, master in records:
-                name = master.item_name if master else "Custom"
+            for rec in records:
+                item = rec.item
+                name = item.item_name if item else "Unknown"
                 last = str(rec.last_done_date) if rec.last_done_date else "—"
                 lines.append(f"  {name}: {last}")
             items_display = "\n".join(lines)
@@ -866,18 +867,16 @@ async def _step_prev_action(db, user, pets, pet, ctx, text, mobile, send_text_me
         return
     if text == "1":
         preventive_repo = PreventiveRepository(db)
-        master_rows = preventive_repo.find_with_master_ordered_by_last_done(pet.id, limit=20)
-        custom_rows = preventive_repo.find_with_custom_by_pet(pet.id)
+        all_records = preventive_repo.find_with_master_ordered_by_last_done(pet.id, limit=20)
 
         all_items = []
-        for rec, master in master_rows:
-            name = master.item_name if master else "Unknown"
+        for rec in all_records:
+            item = rec.item
+            if item is None:
+                continue
+            suffix = " (custom)" if rec.custom_preventive_item_id else ""
             last = str(rec.last_done_date) if rec.last_done_date else "—"
-            all_items.append((str(rec.id), f"{name} — last done {last}"))
-        for rec, custom in custom_rows:
-            if custom:
-                last = str(rec.last_done_date) if rec.last_done_date else "—"
-                all_items.append((str(rec.id), f"{custom.item_name} (custom) — last done {last}"))
+            all_items.append((str(rec.id), f"{item.item_name}{suffix} — last done {last}"))
 
         if not all_items:
             await send_text_message(db, mobile, "No preventive records found. Type 2 to add a custom item.")
