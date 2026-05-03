@@ -51,12 +51,12 @@ export default function CarePlanCard({
         <div className="flex-gap-sm" style={{ display: "flex", alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
           {counts.onTrack > 0 && (
             <span style={{ borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#E8F9EE", color: "#1B7A3D" }}>
-              {counts.onTrack} On Track
+              {counts.onTrack} Up to date
             </span>
           )}
           {counts.dueSoon > 0 && (
             <span style={{ borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, background: "#FFF6ED", color: "#b85c00" }}>
-              {counts.dueSoon} Due Soon
+              {counts.dueSoon} Upcoming
             </span>
           )}
           {counts.overdue > 0 && (
@@ -195,7 +195,7 @@ export default function CarePlanCard({
 
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
                         {bucketKey !== "add" && item.test_type !== "food" && item.test_type !== "supplement" && (
-                          <span className={`s-tag ${itemStatusClass(item)}`}>{normalizeStatusTag(item.status_tag)}</span>
+                          <span className={`s-tag ${itemStatusClass(item)}`}>{item.status_tag}</span>
                         )}
 
                         {canOrder && (

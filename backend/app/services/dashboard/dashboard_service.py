@@ -741,6 +741,14 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         item = record.item
         display = resolve_item_display(db, [record], pet)
 
+        # Recalculate stored status against current IST date so records that
+        # have drifted (e.g. 'upcoming' → 'overdue' with time passing) are
+        # corrected on every dashboard load without waiting for an explicit update.
+        if display["next_due"] and record.last_done_date:
+            fresh_status = compute_status(display["next_due"], item.reminder_before_days)
+            if record.status != fresh_status:
+                record.status = fresh_status
+
         preventive_records.append({
             "item_name": item.item_name,
             "category": item.category,
@@ -757,6 +765,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             "freq_label": display["freq_label"],
             "status_display": display["status_display"],
         })
+
+    db.flush()  # persist any status recalculations from the loop above
 
     # --- Load active reminders ---
     reminders = ReminderRepository(db).find_active_for_pet_with_details(pet_id)
@@ -1294,6 +1304,7 @@ def update_preventive_date(
     item_name: str,
     new_last_done_date: date,
     bulk_vaccine_update: bool = False,
+    medicine_name: str | None = None,
 ) -> dict:
     """
     Update a preventive record's last_done_date via dashboard.
@@ -1364,6 +1375,10 @@ def update_preventive_date(
         # --- Update last_done_date ---
         target_record.last_done_date = new_last_done_date
 
+        # --- Persist medicine_name when provided (enables Priority 2 recurrence) ---
+        if medicine_name and target_item.medicine_dependent and not target_record.medicine_name:
+            target_record.medicine_name = medicine_name
+
         # --- Recalculate next_due_date ---
         # get_effective_recurrence_days handles medicine lookup + persistence internally.
         effective_recurrence_days = get_effective_recurrence_days(
@@ -1414,6 +1429,9 @@ def update_preventive_date(
         "record_status": new_status,
         "updated_records": updated_count,
         "reminders_invalidated": invalidated_count,
+        "medicine_selection_needed": bool(
+            targets[0].item.medicine_dependent and not targets[0].medicine_name
+        ),
     }
 
 

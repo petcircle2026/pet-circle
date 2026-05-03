@@ -69,6 +69,20 @@ def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int 
             .first()
         )
 
+        # Fallback: try brand name only (first token before space/dash) so that
+        # "Bravecto Chew 10-20 kg" still matches "Bravecto--Chew--10–20 kg".
+        if not product:
+            brand = re.split(r"[\s\-–—]+", medicine_name.strip())[0]
+            if brand and brand.lower() != medicine_name.strip().lower():
+                product = (
+                    db.query(ProductMedicines)
+                    .filter(
+                        ProductMedicines.active == True,
+                        ProductMedicines.product_name.ilike(f"%{brand}%"),
+                    )
+                    .first()
+                )
+
         if not product or not product.repeat_frequency:
             return None
 
@@ -463,23 +477,30 @@ def days_to_freq_label(days: int) -> str:
     return "Every 3+ years"
 
 
-def status_tag_for_display(next_due: "date | None", has_history: bool) -> str:
+def status_tag_for_display(
+    next_due: "date | None",
+    has_history: bool,
+    reminder_before_days: int = 7,
+) -> str:
     """
     UI status string for a preventive item.
 
+    Delegates to compute_status so the same IST timezone and reminder_before_days
+    window are used everywhere.
+
     No history / no next_due → "Not started"
-    Past today               → "Overdue"
-    Within 7 days            → "Due soon"
+    today > next_due         → "Overdue"
+    within reminder window   → "Upcoming"
     Otherwise                → "On track"
     """
     if not has_history or next_due is None:
         return "Not started"
-    today = date.today()
-    if next_due < today:
+    status = compute_status(next_due, reminder_before_days)
+    if status == "overdue":
         return "Overdue"
-    if (next_due - today).days <= 7:
-        return "Due soon"
-    return "On track"
+    if status == "upcoming":
+        return "Upcoming"
+    return "Up to date"
 
 
 def resolve_item_display(
@@ -495,7 +516,7 @@ def resolve_item_display(
 
         last_done       — date of the most recent completion (or None)
         next_due        — compute_next_due_date(last_done, effective_recurrence)
-        status_display  — "On track" | "Due soon" | "Overdue" | "Not started"
+        status_display  — "Up to date" | "Upcoming" | "Overdue" | "Not started"
         freq_label      — human-readable frequency e.g. "Every 3 months"
         recurrence_days — integer used to compute next_due (0 when no records)
 
@@ -519,6 +540,7 @@ def resolve_item_display(
 
     master = getattr(canonical, "item", None)
     recurrence = get_effective_recurrence_days(db, master, canonical, pet)
+    reminder_days = getattr(master, "reminder_before_days", 7) if master else 7
     last_done: "date | None" = getattr(canonical, "last_done_date", None)
     if last_done:
         next_due: "date | None" = compute_next_due_date(last_done, recurrence)
@@ -528,7 +550,7 @@ def resolve_item_display(
     return {
         "last_done": last_done,
         "next_due": next_due,
-        "status_display": status_tag_for_display(next_due, bool(last_done)),
+        "status_display": status_tag_for_display(next_due, bool(last_done), reminder_days),
         "freq_label": days_to_freq_label(recurrence),
         "recurrence_days": recurrence,
     }

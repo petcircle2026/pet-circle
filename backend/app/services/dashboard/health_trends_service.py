@@ -477,30 +477,52 @@ def _build_flea_tick_cadence(
         doses.append(dose_entry)
         previous_done_date = record.last_done_date
 
-    # Append an upcoming next-due node via resolve_item_display so the date and
-    # status always match what the care plan and reminders views show.
+    # Append a next-due node via resolve_item_display so the date and status
+    # always match what the care plan and reminders views show.
     if not has_undone:
         from app.services.shared.preventive_calculator import resolve_item_display
         all_flea_records = [rec for rec, _ in flea_pairs]
         flea_display = resolve_item_display(db, all_flea_records, pet)
         latest_next_due = flea_display["next_due"]
-        if latest_next_due and latest_next_due >= today:
-            doses.append({
-                "num": len(doses) + 1,
-                "label": "Next due",
-                "gap": None,
-                "status": "upcoming",
-                "gap_alert": False,
-                "date": latest_next_due.isoformat(),
-            })
+        next_status_display = flea_display["status_display"]
+        if latest_next_due and next_status_display != "Not started":
+            if next_status_display == "Overdue":
+                gap_text = None
+                gap_alert = False
+                if previous_done_date:
+                    gap_w = _gap_in_weeks(previous_done_date, latest_next_due)
+                    gap_text = f"{gap_w}w"
+                    gap_alert = gap_w > 12
+                doses.append({
+                    "num": len(doses) + 1,
+                    "label": "Next due",
+                    "gap": gap_text,
+                    "status": "overdue",
+                    "gap_alert": gap_alert,
+                    "date": latest_next_due.isoformat(),
+                })
+            else:
+                doses.append({
+                    "num": len(doses) + 1,
+                    "label": "Next due",
+                    "gap": None,
+                    "status": "upcoming",
+                    "gap_alert": False,
+                    "date": latest_next_due.isoformat(),
+                })
 
     # Footer — mirrors deworming severity levels
     real_doses = [d for d in doses if d["status"] not in ("upcoming", "overdue")]
-    has_overdue = any(d["status"] == "overdue" for d in doses)
+    has_overdue_no_history = any(d["status"] == "overdue" for d in doses) and len(real_doses) == 0
+    has_overdue_with_history = any(d["status"] == "overdue" for d in doses) and len(real_doses) > 0
     red_gap_count = sum(1 for d in real_doses if d["status"] == "red")
 
-    if has_overdue:
+    if has_overdue_no_history:
         footer_text = "⚠ No tick & flea treatment recorded. Administer immediately."
+        footer_color = "#b52020"
+        footer_bg = "#FFEDED"
+    elif has_overdue_with_history:
+        footer_text = "⚠ Tick & flea treatment overdue. Administer immediately."
         footer_color = "#b52020"
         footer_bg = "#FFEDED"
     elif not real_doses:

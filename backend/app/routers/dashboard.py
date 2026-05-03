@@ -171,6 +171,12 @@ class PreventiveDateUpdateRequest(BaseModel):
         description="New last done date (DD/MM/YYYY, DD-MM-YYYY, "
                     "12 March 2024, or YYYY-MM-DD)",
     )
+    medicine_name: str | None = Field(
+        None,
+        max_length=200,
+        description="Optional medicine used (e.g. 'Bravecto'). "
+                    "Sets recurrence for medicine-dependent items.",
+    )
 
 
 class CartAddRequest(BaseModel):
@@ -441,7 +447,8 @@ def dashboard_update_preventive(
 
     try:
         result = update_preventive_date(
-            db, token, body.item_name, new_date
+            db, token, body.item_name, new_date,
+            medicine_name=body.medicine_name,
         )
         return result
     except ValueError as e:
