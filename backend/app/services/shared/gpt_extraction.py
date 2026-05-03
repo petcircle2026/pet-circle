@@ -1981,7 +1981,7 @@ async def _validate_extraction_dict(
     # or standalone_medications[], and promote them to items[] using the
     # condition's date context.  This is the code-level guarantee that vaccines
     # always write to PreventiveRecord, regardless of how GPT classified the doc.
-    tracked_item_names = list(_VACCINE_DETAIL_TO_ITEM.values())
+    tracked_item_names = list(_CANONICAL_VACCINE_ITEMS.values())
     # Deduplicate while preserving order.
     seen: set[str] = set()
     tracked_item_names = [x for x in tracked_item_names if not (x in seen or seen.add(x))]

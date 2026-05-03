@@ -2917,18 +2917,18 @@ def _essential_annual_vaccine_masters(db: Session, species: str) -> list[Prevent
 
 def _resolve_vaccine_item_name(name: str) -> str | None:
     """Resolve a free-text vaccine alias to a canonical preventive item name."""
-    from app.services.shared.gpt_extraction import _VACCINE_DETAIL_TO_ITEM
+    from app.services.shared.gpt_extraction import _CANONICAL_VACCINE_ITEMS
 
     normalized = (name or "").strip().lower()
     if not normalized:
         return None
 
     # Prefer exact alias keys, then fallback to keyword containment matching.
-    exact = _VACCINE_DETAIL_TO_ITEM.get(normalized)
+    exact = _CANONICAL_VACCINE_ITEMS.get(normalized)
     if exact:
         return exact
 
-    for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
+    for keyword, item_name in _CANONICAL_VACCINE_ITEMS.items():
         if keyword in normalized:
             return item_name
 
@@ -2940,7 +2940,7 @@ def _match_specific_vaccine_master(
 ) -> PreventiveMaster | None:
     """
     Map a free-text vaccine name ('rabies', 'dhppi', '7 in 1') to a single
-    PreventiveMaster row. Reuses gpt_extraction._VACCINE_DETAIL_TO_ITEM as
+    PreventiveMaster row. Reuses gpt_extraction._CANONICAL_VACCINE_ITEMS as
     the single source of truth for name aliases.
     """
     item_name = _resolve_vaccine_item_name(name)

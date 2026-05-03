@@ -16,6 +16,7 @@ from app.services.shared.care_plan_engine import (
     BreedSize,
     Classification,
     LifeStage,
+    _classify_item_type_llm,
     _classify_test,
     _compute_next_due,
     _days_to_freq_label,
@@ -23,12 +24,43 @@ from app.services.shared.care_plan_engine import (
     _get_baseline_protocol,
     _get_breed_size,
     _get_life_stage,
-    _normalize_item_name,
+    _ITEM_TYPE_CACHE,
     _Prescription,
     _Report,
     _status_tag,
     _to_sections,
 )
+
+# Pre-populate cache so tests are fast and deterministic (no LLM calls needed).
+_ITEM_TYPE_CACHE.update({
+    "cbc": "cbc_chemistry",
+    "blood chemistry profile": "cbc_chemistry",
+    "complete haematology": "cbc_chemistry",
+    "cbc chemistry": "cbc_chemistry",
+    "urinalysis": "urinalysis",
+    "urine routine": "urinalysis",
+    "fecal examination": "fecal",
+    "stool test": "fecal",
+    "chest x-ray": "chest_xray",
+    "chest xray": "chest_xray",
+    "abdominal ultrasound": "usg",
+    "usg abdomen": "usg",
+    "echocardiogram": "echo",
+    "ecg cardiac": "ecg",
+    "dental cleaning": "dental",
+    "deworming": "deworming",
+    "tick & flea prevention": "tick_flea",
+    "rabies vaccine": "vaccine",
+    "dhppi booster": "vaccine",
+    "omega supplement": "supplement",
+    "royal canin food": "food",
+    "behavioural assessment": "other",
+})
+
+
+def _normalize_item_name(name: str) -> str:
+    """Shim for tests: resolves via cache populated above."""
+    return _classify_item_type_llm(name)
 
 TODAY = date.today()
 

@@ -18,12 +18,6 @@ _DEFINITE_NO = frozenset({"no", "n", "nope", "nahi", "na", "nah"})
 _DEFINITE_SKIP = frozenset({"skip", "s", "later", "n/a"})
 _DOC_SKIP_PHRASES = frozenset({"no documents", "no docs", "what next", "skip docs"})
 
-_GENERIC_VAX_LABELS = frozenset({
-    "vaccines", "shots", "vaccine", "shot",
-    "vaccinated", "vaccinations", "vaccine shots",
-    "rabies", "general", "booster", "boosters",
-    "primary vaccines", "routine vaccines",
-})
 
 _PENDING_VACCINE_PHRASES = (
     "should be given", "need to give", "needs to give", "not yet given",
@@ -120,33 +114,9 @@ def is_doc_skip_intent(text_lower: str) -> bool:
 def is_generic_vaccine_mention(parsed: dict) -> bool:
     """
     Return True if parsed data contains a generic vaccine mention with no
-    specific vaccine name.
+    specific vaccine name. Uses the LLM-set is_generic_mention field.
     """
-    generic = parsed.get("vaccines")
-    vaccine_specifics = parsed.get("vaccine_specifics") or []
-
-    if generic and generic != "none":
-        real_specifics = [
-            s for s in vaccine_specifics
-            if isinstance(s, dict)
-            and str(s.get("name") or "").strip().lower() not in _GENERIC_VAX_LABELS
-            and str(s.get("date") or "").strip()
-        ]
-        return len(real_specifics) == 0
-
-    generic_entries = [
-        s for s in vaccine_specifics
-        if isinstance(s, dict)
-        and str(s.get("name") or "").strip().lower() in _GENERIC_VAX_LABELS
-        and str(s.get("date") or "").strip()
-    ]
-    real_entries = [
-        s for s in vaccine_specifics
-        if isinstance(s, dict)
-        and str(s.get("name") or "").strip().lower() not in _GENERIC_VAX_LABELS
-        and str(s.get("date") or "").strip()
-    ]
-    return bool(generic_entries) and not real_entries
+    return bool(parsed.get("is_generic_mention", False))
 
 
 def is_flea_without_brand(parsed: dict) -> bool:
