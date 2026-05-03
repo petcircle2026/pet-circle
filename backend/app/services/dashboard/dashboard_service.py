@@ -79,7 +79,9 @@ from app.services.dashboard.life_stage_service import get_life_stage_data
 from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
+    days_to_freq_label,
     get_effective_recurrence_days,
+    resolve_item_display,
 )
 from app.services.dashboard.vet_summary_service import get_vet_summary
 
@@ -704,8 +706,9 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             r.created_at.date() if getattr(r, "created_at", None) else date.min,
         )
 
-    vaccine_latest_by_name: dict[str, PreventiveRecord] = {}
-    non_vaccine_records: list[PreventiveRecord] = []
+    # All three views (care plan, reminders, cadence) show only the latest record
+    # per item — one row per item_name, keeping the most recent last_done_date.
+    latest_by_name: dict[str, PreventiveRecord] = {}
 
     _is_adult_dog = (
         pet.species == "dog"
@@ -721,14 +724,11 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
             continue
         if _is_vaccine_item_name(item.item_name) and not getattr(item, "is_mandatory", False) and not record.last_done_date:
             continue
-        if _is_vaccine_item_name(item.item_name):
-            existing = vaccine_latest_by_name.get(item.item_name)
-            if not existing or _record_sort_key(record) >= _record_sort_key(existing):
-                vaccine_latest_by_name[item.item_name] = record
-        else:
-            non_vaccine_records.append(record)
+        existing = latest_by_name.get(item.item_name)
+        if not existing or _record_sort_key(record) >= _record_sort_key(existing):
+            latest_by_name[item.item_name] = record
 
-    selected_records = non_vaccine_records + list(vaccine_latest_by_name.values())
+    selected_records = list(latest_by_name.values())
     selected_records.sort(
         key=lambda r: (
             r.next_due_date is None,
@@ -739,21 +739,23 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     preventive_records = []
     for record in selected_records:
         item = record.item
-        effective_recurrence = get_effective_recurrence_days(db, item, record, pet)
+        display = resolve_item_display(db, [record], pet)
 
         preventive_records.append({
             "item_name": item.item_name,
             "category": item.category,
             "circle": item.circle,
-            "last_done_date": str(record.last_done_date) if record.last_done_date else None,
-            "next_due_date": str(record.next_due_date) if record.next_due_date else None,
+            "last_done_date": display["last_done"].isoformat() if display["last_done"] else None,
+            "next_due_date": display["next_due"].isoformat() if display["next_due"] else None,
             "status": record.status,
-            "recurrence_days": effective_recurrence,
+            "recurrence_days": display["recurrence_days"],
             "custom_recurrence_days": record.custom_recurrence_days,
             "medicine_dependent": item.medicine_dependent,
             "medicine_name": record.medicine_name or None,
             "created_at": record.created_at.isoformat() if record.created_at else None,
             "is_core": bool(getattr(item, "is_core", False)),
+            "freq_label": display["freq_label"],
+            "status_display": display["status_display"],
         })
 
     # --- Load active reminders ---
@@ -829,6 +831,8 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
                 "medicine_name": None,
                 "created_at": None,
                 "is_core": bool(master.is_core) if master.is_core is not None else False,
+                "freq_label": days_to_freq_label(master.recurrence_days) if master.recurrence_days else None,
+                "status_display": "Not started",
             })
 
     # _insight_cache already built inside _fetch_insights_sync (Phase 1 result).

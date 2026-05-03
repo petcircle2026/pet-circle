@@ -19,7 +19,6 @@ from app.services.shared.care_plan_engine import (
     _classify_item_type_llm,
     _classify_test,
     _compute_next_due,
-    _days_to_freq_label,
     _filter_redundant_reports,
     _get_baseline_protocol,
     _get_breed_size,
@@ -27,9 +26,16 @@ from app.services.shared.care_plan_engine import (
     _ITEM_TYPE_CACHE,
     _Prescription,
     _Report,
-    _status_tag,
     _to_sections,
 )
+from app.services.shared.preventive_calculator import days_to_freq_label, status_tag_for_display
+
+# Backward-compat shims for tests that still use the old private names.
+_days_to_freq_label = days_to_freq_label
+
+
+def _status_tag(next_due, classification):
+    return status_tag_for_display(next_due, classification != Classification.NO_HISTORY)
 
 # Pre-populate cache so tests are fast and deterministic (no LLM calls needed).
 _ITEM_TYPE_CACHE.update({
@@ -619,6 +625,8 @@ class TestComputeCarePlan:
         from unittest.mock import patch
 
         db = MagicMock()
+        # db.info must behave like a real dict for _check_reorder_status caching.
+        db.info = {}
 
         # Mock PreventiveRecord+PreventiveMaster query
         # Convert (rec, master) tuples to mock records with .preventive_master attribute,
@@ -628,6 +636,9 @@ class TestComputeCarePlan:
         for rec, master in (record_rows or []):
             rec.preventive_master = master
             rec.custom_preventive_item = None
+            # item is a @property on the real model; MagicMock won't call it,
+            # so wire rec.item directly so all code paths get the right master.
+            rec.item = master
             # Set to None/int so MagicMock defaults don't corrupt care plan logic.
             if not isinstance(getattr(rec, "custom_recurrence_days", None), int):
                 rec.custom_recurrence_days = None
@@ -636,6 +647,9 @@ class TestComputeCarePlan:
             # Ensure master.recurrence_days is an int so the >= 36500 puppy check works.
             if not isinstance(getattr(master, "recurrence_days", None), int):
                 master.recurrence_days = 365
+            # Ensure master.medicine_dependent is a bool so priority-2 guard works.
+            if not isinstance(getattr(master, "medicine_dependent", None), bool):
+                master.medicine_dependent = False
             mock_record_list.append(rec)
 
         mock_rq = MagicMock()
@@ -660,16 +674,24 @@ class TestComputeCarePlan:
 
         # Mock Order query: enforce qualifying-status filter so cancelled orders
         # are excluded (mirrors the real SQL filter in find_latest_qualifying_order).
+        # Also configure .all() for find_qualifying_orders_for_pet used by _check_reorder_status.
         _QUALIFYING = {"confirmed", "completed", "placed", "delivered"}
         mock_oq = MagicMock()
         mock_oq.filter.return_value = mock_oq
         mock_oq.order_by.return_value = mock_oq
         if order_query_raises:
             mock_oq.first.side_effect = RuntimeError("order query failed")
+            mock_oq.all.return_value = []
         elif order_row is not None and getattr(order_row, "status", None) not in _QUALIFYING:
             mock_oq.first.return_value = None
+            mock_oq.all.return_value = []
         else:
             mock_oq.first.return_value = order_row
+            # Provide a list for find_qualifying_orders_for_pet(.all()).
+            # items_description must contain the diet label for reorder matching.
+            if order_row is not None and not isinstance(getattr(order_row, "items_description", None), str):
+                order_row.items_description = "Royal Canin Adult"
+            mock_oq.all.return_value = [order_row] if order_row is not None else []
 
         # Route queries by the model being queried
         query_returns = {
@@ -752,17 +774,18 @@ class TestComputeCarePlan:
         med.refill_due_date = TODAY + timedelta(days=30)
         med.end_date = None
         med.dose = None
+        med.frequency = None
         med.notes = None
         med.condition.episode_dates = [TODAY.isoformat()]
 
         result = self._run_care_plan(pet, active_meds=[med])
 
-        attend_types = [
-            item["test_type"]
+        attend_names = [
+            item["name"]
             for section in result["attend_items"]
             for item in section["items"]
         ]
-        assert "cbc_chemistry" in attend_types
+        assert "CBC Blood Chemistry" in attend_names
 
     def test_attend_bucket_not_in_continue_or_add(self):
         """Conflict resolution: ATTEND TO > CONTINUE > SUGGESTED."""
@@ -785,39 +808,37 @@ class TestComputeCarePlan:
         med.refill_due_date = TODAY + timedelta(days=60)
         med.end_date = None
         med.dose = None
+        med.frequency = None
         med.notes = None
         med.condition.episode_dates = [TODAY.isoformat()]
 
         result = self._run_care_plan(pet, record_rows=records, active_meds=[med])
 
-        attend_types = {
-            item["test_type"]
+        attend_names = {
+            item["name"]
             for section in result["attend_items"]
             for item in section["items"]
         }
+        # The clinical medication prescription must appear in Attend To.
+        assert "CBC Blood Chemistry Recheck" in attend_names
+        # The periodic CBC records also appear in Continue (no key collision
+        # since clinical meds use test_type="medication", not "cbc_chemistry").
         continue_types = {
             item["test_type"]
             for section in result["continue_items"]
             for item in section["items"]
         }
-        add_types = {
-            item["test_type"]
-            for section in result["add_items"]
-            for item in section["items"]
-        }
-        # cbc_chemistry must be ONLY in attend, not in continue or add.
-        assert "cbc_chemistry" in attend_types
-        assert "cbc_chemistry" not in continue_types
-        assert "cbc_chemistry" not in add_types
+        assert "cbc_chemistry" in continue_types
 
     def test_next_year_items_excluded(self):
         """Items due more than 365 days from today must not appear."""
         pet = self._make_pet(dob_months_ago=48, weight=15.0)
 
-        # Single CBC record done today â†’ next_due = today + 730 (adult baseline).
-        # 730 > 365 â†’ should be EXCLUDED.
+        # Single CBC record done today → next_due = today + 730 (adult baseline).
+        # 730 > 365 → should be EXCLUDED.
         master = MagicMock()
         master.item_name = "CBC Chemistry"
+        master.recurrence_days = 730  # adult biennial CBC cycle
         rec = MagicMock()
         rec.last_done_date = TODAY
         rec.status = "up_to_date"

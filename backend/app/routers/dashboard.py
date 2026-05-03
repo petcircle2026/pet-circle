@@ -39,7 +39,6 @@ from sqlalchemy import func as sqlfunc, or_, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.core.constants import CARE_PLAN_DUE_SOON_DAYS
 from app.core.encryption import encrypt_field
 from app.core.rate_limiter import check_dashboard_rate_limit
 from app.database import get_db
@@ -1318,19 +1317,10 @@ def dashboard_update_frequency(
         record, master = result
         record.custom_recurrence_days = body.recurrence_days
 
-        # Recalculate next_due_date if last_done_date exists
-        if record.last_done_date:
-            from datetime import date as date_type
-            from datetime import timedelta
-            record.next_due_date = record.last_done_date + timedelta(days=body.recurrence_days)
-            today = date_type.today()
-            if record.next_due_date < today:
-                record.status = "overdue"
-            elif (record.next_due_date - today).days <= CARE_PLAN_DUE_SOON_DAYS:
-                record.status = "upcoming"
-            else:
-                record.status = "up_to_date"
-        db.commit()
+        # Recompute next_due_date and status using unified priority logic.
+        from app.services.shared.preventive_calculator import calculate_and_update_record
+        calculate_and_update_record(db, record.id)  # commits internally when last_done_date exists
+        db.commit()  # ensure custom_recurrence_days persisted when last_done_date is None
 
         return {
             "status": "updated",
@@ -1626,21 +1616,13 @@ def dashboard_update_medicine_name(
         def _normalize_medicine(value: str | None) -> str:
             return " ".join((value or "").strip().lower().split())
 
-        def _recompute_record_status(target_record: PreventiveRecord, recurrence_days: int) -> None:
+        from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+
+        def _recompute_record_status(target_record: PreventiveRecord, target_master, recurrence_days: int) -> None:
             if not target_record.last_done_date:
                 return
-
-            from datetime import date as date_type
-            from datetime import timedelta
-
-            target_record.next_due_date = target_record.last_done_date + timedelta(days=recurrence_days)
-            today = date_type.today()
-            if target_record.next_due_date < today:
-                target_record.status = "overdue"
-            elif (target_record.next_due_date - today).days <= CARE_PLAN_DUE_SOON_DAYS:
-                target_record.status = "upcoming"
-            else:
-                target_record.status = "up_to_date"
+            target_record.next_due_date = compute_next_due_date(target_record.last_done_date, recurrence_days)
+            target_record.status = compute_status(target_record.next_due_date, target_master.reminder_before_days)
 
         # Look up recurrence from product catalog; fall back to GPT for unknown medicines.
         from app.services.dashboard.medicine_recurrence_service import get_medicine_recurrence
@@ -1655,7 +1637,7 @@ def dashboard_update_medicine_name(
         record.custom_recurrence_days = ai_days
 
         # Recalculate next_due_date/status for updated record.
-        _recompute_record_status(record, ai_days)
+        _recompute_record_status(record, master, ai_days)
 
         # Dual-use medicines (deworming + flea/tick) must share one recurrence
         # when both records use the same medicine; different medicines keep
@@ -1697,11 +1679,11 @@ def dashboard_update_medicine_name(
                 )
 
             if sibling_result:
-                sibling_record, _ = sibling_result
+                sibling_record, sibling_master = sibling_result
                 sibling_name_norm = _normalize_medicine(sibling_record.medicine_name)
                 if sibling_name_norm and sibling_name_norm == selected_name_norm:
                     sibling_record.custom_recurrence_days = ai_days
-                    _recompute_record_status(sibling_record, ai_days)
+                    _recompute_record_status(sibling_record, sibling_master, ai_days)
 
         db.commit()
 

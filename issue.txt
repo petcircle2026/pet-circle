@@ -1,0 +1,106 @@
+a) Incorrect and inconsistent status definition across system
+Status is duplicated in the data model (is_active vs condition_status)
+Status is computed in multiple places (extraction, dashboard_service, preventive logic, AI prompts, frontend)-Some layers recompute instead of using stored values
+AI layer recomputes and overrides backend logic
+Business logic is spread across layers, causing duplication and drift
+Different tags used (active/resolved vs due/due soon/overdue vs urgent)
+b) Medication activity logic not clearly defined
+"Active medication" is inconsistent across services
+status field is misleading (default always "active")
+end_date handling inconsistent (especially null cases)
+→ Leads to incorrect condition status and treatment visibility
+
+I) Issues with identifying condition type
+1. "Recurrent" was being erased at the DB write layer
+
+The DB condition_type column only had a CHECK constraint for chronic | episodic | resolved. When GPT extracted a condition and labelled it recurrent, the mapping code silently collapsed it to episodic:
+
+So recurrent was never stored, even when GPT correctly identified it.
+
+2. "Resolved" was being used as a condition_type instead of a status
+
+resolved was mixed into the condition_type column, meaning the same column was answering two different questions: what kind of condition is this AND is it currently active. This caused confusion — the insight prompt and the status logic were reading the same field for different purposes.
+
+3. The type rank was two-level, not three-level
+
+When the same condition appeared across multiple documents, the upgrade logic only had chronic > episodic. There was no slot for recurrent so it kept getting flattened.
+
+To render distinct active medications in the care plan we need to do the following steps - 2 are at extraction stage , next there is a distinct run on medication query - here we maintain the linkage of medication to condition name and episode and lastly we display relevant info on the dashboard. Pls check if this is conflicting with any of your existing code and clean up as well.
+
+Medication - Care Plan
+
+Step 1 — Normalise medication name in extraction prompt
+Instruct Claude in the extraction prompt to always use canonical generic drug name. "Doxy" → "Doxycycline", "Pan D" → "Pantoprazole+Domperidone" or whatever the canonical form is. Consistent naming is prerequisite for deduplication to work correctly downstream.
+
+Step 2 — ConditionMedication rows per document
+Each medication extracted from a document gets its own ConditionMedication row linked to that document's condition_id. No deduplication across documents at extraction time. Store:
+• condition_id
+• name (normalised)
+• dose
+• frequency
+• end_date
+
+Step 3 — Query active medications for care plan
+At care plan render time, run this query for the pet:
+
+SELECT DISTINCT ON (LOWER(cm.name))
+cm.name,
+cm.end_date,
+cm.dose,
+cm.frequency,
+c.id as condition_id,
+c.name as condition_name,
+c.document_id
+FROM condition_medications cm
+JOIN conditions c ON cm.condition_id = c.id
+WHERE c.pet_id = :pet_id
+AND (cm.end_date >= today OR cm.end_date IS NULL)
+ORDER BY LOWER(cm.name), cm.end_date DESC NULLS FIRST
+
+
+This returns one row per medication name — the currently active prescription with the furthest end_date. Medications where all prescriptions have ended are automatically excluded by the WHERE clause.
+
+When you aggregate conditions by family condition ID it is supposed to check if >= 2 episodes happened in 15 months or >= 3 episodes in 24 months. Pls check which date fields is being used how is the code calculating this. Ideally date in use should be episode date and then calculation must be done to check if condition is recurrent.
+
+Here add the treatment if episode date is null consider it to be an episode within 15 months window and calculate the aggregated condition status accordingly . Check if Bruno's records are marked recurrent with this adjustment for null episode date
+
+Just make sure these synthetic dates don't affect medication end date etc - these should not be populated in database they should be like runtime assumption only so the rule runs correctly
+
+Can you fix that if end date is null look at episode date and do the time check ( 15 months or 24 months)  and if both are null but condition is tagged to a group count the condition in recurrence flag - I don't want to miss that insight
+
+
+Solution _ "C:\Users\ADMIN\Downloads\Code_Fixes_V3 (1).xlsx" is everything mentioned in the excel fixed e) Non-conditions and incorrect medication mapping showing as conditions
+
+e) Non-conditions and incorrect medication mapping showing as conditions
+Non-conditions like "Prescription Medications" are being stored and displayed as conditions
+GPT incorrectly groups many medicines under this bucket, creating a fake condition
+Medications are split into standalone vs mapped to conditions, but:
+GPT misclassifies many Rx medicines as standalone
+These end up forming incorrect condition entries
+Rule should be:
+Standalone medicines = only supplements
+All Rx medicines must be mapped to a valid condition (no standalone Rx bucket)
+→ Leads to incorrect conditions appearing on the dashboard and poor clinical grouping
+f) Missing context (life stage & diet) in health condition insights
+Life stage and diet data are not being passed into the health conditions / AI insights flow
+As a result, insights are generated without critical context
+Leads to generic or low-quality ("dumb") insights that don't reflect the pet's actual situation
+→ Fix: ensure life stage and diet inputs are consistently included in the data passed to the insights layer
+
+Solution - "C:\Users\ADMIN\Downloads\health conditions v2 final (1).pdf"
+
+
+
+J) AI Insights for health conditions prompt issues
+1. Health conditions prompt was blind to diet and medications The prompt was only receiving condition names, episode dates, and monitoring due dates. It had no visibility into what medicines were prescribed, what the diagnosis/notes said, or what the pet was eating. So the insight it generated was generic — essentially just restating the condition status with no analytical depth. For example, for a pet with recurrent skin allergy it would say something like "Skin Allergy is ongoing — monitor closely" instead of noticing the pet has no omega-3 in their diet and the episodes cluster seasonally.
+
+2. The prompt instruction itself was shallow The original instruction was just: "1-2 short sentences. Explain current state and what it means." — no guidance on what to actually analyse.
+
+The fixes:
+
+For health conditions — the prompt was rewritten to be condition-type specific:
+
+Recurrent → answer WHY it keeps coming back. Check episode dates for patterns, medication cycles, diet triggers
+Chronic → answer what the most important management signal is right now. Is it stable or drifting?
+Acute → answer what to expect next based on diagnosis and medication
+

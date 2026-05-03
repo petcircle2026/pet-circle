@@ -190,10 +190,10 @@ function toReminderItems(records: DashboardData['preventive_records']): Reminder
         itemName: displayItemName(r.item_name),
         section: 'Vaccines & Preventive Care',
         recurrenceDays: recurrence,
-        freqLabel: recurrenceLabel(recurrence),
+        freqLabel: r.freq_label || recurrenceLabel(recurrence),
         lastISO: formatISO(r.last_done_date),
         nextISO: formatISO(r.next_due_date) || null,
-        status: r.status,
+        status: r.status_display || r.status,
         medicineName: r.medicine_name || undefined,
         isMedicineEligible: isMedicineItem(r.item_name),
       };
@@ -518,7 +518,7 @@ export default function RemindersView({ data, token, onBack, onDashboardDataUpda
               </div>
 
               {secItems.map((item) => {
-                const effectiveStatus = mapStatusFromNext(item.nextISO, item.status || 'upcoming', item.lastISO);
+                const effectiveStatus = item.status || 'upcoming';
                 const statusDot = getStatusDot(effectiveStatus);
                 return (
                   <div

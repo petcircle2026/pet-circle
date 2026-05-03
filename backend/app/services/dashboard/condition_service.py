@@ -21,7 +21,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.constants import CARE_PLAN_DUE_SOON_DAYS, URGENT_OVERDUE_DAYS
+from app.core.constants import CARE_PLAN_DUE_SOON_DAYS, HIGH_OVERDUE_DAYS, URGENT_OVERDUE_DAYS
 from app.services.dashboard.condition_aggregation_service import is_medication_active
 from app.repositories.care_repository import CareRepository
 from app.repositories.health_repository import HealthRepository

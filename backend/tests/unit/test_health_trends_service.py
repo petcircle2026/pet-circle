@@ -37,7 +37,7 @@ async def test_get_health_trends_assembles_all_sections(monkeypatch):
         icon="ðŸ§´",
         condition_type="chronic",
         diagnosed_at=date(2025, 2, 2),
-        medications=[SimpleNamespace(name="Med-A", dose="1 tab", frequency="daily", status="active", started_at=date(2025, 2, 5))],
+        medications=[SimpleNamespace(name="Med-A", dose="1 tab", frequency="daily", status="active", started_at=date(2025, 2, 5), end_date=None)],
         monitoring=[SimpleNamespace(name="Skin check", next_due_date=date(2026, 4, 8), last_done_date=None)],
     )
     blood_rows = [
@@ -54,18 +54,21 @@ async def test_get_health_trends_assembles_all_sections(monkeypatch):
         SimpleNamespace(recorded_at=date(2025, 12, 10), weight=Decimal("29.0")),
         SimpleNamespace(recorded_at=date(2025, 11, 10), weight=Decimal("28.9")),
     ]
+    _rabies_master = SimpleNamespace(item_name="Rabies Vaccine", medicine_dependent=False, recurrence_days=365, reminder_before_days=7)
+    _tick_master = SimpleNamespace(item_name="Tick & Flea", medicine_dependent=False, recurrence_days=30, reminder_before_days=7)
+    _deworm_master = SimpleNamespace(item_name="Deworming", medicine_dependent=False, recurrence_days=90, reminder_before_days=7)
     preventive = [
         (
-            SimpleNamespace(last_done_date=date(2025, 1, 1), next_due_date=date(2026, 1, 1), status="up_to_date"),
-            SimpleNamespace(item_name="Rabies Vaccine"),
+            SimpleNamespace(last_done_date=date(2025, 1, 1), next_due_date=date(2026, 1, 1), status="up_to_date", custom_recurrence_days=None, medicine_name=None, item=_rabies_master),
+            _rabies_master,
         ),
         (
-            SimpleNamespace(last_done_date=date(2025, 2, 15), next_due_date=date(2025, 3, 15), status="overdue"),
-            SimpleNamespace(item_name="Tick & Flea"),
+            SimpleNamespace(last_done_date=date(2025, 2, 15), next_due_date=date(2025, 3, 15), status="overdue", custom_recurrence_days=None, medicine_name=None, item=_tick_master),
+            _tick_master,
         ),
         (
-            SimpleNamespace(last_done_date=None, next_due_date=date(2026, 2, 20), status="upcoming"),
-            SimpleNamespace(item_name="Deworming"),
+            SimpleNamespace(last_done_date=None, next_due_date=date(2026, 2, 20), status="upcoming", custom_recurrence_days=None, medicine_name=None, item=_deworm_master),
+            _deworm_master,
         ),
     ]
 

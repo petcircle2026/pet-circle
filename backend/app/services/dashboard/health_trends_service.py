@@ -27,6 +27,8 @@ from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.health_repository import HealthRepository
 from app.repositories.condition_repository import ConditionRepository
 from app.repositories.product_repository import ProductRepository
+from app.core.constants import HIGH_OVERDUE_DAYS, URGENT_OVERDUE_DAYS
+from app.services.dashboard.condition_aggregation_service import is_medication_active
 
 _ASK_VET_CONDITION_TYPES = {"chronic", "episodic", "recurrent"}
 _METABOLIC_MARKERS = ("alt", "creatinine", "glucose", "bilirubin")
@@ -258,7 +260,12 @@ def _gap_in_weeks(previous: date, current: date) -> int:
     return max((current - previous).days // 7, 0)
 
 
-def _build_vaccine_cadence(rows: list[PreventiveRecord], today: date) -> dict[str, Any] | None:
+def _build_vaccine_cadence(
+    rows: list[PreventiveRecord],
+    today: date,
+    db: Session | None = None,
+    pet: "Pet | None" = None,
+) -> dict[str, Any] | None:
     """Build vaccine timeline card.
 
     Vaccines on the same date are grouped into a single round so the
@@ -312,31 +319,47 @@ def _build_vaccine_cadence(rows: list[PreventiveRecord], today: date) -> dict[st
     else:
         headline = "No vaccines recorded yet."
 
-    overdue_dates = sorted(
-        rec.next_due_date for rec, _ in vaccine_pairs if rec.next_due_date and rec.next_due_date < today
-    )
-    upcoming_dates = sorted(
-        rec.next_due_date for rec, _ in vaccine_pairs if rec.next_due_date and rec.next_due_date >= today
-    )
+    # Compute per-vaccine next_due and status via resolve_item_display so the
+    # footer always matches what the care plan and reminders views show.
+    from app.services.shared.preventive_calculator import resolve_item_display
 
-    DUE_SOON_DAYS = 7
+    records_by_vaccine_name: dict[str, list] = {}
+    for rec, master in vaccine_pairs:
+        name = master.item_name if master else ""
+        records_by_vaccine_name.setdefault(name, []).append(rec)
+
+    overdue_dates: list[date] = []
+    due_soon_dates: list[date] = []
+    upcoming_dates: list[date] = []
+    for v_records in records_by_vaccine_name.values():
+        disp = resolve_item_display(db, v_records, pet)
+        if disp["next_due"]:
+            status = disp["status_display"]
+            if status == "Overdue":
+                overdue_dates.append(disp["next_due"])
+            elif status == "Due soon":
+                due_soon_dates.append(disp["next_due"])
+            elif status == "On track":
+                upcoming_dates.append(disp["next_due"])
+    overdue_dates.sort()
+    due_soon_dates.sort()
+    upcoming_dates.sort()
 
     if overdue_dates:
         overdue_date = overdue_dates[0]
         footer_text = f"⚠ Vaccination overdue since {overdue_date.strftime('%b %Y')}. Schedule with your vet."
         footer_color = "#b52020"
         footer_bg = "#FFEDED"
+    elif due_soon_dates:
+        next_date = due_soon_dates[0]
+        footer_text = f"⏰ Due soon — {next_date.strftime('%b %Y')}. Book your vet visit."
+        footer_color = "#B45309"
+        footer_bg = "#FFF6E6"
     elif upcoming_dates:
         next_date = upcoming_dates[0]
-        days_until = (next_date - today).days
-        if days_until <= DUE_SOON_DAYS:
-            footer_text = f"⏰ Due soon — {next_date.strftime('%b %Y')}. Book your vet visit."
-            footer_color = "#B45309"
-            footer_bg = "#FFF6E6"
-        else:
-            footer_text = f"✓ Next due {next_date.strftime('%b %Y')}"
-            footer_color = "#166534"
-            footer_bg = "#E8FFF1"
+        footer_text = f"✓ Next due {next_date.strftime('%b %Y')}"
+        footer_color = "#166534"
+        footer_bg = "#E8FFF1"
     else:
         footer_text = "No upcoming vaccine due date available"
         footer_color = "#B45309"
@@ -382,6 +405,7 @@ def _fetch_medicine_info(medicine_name: str | None, db: Session | None) -> dict[
 def _build_flea_tick_cadence(
     rows: list[PreventiveRecord],
     db: Session | None = None,
+    pet: "Pet | None" = None,
 ) -> dict[str, Any] | None:
     """Build flea/tick dot-plot card with gap severity coloring.
 
@@ -408,8 +432,9 @@ def _build_flea_tick_cadence(
         if not record.last_done_date:
             # No dose recorded — mirror deworming: overdue or upcoming
             has_undone = True
-            if next_due and next_due < today:
-                status = "overdue"
+            if next_due and master:
+                from app.services.shared.preventive_calculator import compute_status
+                status = compute_status(next_due, master.reminder_before_days)
             else:
                 status = "upcoming"
             dose_entry: dict[str, Any] = {
@@ -452,13 +477,13 @@ def _build_flea_tick_cadence(
         doses.append(dose_entry)
         previous_done_date = record.last_done_date
 
-    # Append an upcoming next-due node for a meaningful L→R timeline, but only
-    # when all existing entries are done (undone entries already cover this role).
+    # Append an upcoming next-due node via resolve_item_display so the date and
+    # status always match what the care plan and reminders views show.
     if not has_undone:
-        latest_next_due = max(
-            (record.next_due_date for record, _ in flea_pairs if record.next_due_date),
-            default=None,
-        )
+        from app.services.shared.preventive_calculator import resolve_item_display
+        all_flea_records = [rec for rec, _ in flea_pairs]
+        flea_display = resolve_item_display(db, all_flea_records, pet)
+        latest_next_due = flea_display["next_due"]
         if latest_next_due and latest_next_due >= today:
             doses.append({
                 "num": len(doses) + 1,
@@ -541,25 +566,20 @@ def _build_deworming_cadence(
             node["medicine_info"] = med_info
         nodes.append(node)
 
-    # Append a single upcoming node for done records whose next_due_date is in
-    # the future — gives the chart a meaningful L→R timeline with a "next due" dot.
-    # Use life-stage-adjusted recurrence (same formula as care_plan_engine) so that
-    # the cadence date always matches what the care plan card displays.
-    from datetime import timedelta
-    from app.services.shared.preventive_calculator import get_effective_recurrence_days
+    # Append a single upcoming next-due node via resolve_item_display so the
+    # date and status always match what the care plan and reminders views show.
+    from app.services.shared.preventive_calculator import resolve_item_display
 
-    done_node_dates = {n["date"] for n in nodes if n["state"] == "done"}
-    for record, master in deworm_pairs:
-        if record.last_done_date:
-            recurrence = get_effective_recurrence_days(db, master, record, pet)
-            computed_next = record.last_done_date + timedelta(days=recurrence)
-            if computed_next >= today and computed_next.isoformat() not in done_node_dates:
-                nodes.append({
-                    "label": master.item_name if master else "",
-                    "state": "upcoming",
-                    "date": computed_next.isoformat(),
-                })
-                break  # one upcoming node is sufficient
+    all_deworm_records = [rec for rec, _ in deworm_pairs]
+    deworm_display = resolve_item_display(db, all_deworm_records, pet)
+    computed_next = deworm_display["next_due"]
+    if computed_next and computed_next >= today:
+        latest_master = deworm_pairs[-1][1] if deworm_pairs else None
+        nodes.append({
+            "label": latest_master.item_name if latest_master else "",
+            "state": "upcoming",
+            "date": computed_next.isoformat(),
+        })
 
     done_count = sum(1 for n in nodes if n["state"] == "done")
     missed_count = sum(1 for n in nodes if n["state"] == "missed")
@@ -707,7 +727,7 @@ def _build_condition_chart_data(
 def _condition_trend(condition: Condition) -> str:
     """Summarize current condition trend with clinical urgency."""
     today = date.today()
-    active_meds = sum(1 for med in condition.medications if (med.status or "active") == "active")
+    active_meds = sum(1 for med in condition.medications if is_medication_active(med, condition))
     ever_treated = bool(condition.medications)
 
     # Find most overdue monitoring item
@@ -740,7 +760,7 @@ def _condition_trend(condition: Condition) -> str:
 def _condition_headline(condition: Condition) -> str:
     """Generate condition headline reflecting current clinical status, not just history."""
     today = date.today()
-    active_meds = sum(1 for med in condition.medications if (med.status or "active") == "active")
+    active_meds = sum(1 for med in condition.medications if is_medication_active(med, condition))
     ever_treated = bool(condition.medications)
 
     # Check for overdue monitoring
@@ -819,10 +839,14 @@ async def _get_condition_questions(db: Session, pet: Pet, condition: Condition) 
     return questions[:3]
 
 
+_SYNTHETIC_CONDITION_NAMES: frozenset[str] = frozenset({"Prescription Medications"})
+
+
 def _fetch_active_conditions(db: Session, pet_id: Any) -> list[Condition]:
     """Fetch active chronic/episodic conditions with related medication/monitoring."""
     condition_repo = ConditionRepository(db)
-    return condition_repo.find_by_pet_and_active_with_relations(pet_id, _ASK_VET_CONDITION_TYPES)
+    conditions = condition_repo.find_by_pet_and_active_with_relations(pet_id, _ASK_VET_CONDITION_TYPES)
+    return [c for c in conditions if c.name not in _SYNTHETIC_CONDITION_NAMES]
 
 
 def _fetch_latest_blood_results(db: Session, pet_id: Any) -> list[DiagnosticTestResult]:
@@ -891,8 +915,8 @@ async def get_health_trends(db: Session, pet: Pet) -> dict[str, Any]:
     }
 
     today = date.today()
-    vaccines = _build_vaccine_cadence(preventive_rows, today)
-    flea_tick = _build_flea_tick_cadence(preventive_rows, db=db)
+    vaccines = _build_vaccine_cadence(preventive_rows, today, db=db, pet=pet)
+    flea_tick = _build_flea_tick_cadence(preventive_rows, db=db, pet=pet)
     deworming = _build_deworming_cadence(preventive_rows, today, db=db, pet=pet)
     cadence = None if not any((vaccines, flea_tick, deworming)) else {
         "vaccines": vaccines,

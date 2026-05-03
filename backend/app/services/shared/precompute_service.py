@@ -169,11 +169,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             db.close()
 
     async def _run_health_conditions_v2() -> None:
-        from app.database import SessionLocal as _SL
         from app.models.core.pet import Pet as _Pet
-        from app.models.health.aggregated_condition import AggregatedCondition
-        from app.models.health.condition import Condition as _Condition
-        from app.models.health.condition_medication import ConditionMedication
         from app.models.health.diagnostic_test_result import DiagnosticTestResult
         from app.models.nutrition.diet_item import DietItem
         from app.services.shared.care_plan_engine import _get_life_stage, _get_pet_age_months, _get_breed_size
@@ -204,45 +200,70 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             }
 
             # Aggregated conditions — one row per condition family.
-            # condition_status is recomputed fresh; stored value is never trusted.
-            agg_rows = (
-                db.query(AggregatedCondition)
-                .filter(AggregatedCondition.pet_id == pet_id)
-                .order_by(AggregatedCondition.last_record_date.desc())
-                .all()
-            )
+            # condition_status is computed fresh here; the stored value is never trusted.
+            # treatment_route and vet_resolved come from the latest episode conditions row via JOIN.
+            _NON_CONDITION_NAMES = {
+                "prescription medications",
+                "prescription medication",
+                "medications",
+                "medication",
+                "supplements",
+                "supplement",
+                "rx medications",
+            }
+
+            agg_rows = db.execute(
+                sa_text("""
+                    SELECT
+                        ac.id                           AS condition_family_id,
+                        ac.name,
+                        ac.condition_type,
+                        ac.episode_dates,
+                        ac.diagnosed_at,
+                        ac.last_record_date,
+                        ac.medication_end_date,
+                        ac.latest_episode_condition_id,
+                        c.treatment_route,
+                        c.vet_resolved
+                    FROM aggregated_conditions ac
+                    LEFT JOIN conditions c
+                        ON c.id = ac.latest_episode_condition_id
+                    WHERE ac.pet_id = :pet_id
+                    ORDER BY ac.last_record_date DESC NULLS LAST
+                """),
+                {"pet_id": str(pet_id)},
+            ).fetchall()
+
+            from app.services.dashboard.condition_aggregation_service import _compute_condition_status
 
             def compute_status(row):
-                if (row.condition_status or "") == "resolved":
+                # vet_resolved overrides all computed logic
+                if row.vet_resolved:
                     return "resolved"
-                if row.condition_type == "chronic":
-                    return "active"
-                med_end = row.medication_end_date
-                if med_end:
-                    if med_end >= today:
-                        return "active"
-                    if (today - med_end).days <= 30:
-                        return "monitoring"
-                    return "resolved"
-                if row.last_record_date:
-                    if (today - row.last_record_date).days <= 45:
-                        return "monitoring"
-                return "resolved"
+                return _compute_condition_status(
+                    row.condition_type,
+                    row.medication_end_date,
+                    row.episode_dates or [],
+                )
 
             conditions_payload = [
                 {
-                    "condition_family_id": str(row.id),
+                    "condition_family_id": str(row.condition_family_id),
                     "name": row.name,
                     "condition_type": row.condition_type,
                     "condition_status": compute_status(row),
                     "episode_dates": row.episode_dates or [],
                     "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
                     "last_record_date": str(row.last_record_date) if row.last_record_date else None,
+                    "treatment_route": row.treatment_route,
                 }
                 for row in agg_rows
+                if row.name.lower().strip() not in _NON_CONDITION_NAMES
             ]
 
-            # Active medications — one row per unique med name, latest episode wins.
+            # Active medications — one row per unique med name.
+            # NULL end_date (lifelong/ongoing) wins over dated prescriptions;
+            # among dated prescriptions the latest end_date wins.
             active_meds = db.execute(
                 sa_text("""
                     SELECT DISTINCT ON (LOWER(cm.name))
@@ -250,12 +271,14 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                         cm.dose,
                         cm.frequency,
                         cm.end_date,
-                        c.name          AS condition_name
+                        c.id            AS condition_id,
+                        c.name          AS condition_name,
+                        c.document_id
                     FROM condition_medications cm
                     JOIN conditions c ON cm.condition_id = c.id
                     WHERE c.pet_id = :pet_id
                       AND (cm.end_date >= :today OR cm.end_date IS NULL)
-                    ORDER BY LOWER(cm.name), c.diagnosed_at DESC NULLS LAST
+                    ORDER BY LOWER(cm.name), cm.end_date DESC NULLS FIRST
                 """),
                 {"pet_id": str(pet_id), "today": today},
             ).fetchall()
@@ -267,6 +290,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                     "frequency": m.frequency,
                     "end_date": str(m.end_date) if m.end_date else "lifelong",
                     "for_condition": m.condition_name,
+                    "condition_id": str(m.condition_id) if m.condition_id else None,
                 }
                 for m in active_meds
             ]
@@ -345,7 +369,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             care_repo = CareRepository(db)
             condition_rows = care_repo.find_active_conditions_for_pet(pet_id)
             # Filter to chronic/episodic only (additional filter beyond active)
-            condition_rows = [c for c in condition_rows if c.condition_type in {"chronic", "episodic"}]
+            condition_rows = [c for c in condition_rows if c.condition_type in {"chronic", "episodic", "recurrent"}]
 
             if not condition_rows:
                 return

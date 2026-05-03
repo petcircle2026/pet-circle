@@ -932,7 +932,7 @@ async def _step_prev_update_date_val(db, user, pets, pet, ctx, text, mobile, sen
     from app.models.preventive.preventive_record import PreventiveRecord
     from app.models.lookup.preventive_master import PreventiveMaster
     from app.models.preventive.custom_preventive_item import CustomPreventiveItem
-    from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+    from app.services.shared.preventive_calculator import compute_next_due_date, compute_status, get_effective_recurrence_days
 
     record_id = ctx.get("selected_record_id")
     new_date = _parse_date(text)
@@ -958,9 +958,10 @@ async def _step_prev_update_date_val(db, user, pets, pet, ctx, text, mobile, sen
         if record.custom_preventive_item_id else None
     )
 
-    recurrence = record.custom_recurrence_days or (
-        master.recurrence_days if master else (custom.recurrence_days if custom else 365)
-    )
+    if master:
+        recurrence = get_effective_recurrence_days(db, master, record, pet)
+    else:
+        recurrence = custom.recurrence_days if custom else 365
     reminder_before = (
         master.reminder_before_days if master else (custom.reminder_before_days if custom else 7)
     )

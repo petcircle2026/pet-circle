@@ -18,6 +18,7 @@ Rules:
     - No hidden logic — every calculation is documented.
 """
 import logging
+import re
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -27,10 +28,12 @@ from app.models.preventive.preventive_record import PreventiveRecord
 from app.repositories.preventive_master_repository import PreventiveMasterRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.utils.date_utils import get_today_ist
-from app.utils.frequency import frequency_to_days
 
 logger = logging.getLogger(__name__)
 
+# Item types where life-stage-adjusted baseline applies.
+# Must match canonical test_type strings from care_plan_engine._normalize_item_name.
+_LIFE_STAGE_TYPES = {"deworming", "tick_flea"}
 
 
 def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int | None:
@@ -55,12 +58,46 @@ def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int 
         return None
 
     try:
-        product = PreventiveMasterRepository(db).find_medicine_by_name_ilike(medicine_name)
+        from app.models.product_medicines import ProductMedicines
+
+        product = (
+            db.query(ProductMedicines)
+            .filter(
+                ProductMedicines.active == True,
+                ProductMedicines.product_name.ilike(f"%{medicine_name}%"),
+            )
+            .first()
+        )
 
         if not product or not product.repeat_frequency:
             return None
 
-        return frequency_to_days(product.repeat_frequency)
+        freq = str(product.repeat_frequency).lower()
+
+        match = re.search(r"every\s+(\d+)\s+weeks?", freq)
+        if match:
+            return int(match.group(1)) * 7
+
+        match = re.search(r"every\s+(\d+)\s+months?", freq)
+        if match:
+            return int(match.group(1)) * 30
+
+        match = re.search(r"every\s+(\d+)\s+days?", freq)
+        if match:
+            return int(match.group(1))
+
+        if "monthly" in freq or "once a month" in freq:
+            return 30
+        if "quarterly" in freq or "3 month" in freq:
+            return 90
+        if "annually" in freq or "yearly" in freq:
+            return 365
+        if "fortnightly" in freq or "bi-weekly" in freq or "biweekly" in freq:
+            return 14
+        if "weekly" in freq:
+            return 7
+
+        return None
 
     except Exception as exc:
         logger.warning(f"Could not extract recurrence from medicine '{medicine_name}': {exc}")
@@ -108,6 +145,9 @@ def get_effective_recurrence_days(
         )
         return record.custom_recurrence_days
 
+    if master is None:
+        return 365
+
     # Priority 2 — medicine-specific frequency from product catalog.
     if master.medicine_dependent and getattr(record, "medicine_name", None):
         med_days = get_medicine_recurrence_days(db, record.medicine_name)
@@ -126,21 +166,21 @@ def get_effective_recurrence_days(
             return med_days
 
     # Priority 3 — life-stage-adjusted baseline.
-    # Only apply when master.medicine_dependent=True (item has life-stage variants).
-    # The database controls which items get life-stage logic, not hardcoded strings.
-    if pet is not None and master.medicine_dependent:
+    # Only for deworming and tick_flea, and only when pet is available.
+    if pet is not None:
         try:
             from app.services.shared.care_plan_engine import (
                 _classify_item_type_llm,
                 get_preventive_baseline_days,
             )
             test_type = _classify_item_type_llm(master.item_name)
-            baseline = get_preventive_baseline_days(pet, test_type)
-            logger.debug(
-                "Recurrence: life-stage baseline=%d for test_type=%s, record_id=%s",
-                baseline, test_type, str(getattr(record, "id", None)),
-            )
-            return baseline
+            if test_type in _LIFE_STAGE_TYPES:
+                baseline = get_preventive_baseline_days(pet, test_type)
+                logger.debug(
+                    "Recurrence: life-stage baseline=%d for test_type=%s, record_id=%s",
+                    baseline, test_type, str(getattr(record, "id", None)),
+                )
+                return baseline
         except Exception as exc:
             logger.warning(
                 "Could not resolve life-stage baseline for record_id=%s: %s",
@@ -410,46 +450,85 @@ def create_preventive_record(
     return record
 
 
-def recalculate_all_for_pet(db: Session, pet_id: UUID, pet=None) -> int:
+def days_to_freq_label(days: int) -> str:
+    """Convert recurrence interval in days to a human-readable label."""
+    if days <= 7:   return "Weekly"
+    if days <= 14:  return "Every 2 weeks"
+    if days <= 31:  return "Monthly"
+    if days <= 45:  return "Every 6 weeks"
+    if days <= 93:  return "Every 3 months"
+    if days <= 186: return "Every 6 months"
+    if days <= 366: return "Annual"
+    if days <= 731: return "Every 2 years"
+    return "Every 3+ years"
+
+
+def status_tag_for_display(next_due: "date | None", has_history: bool) -> str:
     """
-    Recalculate next_due_date and status for all preventive records of a pet.
+    UI status string for a preventive item.
 
-    Uses get_effective_recurrence_days() per record so medicine-specific and
-    life-stage-adjusted intervals are applied correctly on bulk refresh.
-
-    Args:
-        db: SQLAlchemy database session.
-        pet_id: UUID of the pet whose records should be recalculated.
-        pet: Pet instance (optional — enables life-stage logic).
-
-    Returns:
-        Number of records updated.
+    No history / no next_due → "Not started"
+    Past today               → "Overdue"
+    Within 7 days            → "Due soon"
+    Otherwise                → "On track"
     """
-    records = PreventiveRepository(db).get_by_pet_with_master(pet_id)
+    if not has_history or next_due is None:
+        return "Not started"
+    today = date.today()
+    if next_due < today:
+        return "Overdue"
+    if (next_due - today).days <= 7:
+        return "Due soon"
+    return "On track"
 
-    updated = 0
-    for record in records:
-        if record.status == "cancelled" or record.last_done_date is None:
-            continue
 
-        item = record.item
-        if item is None:
-            continue
+def resolve_item_display(
+    db: Session,
+    records: list,
+    pet=None,
+) -> dict:
+    """
+    Single source of truth for the display values of a preventive item.
 
-        effective_days = get_effective_recurrence_days(db, item, record, pet)
-        new_next_due = compute_next_due_date(record.last_done_date, effective_days)
-        new_status = compute_status(new_next_due, item.reminder_before_days)
+    Given all PreventiveRecord objects for one item_key, returns the canonical
+    display values that care plan, reminders, and cadence views must all agree on:
 
-        record.next_due_date = new_next_due
-        record.status = new_status
-        updated += 1
+        last_done       — date of the most recent completion (or None)
+        next_due        — compute_next_due_date(last_done, effective_recurrence)
+        status_display  — "On track" | "Due soon" | "Overdue" | "Not started"
+        freq_label      — human-readable frequency e.g. "Every 3 months"
+        recurrence_days — integer used to compute next_due (0 when no records)
 
-    db.commit()
+    The canonical record is the one with the most recent last_done_date.
+    When multiple records share an item_key (e.g. repeated deworming sessions)
+    only the latest one drives last_done / next_due / status.
+    """
+    records_with_done = [r for r in records if getattr(r, "last_done_date", None)]
+    if records_with_done:
+        canonical = max(records_with_done, key=lambda r: r.last_done_date)
+    elif records:
+        canonical = records[0]
+    else:
+        return {
+            "last_done": None,
+            "next_due": None,
+            "status_display": "Not started",
+            "freq_label": "—",
+            "recurrence_days": 0,
+        }
 
-    logger.info(
-        "Recalculated %d preventive records for pet_id=%s",
-        updated,
-        str(pet_id),
-    )
+    master = getattr(canonical, "item", None)
+    recurrence = get_effective_recurrence_days(db, master, canonical, pet)
+    last_done: "date | None" = getattr(canonical, "last_done_date", None)
+    if last_done:
+        next_due: "date | None" = compute_next_due_date(last_done, recurrence)
+    else:
+        next_due = getattr(canonical, "next_due_date", None)
 
-    return updated
+    return {
+        "last_done": last_done,
+        "next_due": next_due,
+        "status_display": status_tag_for_display(next_due, bool(last_done)),
+        "freq_label": days_to_freq_label(recurrence),
+        "recurrence_days": recurrence,
+    }

@@ -1,9 +1,7 @@
 """
 Shared frequency-string → days conversion utility.
 
-Single source of truth for all "Every N months / weekly / quarterly…" parsing.
-Previously duplicated between preventive_logic.parse_frequency_string and
-preventive_calculator.get_medicine_recurrence_days — now both import from here.
+Used by preventive_logic.parse_frequency_string and days_to_frequency_label.
 """
 
 import re

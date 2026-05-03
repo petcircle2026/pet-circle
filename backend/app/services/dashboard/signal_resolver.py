@@ -163,6 +163,10 @@ class SignalResult:
     cta_label: str | None = None      # "Order Now →" for L2+, None for L1
     highlight_sku: str | None = None  # Pre-selected SKU (L5 / L4 most popular)
     message: str | None = None        # Info prompt shown for L1
+    # Populated by medicine resolvers only — derived from the pet's actual
+    # PreventiveRecord rather than hardcoded.
+    preventive_status: str | None = None   # 'overdue'|'upcoming'|'up_to_date'|'not_started'
+    next_due_date: "date | None" = None    # most urgent matching record's next_due_date
 
 
 # ---------------------------------------------------------------------------
@@ -1373,6 +1377,51 @@ def _resolve_medicine_m2(rows: list) -> list:
     return rows[:MAX_OPTIONS]
 
 
+# Keywords used to match PreventiveMaster.item_name for each medicine type.
+_DEWORMING_KEYWORDS = ("deworm", "worm")
+_FLEA_TICK_KEYWORDS = ("flea", "tick")
+
+# Priority order for surfacing the most urgent status when a pet has multiple
+# matching records (e.g. one overdue record + one upcoming record).
+_PREVENTIVE_STATUS_PRIORITY = {"overdue": 0, "upcoming": 1, "up_to_date": 2, "not_started": 3}
+
+
+def _get_preventive_need_status(
+    db: Session, pet, keywords: tuple[str, ...]
+) -> tuple[str | None, "date | None"]:
+    """
+    Return (status, next_due_date) for the most urgent preventive record
+    matching *keywords* against PreventiveMaster.item_name.
+
+    Urgency order: overdue > upcoming > up_to_date > not_started.
+    Returns (None, None) when no matching record exists for the pet.
+    """
+    from app.models.preventive.preventive_record import PreventiveRecord
+    from app.models.lookup.preventive_master import PreventiveMaster as _PM
+
+    records = (
+        db.query(PreventiveRecord)
+        .join(_PM, PreventiveRecord.preventive_master_id == _PM.id)
+        .filter(PreventiveRecord.pet_id == pet.id)
+        .all()
+    )
+    matching = [
+        r for r in records
+        if r.preventive_master
+        and any(kw in (r.preventive_master.item_name or "").lower() for kw in keywords)
+    ]
+    if not matching:
+        return None, None
+    matching.sort(key=lambda r: _PREVENTIVE_STATUS_PRIORITY.get(r.status, 99))
+    best = matching[0]
+    return best.status, best.next_due_date
+
+
+def _attach_preventive_status(result: SignalResult, db: Session, pet, keywords: tuple[str, ...]) -> None:
+    """Populate result.preventive_status and result.next_due_date in place."""
+    result.preventive_status, result.next_due_date = _get_preventive_need_status(db, pet, keywords)
+
+
 def resolve_deworming_signal(db: Session, pet: Pet) -> SignalResult:
     """Resolve deworming medicine SKUs for a pet (M3/M2/M1)."""
     species = _get_pet_species(pet)
@@ -1380,13 +1429,17 @@ def resolve_deworming_signal(db: Session, pet: Pet) -> SignalResult:
 
     rows = _query_medicine_catalog(db, "deworming", species, pet)
     if not rows:
-        return SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
-                            highlight_sku=None, message=MED_L1_MESSAGE)
+        result = SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
+                              highlight_sku=None, message=MED_L1_MESSAGE)
+        _attach_preventive_status(result, db, pet, _DEWORMING_KEYWORDS)
+        return result
 
     if weight_kg is not None:
         m3_products = _resolve_medicine_m3(rows, weight_kg)
         if m3_products:
-            return _build_medicine_result(SignalLevel.L3, m3_products)
+            result = _build_medicine_result(SignalLevel.L3, m3_products)
+            _attach_preventive_status(result, db, pet, _DEWORMING_KEYWORDS)
+            return result
 
     m2_products = _resolve_medicine_m2(rows)
     if m2_products:
@@ -1395,10 +1448,13 @@ def resolve_deworming_signal(db: Session, pet: Pet) -> SignalResult:
             "We couldn't determine the exact weight band. "
             "Please select the option that matches your pet's weight."
         )
+        _attach_preventive_status(result, db, pet, _DEWORMING_KEYWORDS)
         return result
 
-    return SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
-                        highlight_sku=None, message=MED_L1_MESSAGE)
+    result = SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
+                          highlight_sku=None, message=MED_L1_MESSAGE)
+    _attach_preventive_status(result, db, pet, _DEWORMING_KEYWORDS)
+    return result
 
 
 def resolve_flea_tick_signal(db: Session, pet: Pet) -> SignalResult:
@@ -1408,13 +1464,17 @@ def resolve_flea_tick_signal(db: Session, pet: Pet) -> SignalResult:
 
     rows = _query_medicine_catalog(db, "flea_tick", species, pet)
     if not rows:
-        return SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
-                            highlight_sku=None, message=MED_L1_MESSAGE)
+        result = SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
+                              highlight_sku=None, message=MED_L1_MESSAGE)
+        _attach_preventive_status(result, db, pet, _FLEA_TICK_KEYWORDS)
+        return result
 
     if weight_kg is not None:
         m3_products = _resolve_medicine_m3(rows, weight_kg)
         if m3_products:
-            return _build_medicine_result(SignalLevel.L3, m3_products)
+            result = _build_medicine_result(SignalLevel.L3, m3_products)
+            _attach_preventive_status(result, db, pet, _FLEA_TICK_KEYWORDS)
+            return result
 
     m2_products = _resolve_medicine_m2(rows)
     if m2_products:
@@ -1423,7 +1483,10 @@ def resolve_flea_tick_signal(db: Session, pet: Pet) -> SignalResult:
             "We couldn't determine the exact weight band. "
             "Please select the option that matches your pet's weight."
         )
+        _attach_preventive_status(result, db, pet, _FLEA_TICK_KEYWORDS)
         return result
 
-    return SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
-                        highlight_sku=None, message=MED_L1_MESSAGE)
+    result = SignalResult(level=SignalLevel.L1, products=[], cta_label=None,
+                          highlight_sku=None, message=MED_L1_MESSAGE)
+    _attach_preventive_status(result, db, pet, _FLEA_TICK_KEYWORDS)
+    return result

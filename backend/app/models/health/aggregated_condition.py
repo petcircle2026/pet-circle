@@ -52,6 +52,8 @@ class AggregatedCondition(Base):
 
     # Points to the document-level Condition row with the earliest diagnosed_at in this family
     canonical_condition_id = Column(UUID(as_uuid=True), ForeignKey("conditions.id", ondelete="SET NULL"), nullable=True)
+    # Points to the most-recently-diagnosed Condition row in this family (used in precompute JOIN)
+    latest_episode_condition_id = Column(UUID(as_uuid=True), ForeignKey("conditions.id", ondelete="SET NULL"), nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -59,6 +61,7 @@ class AggregatedCondition(Base):
     # Relationships
     pet = relationship("Pet")
     canonical_condition = relationship("Condition", foreign_keys=[canonical_condition_id])
+    latest_episode_condition = relationship("Condition", foreign_keys=[latest_episode_condition_id])
     conditions = relationship(
         "Condition",
         back_populates="aggregated_condition",

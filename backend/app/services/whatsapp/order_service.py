@@ -159,7 +159,13 @@ def _format_sku_list(sku_options: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def _send_sku_results(db: Session, mobile: str, pet_name: str, sku_options: list[dict]) -> None:
+async def _send_sku_results(
+    db: Session,
+    mobile: str,
+    pet_name: str,
+    sku_options: list[dict],
+    status_prefix: str = "",
+) -> None:
     if not sku_options:
         await send_text_message(
             db, mobile,
@@ -170,7 +176,7 @@ async def _send_sku_results(db: Session, mobile: str, pet_name: str, sku_options
     sku_list = _format_sku_list(sku_options)
     await send_text_message(
         db, mobile,
-        f"Here are the recommended products for {pet_name}:\n\n{sku_list}\n\n"
+        f"{status_prefix}Here are the recommended products for {pet_name}:\n\n{sku_list}\n\n"
         "Reply with a number to select, or *cancel* to exit.",
     )
 
@@ -642,8 +648,9 @@ async def handle_preventive_type_selection(db: Session, user, payload: str) -> N
 
 
 async def _resolve_and_show_medicine(db, user, pet, sub_type: str, ctx: dict, mobile: str) -> None:
-    """Resolve medicine signal and display SKU options."""
+    """Resolve medicine signal and display SKU options with need-status context."""
     sku_options = []
+    result = None
     try:
         if sub_type == MED_DEWORMING:
             result = resolve_deworming_signal(db, pet)
@@ -659,7 +666,24 @@ async def _resolve_and_show_medicine(db, user, pet, sub_type: str, ctx: dict, mo
         _set_order_state(user, db, "med_prev_sku_sel", ctx)
     else:
         _clear_order_state(db, user)
-    await _send_sku_results(db, mobile, pet.name, sku_options)
+
+    # Build a status-aware intro derived from the pet's actual preventive record
+    # rather than always showing a generic "order now" prompt.
+    status_prefix = ""
+    if result is not None:
+        p_status = result.preventive_status
+        due_date = result.next_due_date
+        due_str = due_date.strftime("%d %b %Y") if due_date else None
+        if p_status == "overdue":
+            status_prefix = f"*{pet.name}* is overdue for this treatment!\n\n"
+        elif p_status == "upcoming":
+            due_part = f" (due {due_str})" if due_str else " soon"
+            status_prefix = f"*{pet.name}* is due{due_part} — good time to order!\n\n"
+        elif p_status == "up_to_date":
+            due_part = f" Next due: {due_str}." if due_str else ""
+            status_prefix = f"*{pet.name}* is currently up to date.{due_part} Ordering in advance?\n\n"
+
+    await _send_sku_results(db, mobile, pet.name, sku_options, status_prefix=status_prefix)
 
 
 async def handle_preventive_sku_selection(db: Session, user, text: str) -> None:

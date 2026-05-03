@@ -1003,6 +1003,8 @@ EXTRACTION_SYSTEM_PROMPT = (
     '    - "status_flag": "low" | "normal" | "high" | "abnormal" | null\n'
     '    - "observed_at": date string (same accepted formats) or null\n'
     '  - "conditions": array of objects (diagnosed diseases/conditions found in the document; [] if none).\n'
+    '    SCAN THE ENTIRE DOCUMENT for conditions — including side columns, dash-separated lists, brief labels,\n'
+    '    and any text without a "Diagnosis:" header. Do not limit your search to labelled diagnosis sections.\n'
     '    IMPORTANT — INFERRED CONDITIONS: If a prescription has medications but NO explicitly named diagnosis,\n'
     '    infer the most likely condition from the medication cluster and any dietary/activity advice written\n'
     '    on the document. Use general clinical terms and append "(inferred)" to the name.\n'
@@ -1019,14 +1021,17 @@ EXTRACTION_SYSTEM_PROMPT = (
     '(e.g. do NOT write "Simparica", "Doxycycline", "NexGard", "Omega-3" as a condition_name).\n'
     '    - "source": "explicit" | "inferred" --- "explicit" if the condition name is written in the document;\n'
     '      "inferred" if you are inferring the condition from the medication cluster.\n'
-    '    - "condition_type": "chronic" | "episodic"\n'
-    '      "episodic" = a single self-limiting episode (use for all non-chronic conditions including recurring ones — '
-    'recurrence is detected across documents, not per-document).\n'
+    '    - "condition_type": "chronic" | "episodic" | "recurrent"\n'
+    '      "episodic" = a single episode with no evidence of prior recurrence in this document. '
+    'A single episode is ALWAYS "episodic" — do NOT use "recurrent" for a single episode even if the owner mentions it happened before.\n'
+    '      "recurrent" = the same condition has clearly been treated or documented multiple times AND multiple prior episodes '
+    'are explicitly visible within this document itself (e.g. document states "3rd episode", "third UTI in 6 months", "recurrent ear infection"). '
+    'Do NOT infer recurrence from a single encounter.\n'
     '      "chronic" = ongoing condition requiring long-term management (hypothyroidism, diabetes, CKD, cardiac disease, '
     'epilepsy, Addison\'s, Cushing\'s, incontinence, IBD, liver disease, megaoesophagus, or lifelong drug prescribed: '
     'thyroxine, insulin, enalapril, furosemide, phenobarbitone, potassium bromide, trilostane, fludrocortisone, '
     'benazepril, pimobendan).\n'
-    '      Default = "episodic". Never use "acute" or "recurrent".\n'
+    '      Default = "episodic". Never use "acute".\n'
     '      "resolved" is NOT a valid condition_type --- it belongs in condition_status only.\n'
     '    - "condition_status": "active" | "resolved" | null\n'
     '      Set to "resolved" if the document explicitly states the condition is resolved, cured, or no longer active.\n'
@@ -1205,10 +1210,12 @@ EXTRACTION_SYSTEM_PROMPT = (
     "the category to 'Prescription' — it remains 'Imaging'.\n"
     "- For conditions: extract diagnosed diseases/disorders/syndromes with their medications and monitoring.\n"
     "- condition_name must be the DISEASE/DISORDER name only --- never a drug, supplement, or vaccine brand.\n"
-    "- condition_type must be \"chronic\" or \"episodic\" only. Never use \"acute\" or \"recurrent\".\n"
+    "- condition_type must be \"chronic\", \"episodic\", or \"recurrent\" only. Never use \"acute\".\n"
     "  Default = \"episodic\". Use \"chronic\" only for explicitly named lifelong conditions or lifelong management drugs.\n"
+    "  A single episode is ALWAYS \"episodic\" — do NOT use \"recurrent\" for a single episode.\n"
+    "  Use \"recurrent\" only when the document itself explicitly shows or states multiple prior episodes of the same condition.\n"
     "- \"resolved\" is NOT a valid condition_type value. If the document states a condition is resolved, "
-    "set condition_type to the appropriate clinical type (chronic/episodic/recurrent) AND set "
+    "set condition_type to the appropriate clinical type (chronic/episodic) AND set "
     "condition_status to \"resolved\".\n"
     "- episode_dates must capture every date the condition is mentioned, treated, or encountered in this "
     "document. This enables downstream recurrence analysis across multiple documents.\n"
@@ -1351,7 +1358,7 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                         },
                         "condition_type": {
                             "type": "string",
-                            "enum": ["chronic", "episodic"],
+                            "enum": ["chronic", "episodic", "recurrent"],
                         },
                         "condition_status": {
                             "type": ["string", "null"],
@@ -3552,16 +3559,19 @@ async def extract_and_process_document(
                 )
                 continue
             try:
-                # Document-level condition_type is chronic or episodic only.
-                # Recurrent is an aggregation-layer concept — never stored per-document.
-                # Legacy "acute" / "recurrent" / "resolved" all collapse to "episodic".
+                # Valid stored condition_type values: chronic | episodic | recurrent.
+                # "acute" is a legacy/invalid value — collapse to "episodic".
+                # "resolved" is not a type value — collapse to "episodic" and preserve in condition_status.
+                # "recurrent" from extraction is accepted as-is (unusual per-doc but valid).
                 raw_condition_type = str(raw_condition.get("condition_type") or "episodic").strip().lower()
                 if raw_condition_type == "chronic":
                     condition_type = "chronic"
+                elif raw_condition_type == "recurrent":
+                    condition_type = "recurrent"
                 elif raw_condition_type == "resolved":
                     condition_type = "episodic"  # legacy: old prompt used "resolved" as a type
                 else:
-                    condition_type = "episodic"  # episodic, recurrent, acute, unknown → episodic
+                    condition_type = "episodic"  # episodic, acute, unknown → episodic
 
                 # condition_status: "active" | "resolved" | null
                 raw_status = raw_condition.get("condition_status")

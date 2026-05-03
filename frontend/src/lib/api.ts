@@ -46,6 +46,8 @@ export interface PreventiveRecord {
   created_at?: string | null;
   is_core?: boolean;
   eligible?: boolean; // Backend computes based on pet age; frontend never filters business logic
+  freq_label?: string;
+  status_display?: string;
 }
 
 export interface WeightEntry {
@@ -278,6 +280,7 @@ export interface CarePlanItem {
   icon?: string | null;
   price?: number;
   freq: string;
+  last_done?: string | null;
   next_due: string | null;
   status_tag: string;
   classification: string;

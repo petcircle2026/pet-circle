@@ -261,58 +261,6 @@ def _get_openai_client():
 #  GPT generation helpers                                                       #
 # --------------------------------------------------------------------------- #
 
-async def _generate_conditions_summary_gpt(pet_context: str) -> dict:
-    """
-    Call GPT to produce a 2-3 sentence summary focused only on the pet's conditions.
-
-    If no active conditions exist, returns a short "no conditions" message.
-
-    Args:
-        pet_context: Structured text description of the pet's health status.
-
-    Returns:
-        {"summary": "<conditions-focused narrative>"}
-    """
-    client = _get_openai_client()
-
-    system_prompt = (
-        "You are a veterinary health assistant writing for a pet owner's conditions dashboard. "
-        "Given a pet's profile and active health conditions, write a 2-3 sentence summary "
-        "focused ONLY on the pet's conditions. Do NOT mention vaccines, nutrition, grooming, "
-        "checkups, or the overall health score. Structure it as follows:\n"
-        "1. Name and briefly describe each active condition and its type (chronic/episodic).\n"
-        "2. State which medications or monitoring items are being managed and their current status.\n"
-        "3. What the owner should act on next (overdue monitoring, refill due, unmanaged condition).\n"
-        "If no active conditions are present, return: "
-        "{\"summary\": \"No active conditions detected. Your pet is currently condition-free — keep up the great preventive care!\"}\n"
-        "Tone: warm, factual, parent-friendly. Never alarming. "
-        "Respond with ONLY valid JSON: {\"summary\": \"<text>\"}. "
-        "Do not include any explanation outside the JSON object."
-    )
-
-    user_prompt = f"Pet health context:\n{pet_context}"
-
-    async def _call() -> str:
-        response = await client.messages.create(
-            model=OPENAI_QUERY_MODEL,
-            temperature=0,
-            max_tokens=300,
-            system=system_prompt,
-            messages=[
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        return response.content[0].text or "{}"
-
-    raw = await retry_openai_call(_call)
-    try:
-        parsed = json.loads(raw)
-        if "summary" not in parsed:
-            raise ValueError("Missing 'summary' key")
-        return parsed
-    except Exception as exc:
-        logger.warning("conditions_summary JSON parse failed: %s | raw=%s", exc, raw)
-        return {"summary": "Conditions summary is being updated."}
 
 
 async def _generate_health_summary_gpt(pet_context: str) -> dict:
@@ -507,7 +455,7 @@ def _build_pet_context(pet, conditions: list) -> str:
 _HEALTH_CONDITIONS_V2_SYSTEM_PROMPT = """
 You are PetCircle's health insight engine writing for a pet owner's dashboard.
 
-Condition type (chronic / recurrent / acute) and condition status
+Condition type (chronic / recurrent / episodic) and condition status
 (active / monitoring / resolved) are pre-computed from a structured database
 and provided in the input. Do NOT reclassify or override them.
 
@@ -568,11 +516,11 @@ bullet_display_line (max 20 words)
     Condition name + time since last episode.
     Example: "Ear infection - last episode Feb 2026, between episodes now"
 
-  ACUTE + active:
+  EPISODIC + active:
     Condition name + when it started + what is being done.
     Example: "Skin allergy - started Apr 2026, on antihistamines"
 
-  ACUTE + monitoring:
+  EPISODIC + monitoring:
     Condition name + what was flagged + follow-up needed.
     Example: "Elevated ALT - flagged Mar 2026, recheck pending"
 
@@ -589,8 +537,8 @@ trend_label (max 4 words)
   chronic:               "Since [year]"
   recurrent active:      "Episode [N] ongoing"
   recurrent monitoring:  "Last episode [Mon YYYY]"
-  acute active:          "Started [Mon YYYY]"
-  acute monitoring:      "Flagged [Mon YYYY]"
+  episodic active:       "Started [Mon YYYY]"
+  episodic monitoring:   "Flagged [Mon YYYY]"
 
 severity
   Drives the UI colour dot alongside trend_label.
@@ -758,7 +706,7 @@ OUTPUT - valid JSON only, no prose outside
     {
       "condition_family_id": "string",
       "name": "string",
-      "type": "chronic | recurrent | acute",
+      "type": "chronic | recurrent | episodic",
       "status": "active | monitoring",
       "severity": "yellow",
       "trend_label": "string",
@@ -913,18 +861,56 @@ async def get_or_generate_insight(
 
         if normalized_insight_type == "health_conditions_v2":
             from app.models.health.aggregated_condition import AggregatedCondition
+            from app.models.health.diagnostic_test_result import DiagnosticTestResult
+            from app.models.nutrition.diet_item import DietItem
+            from sqlalchemy import text as sa_text
             from datetime import date as _date
             _today = _date.today()
 
-            agg_rows = (
-                db.query(AggregatedCondition)
-                .filter(AggregatedCondition.pet_id == pet_id)
-                .order_by(AggregatedCondition.last_record_date.desc())
-                .all()
-            )
+            age_months = _get_pet_age_months(pet) if not isinstance(pet, dict) else None
+            age_years = round(age_months / 12, 1) if age_months else None
+            life_stage = _get_life_stage(pet) if not isinstance(pet, dict) else None
 
-            def _compute_status_inline(row):
-                if (row.condition_status or "") == "resolved":
+            pet_name = pet.get("name", "") if isinstance(pet, dict) else getattr(pet, "name", "")
+            pet_profile = {
+                "name": pet_name,
+                "species": pet.get("species") if isinstance(pet, dict) else getattr(pet, "species", None),
+                "breed": pet.get("breed") if isinstance(pet, dict) else getattr(pet, "breed", None),
+                "age_years": age_years,
+                "life_stage": str(life_stage) if life_stage else None,
+                "gender": pet.get("gender") if isinstance(pet, dict) else getattr(pet, "gender", None),
+                "neutered": pet.get("neutered") if isinstance(pet, dict) else getattr(pet, "neutered", None),
+            }
+
+            _NON_CONDITION_NAMES = {
+                "prescription medications", "prescription medication",
+                "medications", "medication", "supplements", "supplement", "rx medications",
+            }
+
+            agg_rows = db.execute(
+                sa_text("""
+                    SELECT
+                        ac.id                           AS condition_family_id,
+                        ac.name,
+                        ac.condition_type,
+                        ac.episode_dates,
+                        ac.diagnosed_at,
+                        ac.last_record_date,
+                        ac.medication_end_date,
+                        ac.latest_episode_condition_id,
+                        c.treatment_route,
+                        c.vet_resolved
+                    FROM aggregated_conditions ac
+                    LEFT JOIN conditions c
+                        ON c.id = ac.latest_episode_condition_id
+                    WHERE ac.pet_id = :pet_id
+                    ORDER BY ac.last_record_date DESC NULLS LAST
+                """),
+                {"pet_id": str(pet_id)},
+            ).fetchall()
+
+            def _compute_status(row):
+                if row.vet_resolved:
                     return "resolved"
                 if row.condition_type == "chronic":
                     return "active"
@@ -942,33 +928,89 @@ async def get_or_generate_insight(
 
             conditions_payload = [
                 {
-                    "condition_family_id": str(row.id),
+                    "condition_family_id": str(row.condition_family_id),
                     "name": row.name,
                     "condition_type": row.condition_type,
-                    "condition_status": _compute_status_inline(row),
+                    "condition_status": _compute_status(row),
                     "episode_dates": row.episode_dates or [],
-                    "diagnosed_at": row.diagnosed_at.isoformat() if row.diagnosed_at else None,
-                    "last_record_date": row.last_record_date.isoformat() if row.last_record_date else None,
+                    "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
+                    "last_record_date": str(row.last_record_date) if row.last_record_date else None,
+                    "treatment_route": row.treatment_route,
                 }
                 for row in agg_rows
+                if row.name.lower().strip() not in _NON_CONDITION_NAMES
             ]
 
-            pet_name = pet.get("name", "") if isinstance(pet, dict) else ""
+            active_meds = db.execute(
+                sa_text("""
+                    SELECT DISTINCT ON (LOWER(cm.name))
+                        cm.name         AS med_name,
+                        cm.dose,
+                        cm.frequency,
+                        cm.end_date,
+                        c.name          AS condition_name
+                    FROM condition_medications cm
+                    JOIN conditions c ON cm.condition_id = c.id
+                    WHERE c.pet_id = :pet_id
+                      AND (cm.end_date >= :today OR cm.end_date IS NULL)
+                    ORDER BY LOWER(cm.name), c.diagnosed_at DESC NULLS LAST
+                """),
+                {"pet_id": str(pet_id), "today": _today},
+            ).fetchall()
+
+            medications_payload = [
+                {
+                    "name": m.med_name,
+                    "dose": m.dose,
+                    "frequency": m.frequency,
+                    "end_date": str(m.end_date) if m.end_date else "lifelong",
+                    "for_condition": m.condition_name,
+                }
+                for m in active_meds
+            ]
+
+            abnormal_results = (
+                db.query(DiagnosticTestResult)
+                .filter(
+                    DiagnosticTestResult.pet_id == pet_id,
+                    DiagnosticTestResult.status_flag.in_(["low", "high", "abnormal"]),
+                )
+                .order_by(DiagnosticTestResult.observed_at.desc())
+                .limit(50)
+                .all()
+            )
+            labs_payload = [
+                {
+                    "test_name": r.parameter_name,
+                    "value": str(r.value_numeric) if r.value_numeric is not None else r.value_text,
+                    "unit": r.unit,
+                    "status_flag": r.status_flag,
+                    "report_date": str(r.observed_at),
+                }
+                for r in abnormal_results
+            ]
+
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+            diet_payload = [
+                {
+                    "item_name": d.label,
+                    "item_type": d.type,
+                    "daily_portion_g": d.daily_portion_g,
+                    "pack_size_g": d.pack_size_g,
+                    "doses_per_day": d.doses_per_day,
+                }
+                for d in diet_rows
+            ]
+
             user_payload = {
                 "today": _today.isoformat(),
-                "pet": {
-                    "name": pet_name,
-                    "species": pet.get("species") if isinstance(pet, dict) else None,
-                    "breed": pet.get("breed") if isinstance(pet, dict) else None,
-                },
+                "pet": pet_profile,
                 "conditions": conditions_payload,
-                "active_medications": [],
-                "abnormal_labs": [],
-                "current_diet": [],
+                "active_medications": medications_payload,
+                "abnormal_labs": labs_payload,
+                "current_diet": diet_payload,
             }
             content = await _generate_health_conditions_v2_gpt(user_payload)
-        elif normalized_insight_type == "conditions_summary":
-            content = await _generate_conditions_summary_gpt(pet_context)
         elif normalized_insight_type == "health_summary":
             content = await _generate_health_summary_gpt(pet_context)
         elif normalized_insight_type == "vet_questions":
@@ -981,7 +1023,7 @@ async def get_or_generate_insight(
         # Return graceful defaults rather than crashing
         if insight_type == "health_conditions_v2":
             return dict(_HEALTH_CONDITIONS_V2_FALLBACK)
-        if insight_type in ("health_summary", "conditions_summary"):
+        if insight_type == "health_summary":
             return {"summary": "Summary is currently unavailable."}
         return []
 

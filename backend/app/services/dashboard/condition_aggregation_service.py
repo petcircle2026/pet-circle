@@ -177,14 +177,13 @@ def _compute_condition_status(
         return "resolved"
 
     # No medication_end_date — use episode_dates
+    # Spec (Sheet 1): episode_date <= 30 days ago → monitoring; > 30 days ago → resolved
     if episode_dates:
         try:
             from app.utils.date_utils import parse_date
             latest = parse_date(max(episode_dates))
             days_ago = (today - latest).days
             if days_ago <= 30:
-                return "active"
-            if days_ago <= 60:
                 return "monitoring"
         except Exception:
             pass
@@ -394,7 +393,15 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
         _undated_idx = 0
         for c in family:
             if not (c.episode_dates or []):
-                _threshold_episodes.append(str(date.today() - timedelta(days=_undated_idx)))
+                # Use diagnosed_at or created_at as the episode proxy so the 15/24-month
+                # window is anchored to the real diagnosis date, not always "today".
+                # Fall back to a synthetic recent date only when no real date exists.
+                proxy_date = (
+                    str(c.diagnosed_at) if c.diagnosed_at
+                    else str(c.created_at.date()) if getattr(c, "created_at", None)
+                    else str(date.today() - timedelta(days=_undated_idx))
+                )
+                _threshold_episodes.append(proxy_date)
                 _undated_idx += 1
         type_from_threshold, recurrence_watch = _apply_recurrence_threshold(_threshold_episodes)
         if _TYPE_RANK.get(type_from_threshold, 0) > _TYPE_RANK.get(merged_type, 0):
@@ -520,6 +527,14 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
     with_diag = [c for c in family if c.diagnosed_at]
     canonical = min(with_diag, key=lambda c: c.diagnosed_at) if with_diag else family[0]
 
+    # ── latest_episode_condition_id: row whose max(episode_dates[]) is most recent ──
+    # Used by precompute JOIN to pull treatment_route + vet_resolved for status computation.
+    def _latest_ep_date(c: Any) -> str:
+        eps = c.episode_dates or []
+        return max(eps) if eps else ""
+
+    latest_episode_row = max(family, key=_latest_ep_date)
+
     return {
         "name": merged_name[:200],
         "condition_type": merged_type,
@@ -533,6 +548,7 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
         "soft_resolution": soft_resolution,
         "recurrence_watch": recurrence_watch,
         "canonical_condition_id": canonical.id,
+        "latest_episode_condition_id": latest_episode_row.id,
         "_family_members": family,
     }
 
@@ -598,6 +614,25 @@ async def aggregate_conditions_for_pet(db: Session, pet_id: UUID) -> None:
         for member in members:
             member.condition_family_id = existing_agg.id
             member.recurrence_watch = merged.get("recurrence_watch", False)
+
+        # Write merged recheck_due_date back as next_due_date on ConditionMonitoring rows
+        # so condition_service.py has a single reliable source of truth.
+        merged_mon_map: dict[str, date | None] = {}
+        for mon_dict in (merged.get("monitoring") or []):
+            raw = mon_dict.get("recheck_due_date")
+            if raw:
+                try:
+                    from app.utils.date_utils import parse_date
+                    merged_mon_map[(mon_dict.get("name") or "").lower().strip()] = parse_date(raw)
+                except Exception:
+                    pass
+        if merged_mon_map:
+            for member in members:
+                for mon in (member.monitoring or []):
+                    key = (mon.name or "").lower().strip()
+                    merged_date = merged_mon_map.get(key)
+                    if merged_date and (mon.next_due_date is None or merged_date > mon.next_due_date):
+                        mon.next_due_date = merged_date
 
     try:
         db.flush()

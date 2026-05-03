@@ -39,6 +39,12 @@ from app.services.dashboard.signal_resolver import (
     resolve_food_signal,
     resolve_supplement_signal,
 )
+from app.services.shared.preventive_calculator import (
+    compute_next_due_date,
+    days_to_freq_label,
+    resolve_item_display,
+    status_tag_for_display,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -329,12 +335,13 @@ class CarePlanItemDict(TypedDict):
 
     name: str
     test_type: str
-    freq: str             # Human-readable frequency (e.g. "Monthly")
-    next_due: str | None  # ISO date string, or None
-    status_tag: str       # "Up to date" | "Due soon" | "Overdue" | "Not started" etc.
-    classification: str   # Classification enum value
-    reason: str | None    # Contextual reason (for orderable items)
-    orderable: bool       # Whether an Order Now button should be shown
+    freq: str              # Human-readable frequency (e.g. "Monthly")
+    last_done: str | None  # ISO date of most recent completion, or None
+    next_due: str | None   # ISO date string, or None
+    status_tag: str        # "On track" | "Due soon" | "Overdue" | "Not started"
+    classification: str    # Classification enum value
+    reason: str | None     # Contextual reason (for orderable items)
+    orderable: bool        # Whether an Order Now button should be shown
     cta_label: NotRequired[str]           # Optional CTA text for orderable diet rows
     signal_level: NotRequired[str | None]  # Signal level (L1-L5) for diet/supplement items
     info_prompt: NotRequired[str | None]   # Info prompt message for L1 items
@@ -644,66 +651,9 @@ def _compute_next_due(
             for i in range(len(sorted_reports) - 1)
         ]
         derived_frequency = int(statistics.median(gaps))
-        return last_date + timedelta(days=derived_frequency)
+        return compute_next_due_date(last_date, derived_frequency)
 
-    return last_date + timedelta(days=baseline_days)
-
-
-def _days_to_freq_label(days: int) -> str:
-    """
-    Convert an interval in days to a human-readable frequency label.
-
-    Args:
-        days: Interval in days.
-
-    Returns:
-        Frequency label string (e.g. "Monthly", "Annual").
-    """
-    if days <= 7:
-        return "Weekly"
-    if days <= 14:
-        return "Every 2 weeks"
-    if days <= 31:
-        return "Monthly"
-    if days <= 45:
-        return "Every 6 weeks"
-    if days <= 93:
-        return "Every 3 months"
-    if days <= 186:
-        return "Every 6 months"
-    if days <= 366:
-        return "Annual"
-    if days <= 731:
-        return "Every 2 years"
-    return "Every 3+ years"
-
-
-def _status_tag(next_due: date | None, classification: Classification) -> str:
-    """
-    Derive a UI status tag string from next_due and classification.
-
-    Rules:
-        URGENT  — overdue (today > next_due), OR no history, OR no next_due.
-        DUE SOON — next_due within 7 days.
-        ON TRACK — everything else.
-
-    Args:
-        next_due:       Computed next due date, or None.
-        classification: Classification enum value.
-
-    Returns:
-        Human-readable status string for the care plan card UI.
-    """
-    if classification == Classification.NO_HISTORY:
-        return "Not started"
-    if next_due is None:
-        return "Not started"
-    today = date.today()
-    if next_due < today:
-        return "Overdue"
-    if (next_due - today).days <= 7:
-        return "Due soon"
-    return "On track"
+    return compute_next_due_date(last_date, baseline_days)
 
 
 def _get_pet_age_months(pet: Pet) -> int:
@@ -986,11 +936,10 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         test_type_by_key: dict[str, str] = {}
         # Display name per item_key (first-seen per key wins).
         item_names_by_key: dict[str, str] = {}
-        # User-set custom recurrence per item_key (latest record wins).
-        # When present, overrides baseline_days for next_due and freq_label.
-        custom_recurrence_by_key: dict[str, int] = {}
-        # Track medicine_name per item_key for dual-use frequency unification.
-        medicine_by_key: dict[str, str] = {}
+        # Raw PreventiveRecord objects per item_key — passed to resolve_item_display
+        # so all display values (last_done, next_due, status, freq) come from
+        # the same single source of truth in preventive_calculator.py.
+        raw_records_by_key: dict[str, list] = {}
 
         from app.repositories.preventive_repository import PreventiveRepository
         preventive_repo = PreventiveRepository(db)
@@ -1047,12 +996,9 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 records_by_key[item_key] = []
                 test_type_by_key[item_key] = test_type
                 item_names_by_key[item_key] = item_name
-            # Track user-set custom recurrence (latest record per key wins).
-            if record.custom_recurrence_days:
-                custom_recurrence_by_key[item_key] = record.custom_recurrence_days
-            # Track medicine name for dual-use frequency unification.
-            if record.medicine_name:
-                medicine_by_key[item_key] = record.medicine_name.strip().lower()
+            # Collect raw records so resolve_item_display can pick the canonical
+            # one (most recent last_done_date) and compute all display values.
+            raw_records_by_key.setdefault(item_key, []).append(record)
             # Keep the item key even when no completion date exists so core
             # preventive rows (vaccines/deworming/flea-tick) still appear.
             if record.last_done_date is not None:
@@ -1149,53 +1095,6 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         today = date.today()
         next_year = today + timedelta(days=_NEXT_YEAR_THRESHOLD_DAYS)
 
-        # ── Dual-use medicine frequency unification ──────────────────────
-        # When the same medicine (e.g. Simparica) is used for both deworming
-        # and tick_flea, unify the effective frequency to the shortest interval
-        # so the dashboard shows the same frequency for both items.
-        _DUAL_USE_KEYS = {"deworming", "tick_flea"}
-        dual_medicines: dict[str, set[str]] = {}  # medicine → {item_keys}
-        for ik, med in medicine_by_key.items():
-            tt = test_type_by_key.get(ik)
-            if tt in _DUAL_USE_KEYS and med:
-                dual_medicines.setdefault(med, set()).add(ik)
-        dual_use_override: dict[str, int] = {}
-        for med, iks in dual_medicines.items():
-            covered_types = {test_type_by_key.get(k) for k in iks}
-            if covered_types >= _DUAL_USE_KEYS:
-                # Same medicine covers both — use the shortest baseline.
-                shortest = min(
-                    _get_baseline_protocol(life_stage, test_type_by_key[k])
-                    for k in iks
-                )
-                for k in iks:
-                    dual_use_override[k] = shortest
-
-        # ── ProductMedicines.repeat_frequency lookup ─────────────────────
-        # The care plan displays the freq_label for each item. When an item
-        # is backed by a known medicine (e.g., Bravecto), prefer the human
-        # label stored in product_medicines.repeat_frequency over the
-        # computed _days_to_freq_label(effective_days), which is based on
-        # life-stage baselines and will always read "Monthly" for 30-day
-        # baselines regardless of the actual product cadence.
-        product_freq_by_medicine: dict[str, str] = {}
-        if medicine_by_key:
-            try:
-                from app.repositories.preventive_master_repository import PreventiveMasterRepository
-                master_repo = PreventiveMasterRepository(db)
-                _names_lc = {m for m in medicine_by_key.values() if m}
-                if _names_lc:
-                    rows = master_repo.find_product_medicines_with_repeat_frequency()
-                    for product_name, repeat_freq in rows:
-                        if not product_name or not repeat_freq:
-                            continue
-                        key = product_name.strip().lower()
-                        if key in _names_lc and key not in product_freq_by_medicine:
-                            product_freq_by_medicine[key] = repeat_freq.strip()
-            except Exception:
-                # Fallback silently — baseline-derived label remains the default.
-                product_freq_by_medicine = {}
-
         # Buckets keyed by item_key (conflict resolution applied inline).
         attend_items: dict[str, CarePlanItemDict] = {}
         continue_items: dict[str, CarePlanItemDict] = {}
@@ -1211,15 +1110,30 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             baseline_days = _get_baseline_protocol(life_stage, test_type)
             prescription = prescriptions_by_key.get(item_key)
 
-            # Priority: custom recurrence (user-set) > dual-use override > baseline.
-            effective_days = (
-                custom_recurrence_by_key.get(item_key)
-                or dual_use_override.get(item_key)
-                or baseline_days
-            )
+            # resolve_item_display is the single source of truth for all display
+            # values — same function called by dashboard_service (reminders) and
+            # health_trends_service (cadence).  It picks the most recent record,
+            # applies the full recurrence priority chain, and computes next_due
+            # / status / freq_label consistently across all three views.
+            raw_records = raw_records_by_key.get(item_key, [])
+            display = resolve_item_display(db, raw_records, pet)
+            effective_days = display["recurrence_days"] or baseline_days
 
             classification = _classify_test(filtered, baseline_days, prescription)
             next_due = _compute_next_due(classification, filtered, effective_days, prescription)
+
+            # For items with history (not prescription / no-history), canonical
+            # next_due from resolve_item_display overrides _compute_next_due
+            # which may use a filtered-out older record.
+            last_done = display["last_done"]
+            if (
+                last_done
+                and classification not in (
+                    Classification.NO_HISTORY,
+                    Classification.PRESCRIPTION_ACTIVE,
+                )
+            ):
+                next_due = display["next_due"]
 
             # Requirement 9.9: exclude items due more than 1 year from today.
             if next_due is not None and next_due > next_year:
@@ -1227,21 +1141,14 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
 
             raw_name = item_names_by_key.get(item_key, test_type.replace("_", " ").title())
             name = _DISPLAY_NAME.get(raw_name.lower(), raw_name)
-            # Prefer product_medicines.repeat_frequency when a matching medicine
-            # is linked — avoids defaulting e.g. Bravecto to "Monthly" just
-            # because its life-stage baseline is 30 days.
-            _med_lc = medicine_by_key.get(item_key)
-            freq_label = (
-                product_freq_by_medicine.get(_med_lc)
-                if _med_lc and _med_lc in product_freq_by_medicine
-                else _days_to_freq_label(effective_days)
-            )
-            status_tag = _status_tag(next_due, classification)
+            freq_label = display["freq_label"] if raw_records else days_to_freq_label(effective_days)
+            status_tag = display["status_display"] if raw_records else status_tag_for_display(next_due, False)
 
             item: CarePlanItemDict = {
                 "name": name,
                 "test_type": test_type,
                 "freq": freq_label,
+                "last_done": last_done.isoformat() if last_done else None,
                 "next_due": next_due.strftime("%d/%m/%y") if next_due else None,
                 "status_tag": status_tag,
                 "classification": classification.value,

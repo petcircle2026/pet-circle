@@ -56,6 +56,8 @@ class Condition(Base):
     notes = Column(String(1000), nullable=True)
     icon = Column(String(10), nullable=True)  # Emoji icon for condition display
     managed_by = Column(String(200), nullable=True)  # Managing doctor/vet name and location
+    treatment_route = Column(String(100), nullable=True)  # topical | oral | systemic | etc.
+    vet_resolved = Column(Boolean, nullable=False, default=False)  # vet-confirmed resolution override
     source = Column(String(20), nullable=False, default="extraction")  # extraction | inferred | manual
     is_active = Column(Boolean, default=True)
 
