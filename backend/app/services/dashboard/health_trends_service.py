@@ -235,8 +235,21 @@ def _build_metabolic(results: list[DiagnosticTestResult]) -> dict[str, Any] | No
     }
 
 
-def _classify_preventive_item(item_name: str) -> str | None:
-    """Map preventive item names to cadence buckets."""
+def _classify_preventive_item(item_name: str, master_obj: Any = None) -> str | None:
+    """Map a preventive item to a cadence bucket ('vaccine', 'flea_tick', 'deworming').
+
+    For custom items, checks the stored item_type first (set at extraction time
+    by GPT, so it handles abbreviations like 'ARV' or '10 in 1' correctly).
+    Falls back to keyword matching for preventive_master items whose names are
+    controlled, and for legacy custom items that predate the item_type column.
+    """
+    # Stored type takes precedence — authoritative for custom items.
+    if master_obj is not None:
+        stored = getattr(master_obj, "item_type", None)
+        if stored in ("vaccine", "flea_tick", "deworming"):
+            return stored
+
+    # Keyword fallback for master items and legacy custom items.
     name = (item_name or "").lower()
     if any(keyword in name for keyword in _VACCINE_KEYWORDS):
         return "vaccine"
@@ -272,7 +285,7 @@ def _build_vaccine_cadence(
     timeline shows one node per date with a vaccine count below it.
     """
     pairs = [_normalize_preventive_row(r) for r in rows]
-    vaccine_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "") == "vaccine"]
+    vaccine_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "", master) == "vaccine"]
     if not vaccine_pairs:
         return None
 
@@ -413,7 +426,7 @@ def _build_flea_tick_cadence(
     last_done_date has been recorded so the card always reflects clinical state.
     """
     pairs = [_normalize_preventive_row(r) for r in rows]
-    flea_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "") == "flea_tick"]
+    flea_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "", master) == "flea_tick"]
     if not flea_pairs:
         return None
 
@@ -561,7 +574,7 @@ def _build_deworming_cadence(
 ) -> dict[str, Any] | None:
     """Build deworming timeline card."""
     pairs = [_normalize_preventive_row(r) for r in rows]
-    deworm_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "") == "deworming"]
+    deworm_pairs = [(rec, master) for rec, master in pairs if _classify_preventive_item(master.item_name if master else "", master) == "deworming"]
     if not deworm_pairs:
         return None
 

@@ -34,7 +34,7 @@ export default function AskVetSection({
           border: "1px solid #FFCDD2",
         }}
       >
-        🩺 Share this section with <strong style={{ color: "var(--t1)" }}>Dr. {vetName}</strong> at your next visit.
+        🩺 Share this section with <strong style={{ color: "var(--t1)" }}>{vetName ? `Dr. ${vetName}` : "your doctor"}</strong> at your next visit.
       </div>
 
       {allQuestions.length === 0 ? (

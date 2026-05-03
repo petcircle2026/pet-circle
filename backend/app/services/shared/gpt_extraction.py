@@ -2011,6 +2011,23 @@ _CANONICAL_VACCINE_ITEMS: dict[str, str] = {
     "leptospirosis": "Leptospirosis",
     "feline core": "Feline Core",
     "core vaccine": "Core Vaccine",
+    # Common abbreviations and regional aliases
+    "dhpp": "DHPPi",
+    "dhp": "DHPPi",
+    "10 in 1": "DHPPi",
+    "10-in-1": "DHPPi",
+    "10in1": "DHPPi",
+    "9 in 1": "DHPPi",
+    "9-in-1": "DHPPi",
+    "7 in 1": "DHPPi",
+    "7-in-1": "DHPPi",
+    "arv": "Rabies Vaccine",
+    "anti-rabies vaccine": "Rabies Vaccine",
+    "anti rabies vaccine": "Rabies Vaccine",
+    "nobivac rabies": "Rabies Vaccine",
+    "rabies": "Rabies Vaccine",
+    "leptospira": "Leptospirosis",
+    "lepto": "Leptospirosis",
 }
 
 
@@ -2426,6 +2443,7 @@ def _upsert_custom_item_for_extra_vaccine(
     user_id,
     species: str,
     vaccine_name: str,
+    item_type: str = "vaccine",
 ) -> CustomPreventiveItem:
     """Get or create a custom preventive item for an unmapped vaccine."""
     from app.repositories.preventive_repository import PreventiveRepository
@@ -2433,11 +2451,15 @@ def _upsert_custom_item_for_extra_vaccine(
 
     existing = repo.find_custom_by_user_and_name(user_id, vaccine_name, species)
     if existing:
+        if existing.item_type is None and item_type:
+            existing.item_type = item_type
+            db.flush()
         return existing
 
     custom_item = CustomPreventiveItem(
         user_id=user_id,
         item_name=vaccine_name,
+        item_type=item_type,
         category="complete",
         circle="health",
         species=species,
@@ -2447,8 +2469,6 @@ def _upsert_custom_item_for_extra_vaccine(
         overdue_after_days=14,
     )
     return repo.create_custom(custom_item)
-    db.flush()
-    return custom_item
 
 
 def _upsert_custom_preventive_record_for_pet(
@@ -4010,6 +4030,11 @@ async def extract_and_process_document(
                         existing_contact.document_id = document.id
                         existing_contact.source_document_name = document.document_name
                         existing_contact.source_document_category = document.document_category
+                        if document.event_date and (
+                            not existing_contact.last_visit_date
+                            or document.event_date > existing_contact.last_visit_date
+                        ):
+                            existing_contact.last_visit_date = document.event_date
                     else:
                         db.add(Contact(
                             pet_id=pet.id,
@@ -4023,6 +4048,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:
@@ -4042,6 +4068,11 @@ async def extract_and_process_document(
                         existing_doc_contact.document_id = document.id
                         existing_doc_contact.source_document_name = document.document_name
                         existing_doc_contact.source_document_category = document.document_category
+                        if document.event_date and (
+                            not existing_doc_contact.last_visit_date
+                            or document.event_date > existing_doc_contact.last_visit_date
+                        ):
+                            existing_doc_contact.last_visit_date = document.event_date
                         db.flush()
                     else:
                         db.add(Contact(
@@ -4053,6 +4084,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:
@@ -4084,6 +4116,11 @@ async def extract_and_process_document(
                         existing_item_contact.document_id = document.id
                         existing_item_contact.source_document_name = document.document_name
                         existing_item_contact.source_document_category = document.document_category
+                        if document.event_date and (
+                            not existing_item_contact.last_visit_date
+                            or document.event_date > existing_item_contact.last_visit_date
+                        ):
+                            existing_item_contact.last_visit_date = document.event_date
                         db.flush()
                     else:
                         db.add(Contact(
@@ -4096,6 +4133,7 @@ async def extract_and_process_document(
                             source="extraction",
                             source_document_name=document.document_name,
                             source_document_category=document.document_category,
+                            last_visit_date=document.event_date,
                         ))
                         db.flush()
                 except Exception as e:

@@ -56,6 +56,11 @@ class CustomPreventiveItem(Base):
     # Species this item applies to: 'dog', 'cat', or 'both'.
     species = Column(String(10), nullable=False)
 
+    # Preventive category: 'vaccine' | 'deworming' | 'tick_flea' | 'other'.
+    # Set at extraction time so cadence builders don't rely on keyword matching.
+    # NULL = legacy row — cadence builder falls back to keyword matching.
+    item_type = Column(String(20), nullable=True)
+
     # Days between occurrences.
     recurrence_days = Column(Integer, nullable=False)
 

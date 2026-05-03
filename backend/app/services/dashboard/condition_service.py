@@ -26,7 +26,6 @@ from app.services.dashboard.condition_aggregation_service import is_medication_a
 from app.repositories.care_repository import CareRepository
 from app.repositories.health_repository import HealthRepository
 from app.repositories.preventive_repository import PreventiveRepository
-from app.repositories.document_repository import DocumentRepository
 from app.repositories.contact_repository import ContactRepository
 
 logger = logging.getLogger(__name__)
@@ -468,33 +467,17 @@ def get_last_vet_visit(db: Session, pet_id: UUID) -> dict:
             "notes", "status"
         }
     """
-    # Find vet contact — prefer the one linked to the latest prescription or vaccination.
-    document_repo = DocumentRepository(db)
     contact_repo = ContactRepository(db)
     health_repo = HealthRepository(db)
 
-    vet = None
-
-    # Look for the most recent document (prescription or vaccination) with a doctor name.
-    latest_vet_documents = [d for d in document_repo.find_by_pet_id(pet_id)
-                           if d.document_category in ["prescription", "vaccination"] and d.event_date]
-    latest_vet_document = latest_vet_documents[0] if latest_vet_documents else None
-
-    # Pull vet contact from the document's doctor/clinic info when available.
-    if latest_vet_document and latest_vet_document.doctor_name:
-        vet = contact_repo.find_by_pet_and_name_and_role(pet_id, latest_vet_document.doctor_name, "veterinarian")
-    if not vet:
-        vet = contact_repo.find_by_pet_and_role(pet_id, "veterinarian")
+    vet = contact_repo.find_best_vet_contact(pet_id)
+    last_visit_date = str(vet.last_visit_date) if vet and vet.last_visit_date else None
 
     # Find the oldest active condition managed by this vet
     conditions = health_repo.find_active_conditions_ordered_by_date(pet_id)
 
     managing_condition = None
     managing_since = None
-    # Use the latest vet document (prescription or vaccination) event_date as the primary last_visit_date.
-    last_visit_date = (
-        str(latest_vet_document.event_date) if latest_vet_document and latest_vet_document.event_date else None
-    )
     next_due_date = None
     notes = None
 

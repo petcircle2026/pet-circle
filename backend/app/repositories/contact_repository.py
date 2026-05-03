@@ -301,3 +301,33 @@ class ContactRepository:
         )
         return row
 
+    def find_best_vet_contact(self, pet_id: UUID) -> Contact | None:
+        """
+        Return the best veterinarian Contact for a pet.
+
+        Sorting priority:
+          1. Contacts with a last_visit_date — most recent first.
+          2. Contacts with no last_visit_date — prescriptions before vaccinations.
+        """
+        from sqlalchemy import case
+
+        category_rank = case(
+            (Contact.source_document_category == "prescription", 0),
+            (Contact.source_document_category == "vaccination", 1),
+            else_=2,
+        )
+
+        return (
+            self.db.query(Contact)
+            .filter(
+                Contact.pet_id == pet_id,
+                Contact.role == "veterinarian",
+            )
+            .order_by(
+                Contact.last_visit_date.desc().nullslast(),
+                category_rank,
+                Contact.created_at.desc(),
+            )
+            .first()
+        )
+
