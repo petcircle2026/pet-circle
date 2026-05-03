@@ -1,8 +1,10 @@
 "use client";
 
 // ─── Chart geometry constants ─────────────────────────────────────────────────
-/** SVG canvas width, matches tick/flea cadence chart in JSX reference. */
+/** Minimum SVG canvas width. */
 const VW = 358;
+/** Minimum horizontal spacing between dot centres to prevent label overlap. */
+const MIN_DOT_SPACING = 55;
 /** SVG canvas height (extended for legend). */
 const VH_BASE = 152;
 /** Left/right padding so edge dots don't clip. */
@@ -106,12 +108,19 @@ export interface DotPlotSVGProps {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
+/** Canvas width for n dots, expanding past VW when dots would be too close. */
+function canvasWidth(n: number): number {
+  if (n <= 1) return VW;
+  return Math.max(VW, PAD * 2 + (n - 1) * MIN_DOT_SPACING);
+}
+
 /** Evenly distribute n dots across the usable canvas width. */
 function dotXPositions(n: number): number[] {
   if (n === 0) return [];
   if (n === 1) return [PAD];
+  const cw = canvasWidth(n);
   return Array.from({ length: n }, (_, i) =>
-    PAD + (i / (n - 1)) * (VW - PAD * 2)
+    PAD + (i / (n - 1)) * (cw - PAD * 2)
   );
 }
 
@@ -142,6 +151,7 @@ export default function DotPlotSVG({
   if (doses.length === 0) return null;
 
   const xs = dotXPositions(doses.length);
+  const cw = canvasWidth(doses.length);
   const legendItems = legend ?? DEFAULT_LEGEND;
   const legendRows = Math.ceil(legendItems.length / 2);
 
@@ -153,9 +163,10 @@ export default function DotPlotSVG({
     LEGEND_Y + legendRows * 20 + (footer ? 12 : 0) + 8;
 
   return (
+    <div style={{ overflowX: "auto", width: "100%" }}>
     <svg
-      viewBox={`0 0 ${VW} ${totalHeight}`}
-      style={{ width: "100%", display: "block" }}
+      viewBox={`0 0 ${cw} ${totalHeight}`}
+      style={{ width: cw, minWidth: cw, display: "block" }}
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Connecting line */}
@@ -289,10 +300,10 @@ export default function DotPlotSVG({
             </text>
             {/* X-axis date label — adaptive anchor prevents edge clipping */}
             <text
-              x={xs[i] < VW / 4 ? PAD / 2 : xs[i] > (3 * VW) / 4 ? VW - PAD / 2 : xs[i]}
+              x={xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i]}
               y={DATE_Y}
               textAnchor={
-                xs[i] < VW / 4 ? "start" : xs[i] > (3 * VW) / 4 ? "end" : "middle"
+                xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle"
               }
               fontFamily="Inter,sans-serif"
               fontSize="8"
@@ -314,7 +325,7 @@ export default function DotPlotSVG({
       {legendItems.map((item, li) => {
         const col = li % 2;
         const row = Math.floor(li / 2);
-        const lx = col === 0 ? PAD : VW / 2 + PAD;
+        const lx = col === 0 ? PAD : cw / 2 + PAD;
         const ly = LEGEND_Y + row * 20 + 6;
         return (
           <g key={li}>
@@ -340,5 +351,6 @@ export default function DotPlotSVG({
         );
       })}
     </svg>
+    </div>
   );
 }

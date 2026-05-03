@@ -1,8 +1,10 @@
 "use client";
 
 // ─── Chart geometry constants ─────────────────────────────────────────────────
-/** SVG canvas width, matches vaccine cadence chart in JSX reference. */
+/** Minimum SVG canvas width. */
 const VW = 358;
+/** Minimum horizontal spacing between node centres to prevent label overlap. */
+const MIN_NODE_SPACING = 55;
 /** Canvas pad left/right so edge circles don't clip. */
 const PAD = 20;
 /** Y-position of the connecting line and circle centres. */
@@ -106,12 +108,19 @@ export interface TimelineSVGProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Canvas width for n nodes, expanding past VW when nodes would be too close. */
+function canvasWidth(n: number): number {
+  if (n <= 1) return VW;
+  return Math.max(VW, PAD * 2 + (n - 1) * MIN_NODE_SPACING);
+}
+
 /** Compute evenly-distributed x-centres for n nodes. */
 function nodeXPositions(n: number): number[] {
   if (n === 0) return [];
   if (n === 1) return [PAD];
+  const cw = canvasWidth(n);
   return Array.from({ length: n }, (_, i) =>
-    PAD + (i / (n - 1)) * (VW - PAD * 2)
+    PAD + (i / (n - 1)) * (cw - PAD * 2)
   );
 }
 
@@ -157,14 +166,16 @@ export default function TimelineSVG({
   if (nodes.length === 0) return null;
 
   const xs = nodeXPositions(nodes.length);
+  const cw = canvasWidth(nodes.length);
   const legendRows = Math.ceil(legend.length / 2);
   const totalHeight =
     LEGEND_Y + (legend.length > 0 ? legendRows * LEGEND_ROW_H : 0);
 
   return (
+    <div style={{ overflowX: "auto", width: "100%" }}>
     <svg
-      viewBox={`0 0 ${VW} ${totalHeight}`}
-      style={{ width: "100%", display: "block" }}
+      viewBox={`0 0 ${cw} ${totalHeight}`}
+      style={{ width: cw, minWidth: cw, display: "block" }}
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Connecting line */}
@@ -263,10 +274,10 @@ export default function TimelineSVG({
             </text>
             {/* Primary label below node — adaptive anchor prevents edge clipping */}
             <text
-              x={xs[i] < VW / 4 ? PAD / 2 : xs[i] > (3 * VW) / 4 ? VW - PAD / 2 : xs[i]}
+              x={xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i]}
               y={LABEL_Y}
               textAnchor={
-                xs[i] < VW / 4 ? "start" : xs[i] > (3 * VW) / 4 ? "end" : "middle"
+                xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle"
               }
               fontFamily="Inter,sans-serif"
               fontSize="10"
@@ -277,8 +288,8 @@ export default function TimelineSVG({
             </text>
             {/* Optional sub-label — word-wrapped to 2 lines to prevent overlap */}
             {node.sub && (() => {
-              const anchor = xs[i] < VW / 4 ? "start" : xs[i] > (3 * VW) / 4 ? "end" : "middle";
-              const tx = xs[i] < VW / 4 ? PAD / 2 : xs[i] > (3 * VW) / 4 ? VW - PAD / 2 : xs[i];
+              const anchor = xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle";
+              const tx = xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i];
               const fill = node.type === "done" ? "#1A1A1A" : "#6B6B6B";
               const words = node.sub.split(" ");
               const lines: string[] = [];
@@ -315,7 +326,7 @@ export default function TimelineSVG({
       {legend.map((item, li) => {
         const col = li % 2;
         const row = Math.floor(li / 2);
-        const lx = col === 0 ? PAD : VW / 2 + PAD;
+        const lx = col === 0 ? PAD : cw / 2 + PAD;
         const ly = LEGEND_Y + row * LEGEND_ROW_H + 4;
         return (
           <g key={li}>
@@ -333,5 +344,6 @@ export default function TimelineSVG({
         );
       })}
     </svg>
+    </div>
   );
 }
