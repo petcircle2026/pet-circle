@@ -23,8 +23,6 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.core.contact import Contact
-from app.models.auth.document import Document
 from app.repositories.contact_repository import ContactRepository
 
 logger = logging.getLogger(__name__)
@@ -65,9 +63,9 @@ def get_vet_summary(db: Session, pet_id: UUID) -> VetSummary | None:
         VetSummary with name and most-recent visit date, or None.
     """
     contact_repo = ContactRepository(db)
-    row = contact_repo.find_vet_with_recent_visit(pet_id, ROLE_VETERINARIAN)
+    row = contact_repo.find_best_vet_contact(pet_id)
 
     if row is None:
         return None
 
-    return VetSummary(name=row.name, last_visit=row.last_visit)
+    return VetSummary(name=row.name, last_visit=row.last_visit_date)
