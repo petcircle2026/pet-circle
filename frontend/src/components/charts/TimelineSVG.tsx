@@ -13,8 +13,10 @@ const NODE_R = 13;
 const LABEL_Y = LINE_Y + NODE_R + 14;
 /** Y start of secondary sub-label below node (vaccine names). */
 const SUB_Y = LABEL_Y + 13;
+/** Extra vertical space reserved for a possible second sub-label line. */
+const SUB_LINE_H = 11;
 /** Y start of the legend area. */
-const LEGEND_Y = SUB_Y + 22;
+const LEGEND_Y = SUB_Y + SUB_LINE_H * 2 + 10;
 /** Height of each legend row. */
 const LEGEND_ROW_H = 20;
 
@@ -273,21 +275,38 @@ export default function TimelineSVG({
             >
               {node.label}
             </text>
-            {/* Optional sub-label — adaptive anchor prevents edge clipping */}
-            {node.sub && (
-              <text
-                x={xs[i] < VW / 4 ? PAD / 2 : xs[i] > (3 * VW) / 4 ? VW - PAD / 2 : xs[i]}
-                y={SUB_Y}
-                textAnchor={
-                  xs[i] < VW / 4 ? "start" : xs[i] > (3 * VW) / 4 ? "end" : "middle"
+            {/* Optional sub-label — word-wrapped to 2 lines to prevent overlap */}
+            {node.sub && (() => {
+              const anchor = xs[i] < VW / 4 ? "start" : xs[i] > (3 * VW) / 4 ? "end" : "middle";
+              const tx = xs[i] < VW / 4 ? PAD / 2 : xs[i] > (3 * VW) / 4 ? VW - PAD / 2 : xs[i];
+              const fill = node.type === "done" ? "#1A1A1A" : "#6B6B6B";
+              const words = node.sub.split(" ");
+              const lines: string[] = [];
+              let current = "";
+              for (const word of words) {
+                const candidate = current ? `${current} ${word}` : word;
+                if (candidate.length > 9 && current) {
+                  lines.push(current);
+                  current = word;
+                } else {
+                  current = candidate;
                 }
-                fontFamily="Inter,sans-serif"
-                fontSize="9"
-                fill={node.type === "done" ? "#166534" : "#8A8A8A"}
-              >
-                {node.sub}
-              </text>
-            )}
+              }
+              if (current) lines.push(current);
+              return lines.slice(0, 2).map((line, li) => (
+                <text
+                  key={li}
+                  x={tx}
+                  y={SUB_Y + li * SUB_LINE_H}
+                  textAnchor={anchor}
+                  fontFamily="Inter,sans-serif"
+                  fontSize="9"
+                  fill={fill}
+                >
+                  {line}
+                </text>
+              ));
+            })()}
           </g>
         );
       })}
