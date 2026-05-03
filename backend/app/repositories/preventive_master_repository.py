@@ -83,11 +83,11 @@ class PreventiveMasterRepository:
 
     # ---- ProductMedicines ----
 
-    def find_medicine_by_id(self, medicine_id: UUID) -> ProductMedicines | None:
-        """Fetch a medicine/vaccine by ID."""
+    def find_medicine_by_id(self, medicine_id: str) -> ProductMedicines | None:
+        """Fetch a medicine/vaccine by sku_id."""
         return (
             self.db.query(ProductMedicines)
-            .filter(ProductMedicines.id == medicine_id)
+            .filter(ProductMedicines.sku_id == medicine_id)
             .first()
         )
 
@@ -108,35 +108,27 @@ class PreventiveMasterRepository:
         """Find a medicine by exact name match."""
         return (
             self.db.query(ProductMedicines)
-            .filter(ProductMedicines.name == name)
+            .filter(ProductMedicines.product_name == name)
             .first()
         )
 
     # ---- ProductFood ----
 
-    def find_food_by_id(self, food_id: UUID) -> ProductFood | None:
-        """Fetch a food product by ID."""
-        return self.db.query(ProductFood).filter(ProductFood.id == food_id).first()
-
-    def find_foods_by_species(self, species: str) -> List[ProductFood]:
-        """Find foods suitable for a specific species."""
-        return (
-            self.db.query(ProductFood)
-            .filter(ProductFood.suitable_for.in_([species, "both"]))
-            .all()
-        )
+    def find_food_by_id(self, food_id: str) -> ProductFood | None:
+        """Fetch a food product by sku_id."""
+        return self.db.query(ProductFood).filter(ProductFood.sku_id == food_id).first()
 
     def find_food_by_name(self, name: str) -> ProductFood | None:
-        """Find a food product by exact name match."""
-        return self.db.query(ProductFood).filter(ProductFood.name == name).first()
+        """Find a food product by exact product_line match."""
+        return self.db.query(ProductFood).filter(ProductFood.product_line == name).first()
 
     # ---- ProductSupplement ----
 
-    def find_supplement_by_id(self, supplement_id: UUID) -> ProductSupplement | None:
-        """Fetch a supplement by ID."""
+    def find_supplement_by_id(self, supplement_id: str) -> ProductSupplement | None:
+        """Fetch a supplement by sku_id."""
         return (
             self.db.query(ProductSupplement)
-            .filter(ProductSupplement.id == supplement_id)
+            .filter(ProductSupplement.sku_id == supplement_id)
             .first()
         )
 
@@ -159,7 +151,7 @@ class PreventiveMasterRepository:
         """Find a supplement by exact name match."""
         return (
             self.db.query(ProductSupplement)
-            .filter(ProductSupplement.name == name)
+            .filter(ProductSupplement.product_name == name)
             .first()
         )
 

@@ -1046,7 +1046,7 @@ EXTRACTION_SYSTEM_PROMPT = (
     '      NEVER return [] for episode_dates when a visit date is visible anywhere on the document.\n'
     '    - "medications": array of objects ([] if none) --- drugs/products prescribed TO TREAT this condition, each with:\n'
     '      - "name": string (canonical generic drug name — use INN; expand abbreviations and brand shorthand, e.g. "Doxy" → "Doxycycline", "Metrogyl" → "Metronidazole", "Pan D" → "Pantoprazole+Domperidone", "Calpol" → "Paracetamol"; preserve combination names with "+" e.g. "Amoxicillin+Clavulanate")\n'
-    '      - "item_type": "medicine" | "supplement" --- classify as "medicine" if it is a pharmaceutical drug used to treat a condition (e.g., antibiotics, antifungals, steroids, antihistamines); classify as "supplement" if it is nutritional or supportive (e.g., omega-3, coat supplements, probiotics, vitamins, joint supplements). Use product knowledge if needed (e.g., Fur+, Nutricoat Advance+ → supplement).\n'
+    '      - "item_type": "medicine" | "supplement" | "vaccine" --- "vaccine" for any immunisation (DHPPi, Rabies, ARV, 10-in-1, Nobivac, etc.); "medicine" for pharmaceutical drugs that treat a condition (antibiotics, antifungals, steroids, antihistamines); "supplement" for nutritional/supportive products (omega-3, probiotics, vitamins, joint supplements).\n'
     '      - "dose": string or null\n'
     '      - "frequency": string or null (e.g., "Once daily", "Twice daily")\n'
     '      - "route": string or null (e.g., "oral", "topical", "injection")\n'
@@ -1067,7 +1067,7 @@ EXTRACTION_SYSTEM_PROMPT = (
     '    prescription whose clinical indication is not stated, enabling future linkage when more context is available.\n'
     '    Each with:\n'
     '    - "name": string (canonical generic drug name — use INN; expand abbreviations and brand shorthand, e.g. "Doxy" → "Doxycycline", "Metrogyl" → "Metronidazole", "Pan D" → "Pantoprazole+Domperidone", "Calpol" → "Paracetamol"; preserve combination names with "+" e.g. "Amoxicillin+Clavulanate")\n'
-    '    - "item_type": "medicine" | "supplement" --- classify as "medicine" if it is a pharmaceutical drug used to treat a condition (e.g., antibiotics, antifungals, steroids, antihistamines); classify as "supplement" if it is nutritional or supportive (e.g., omega-3, coat supplements, probiotics, vitamins, joint supplements). Use product knowledge if needed (e.g., Fur+, Nutricoat Advance+ → supplement).\n'
+    '    - "item_type": "medicine" | "supplement" | "vaccine" --- "vaccine" for any immunisation (DHPPi, Rabies, ARV, 10-in-1, Nobivac, etc.); "medicine" for pharmaceutical drugs; "supplement" for nutritional/supportive products.\n'
     '    - "dose": string or null\n'
     '    - "frequency": string or null\n'
     '    - "route": string or null\n'
@@ -1182,6 +1182,11 @@ EXTRACTION_SYSTEM_PROMPT = (
     "  (d) HANDWRITTEN MEDICATION LIST: A handwritten page listing drug names with doses and "
     "frequencies is ALWAYS a Prescription. Place medications in standalone_medications[] if "
     "no condition is named, or in conditions[].medications[] if a diagnosis is written.\n"
+    "    EXCEPTION — VACCINATION/DEWORMING LOG: A handwritten document with a 'Vaccination' "
+    "or 'Deworming' section heading listing vaccine/drug names next to dates is a vaccination "
+    "record, not a Prescription. Set document_category to 'Vaccination' and extract every "
+    "dated entry into items[] and vaccination_details[]. A dose notation like '1½ tab' in a "
+    "separate Deworming section does not change this classification.\n"
     "  In-clinic test values actually measured during the visit (blood glucose, PCV, SpO2, "
     "quick BUN) belong in clinical_exam.in_clinic_test_values — never in diagnostic_values[].\n"
     "- Extract the pet's name EXACTLY as written in the document (if present).\n"
@@ -1231,10 +1236,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- Drugs prescribed to treat a condition belong in that condition's medications[] array, not standalone_medications[].\n"
     "- Prescribed non-preventive medications (antibiotics, analgesics, antacids, etc.) must NEVER go into "
     "preventive_medications[]. They belong in conditions[].medications[] or standalone_medications[].\n"
-    "- MEDICATION/SUPPLEMENT CLASSIFICATION: Every prescribed medication must be classified as either \"medicine\" or \"supplement\" using the item_type field:\n"
-    "    * \"medicine\" → pharmaceutical drugs used to treat a condition (e.g., antibiotics, antifungals, steroids, antihistamines, antiparasitic medications, antihelmintic drugs, antipyretics, analgesics, antacids, etc.)\n"
-    "    * \"supplement\" → nutritional or supportive products (e.g., omega-3, coat supplements, probiotics, vitamins, joint supplements, bone supplements, calcium supplements, etc.). Use product knowledge if needed (e.g., Fur+, Nutricoat Advance+ → supplement).\n"
-    "  Always apply this classification to medications[] in conditions, standalone_medications[], and preventive_medications[].\n"
+    "- MEDICATION/SUPPLEMENT/VACCINE CLASSIFICATION: Every entry in medications[], standalone_medications[], and preventive_medications[] must have item_type set:\n"
+    "    * \"vaccine\" → any immunisation product (DHPPi, DHP, Rabies, ARV, Anti-Rabies, 10-in-1, 7-in-1, Nobivac, FVRCP, Kennel Cough, etc.). Always use \"vaccine\" — never \"medicine\" — for these.\n"
+    "    * \"medicine\" → pharmaceutical drugs used to treat or prevent a condition (antibiotics, antifungals, steroids, antihistamines, antiparasitic, antihelmintic, antipyretics, analgesics, antacids, etc.)\n"
+    "    * \"supplement\" → nutritional or supportive products (omega-3, coat supplements, probiotics, vitamins, joint supplements, calcium, etc.). Use product knowledge if needed (e.g., Fur+, Nutricoat Advance+ → supplement).\n"
     "- For contacts: extract vet/specialist contact details when explicitly present.\n"
     "- Document category for vet-written documents: If the document is on a veterinary clinic's "
     "letterhead, has a doctor signature/stamp, contains Rx or Tr. markings, records clinical "
@@ -1360,6 +1365,10 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                                 "type": "object",
                                 "properties": {
                                     "name": {"type": "string"},
+                                    "item_type": {
+                                        "type": ["string", "null"],
+                                        "enum": ["medicine", "supplement", "vaccine", None],
+                                    },
                                     "dose": {"type": ["string", "null"]},
                                     "frequency": {"type": ["string", "null"]},
                                     "route": {"type": ["string", "null"]},
@@ -1392,6 +1401,10 @@ EXTRACTION_TOOL_SCHEMA: dict = {
                     "type": "object",
                     "properties": {
                         "name": {"type": "string"},
+                        "item_type": {
+                            "type": ["string", "null"],
+                            "enum": ["medicine", "supplement", "vaccine", None],
+                        },
                         "dose": {"type": ["string", "null"]},
                         "frequency": {"type": ["string", "null"]},
                         "route": {"type": ["string", "null"]},
@@ -1692,7 +1705,43 @@ async def _call_openai_extraction_vision(
     return await retry_openai_call(_make_call)
 
 
-def _validate_extraction_dict(
+async def _llm_map_vaccine_to_tracked_item(
+    vaccine_name: str,
+    tracked_item_names: list[str],
+) -> str | None:
+    """
+    Ask the LLM to map an unrecognised vaccine name to a tracked preventive item.
+
+    Called only when GPT marked item_type='vaccine' but _VACCINE_DETAIL_TO_ITEM
+    has no keyword match — i.e., a brand or abbreviation we've never seen before.
+    Returns the matched tracked item name, or None if the LLM can't confidently map it.
+    """
+    try:
+        client = _get_anthropic_extraction_client()
+        items_list = "\n".join(f"- {name}" for name in tracked_item_names)
+        response = await client.messages.create(
+            model=OPENAI_EXTRACTION_MODEL,
+            max_tokens=64,
+            temperature=0,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Which of these tracked preventive items does the vaccine '{vaccine_name}' "
+                    f"correspond to?\n\n{items_list}\n\n"
+                    "Reply with the exact item name from the list, or 'none' if it doesn't match any."
+                ),
+            }],
+        )
+        raw = (response.content[0].text or "").strip()
+        for name in tracked_item_names:
+            if raw.lower() == name.lower():
+                return name
+        return None
+    except Exception:
+        return None
+
+
+async def _validate_extraction_dict(
     parsed: dict,
     file_path: str | None = None,
 ) -> tuple[list[dict], str | None, str | None, dict]:
@@ -1917,6 +1966,23 @@ def _validate_extraction_dict(
         raw_conditions,
         raw_preventive_medications,
     )
+    validated = await _llm_resolve_unmatched_preventive_medications(
+        validated,
+        raw_conditions,
+        raw_preventive_medications,
+    )
+
+    # Strip any vaccine names that GPT misrouted into conditions[].medications[]
+    # or standalone_medications[], and promote them to items[] using the
+    # condition's date context.  This is the code-level guarantee that vaccines
+    # always write to PreventiveRecord, regardless of how GPT classified the doc.
+    tracked_item_names = list(_VACCINE_DETAIL_TO_ITEM.values())
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    tracked_item_names = [x for x in tracked_item_names if not (x in seen or seen.add(x))]
+    validated, metadata = await _rescue_vaccines_from_medication_lists(
+        validated, metadata, tracked_item_names
+    )
 
     return validated, document_name, extracted_pet_name, metadata
 
@@ -1926,6 +1992,9 @@ _VACCINE_DETAIL_TO_ITEM: dict[str, str] = {
     # DB item_name is "Rabies Vaccine"; display name "Rabies (Nobivac RL)" is
     # applied separately via _DISPLAY_NAME in care_plan_engine.py.
     "rabies": "Rabies Vaccine",
+    "arv": "Rabies Vaccine",
+    "anti-rabies": "Rabies Vaccine",
+    "anti rabies": "Rabies Vaccine",
     "nobivac rl": "Rabies Vaccine",
     "rabies vaccine": "Rabies Vaccine",
     "dhpp": "DHPPi",
@@ -1938,6 +2007,9 @@ _VACCINE_DETAIL_TO_ITEM: dict[str, str] = {
     "5 in 1": "DHPPi",
     "7 in 1": "DHPPi",
     "9 in 1": "DHPPi",
+    "10 in 1": "DHPPi",
+    "10-in-1": "DHPPi",
+    "dhp": "DHPPi",
     "canine distemper": "DHPPi",
     "kennel cough": "Kennel Cough (Nobivac KC)",
     "bordetella": "Kennel Cough (Nobivac KC)",
@@ -2033,6 +2105,43 @@ def _derive_items_from_vaccination_details(
     return existing_items + derived, extra_vaccines
 
 
+async def _llm_get_preventive_categories_for_medicine(med_name: str) -> set[str]:
+    """
+    Ask the LLM whether an unrecognised medicine name targets deworming and/or
+    flea/tick prevention.
+
+    Called only when both the explicit prevention_targets field and the
+    _MEDICATION_TO_PREVENTIVE_CATEGORIES lookup return nothing — i.e., a brand
+    not yet in the product_medicines table.
+    Returns a subset of {"deworming", "flea_tick"}, or empty set if neither.
+    """
+    try:
+        client = _get_anthropic_extraction_client()
+        response = await client.messages.create(
+            model=OPENAI_EXTRACTION_MODEL,
+            max_tokens=32,
+            temperature=0,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Is the veterinary product '{med_name}' used for deworming, "
+                    "flea/tick prevention, both, or neither?\n"
+                    "Reply with exactly one of: deworming / flea_tick / both / neither"
+                ),
+            }],
+        )
+        raw = (response.content[0].text or "").strip().lower()
+        if "both" in raw:
+            return {"deworming", "flea_tick"}
+        if "deworming" in raw:
+            return {"deworming"}
+        if "flea" in raw or "tick" in raw:
+            return {"flea_tick"}
+        return set()
+    except Exception:
+        return set()
+
+
 def _derive_items_from_medication_brands(
     existing_items: list[dict],
     conditions: list[dict],
@@ -2044,7 +2153,11 @@ def _derive_items_from_medication_brands(
 
     Source priority:
     1) explicit `prevention_targets` from preventive_medications
-    2) brand-name category mapping fallback
+    2) brand-name category mapping from product_medicines table
+
+    For medicines that resolve to no category here, see
+    _llm_resolve_unmatched_preventive_medications which runs an async LLM
+    pass over the same inputs after this function returns.
     """
     existing_item_names = {
         _normalize_preventive_item_name(item.get("item_name", ""))
@@ -2116,6 +2229,208 @@ def _derive_items_from_medication_brands(
             existing_item_names.add(normalized_item)
 
     return existing_items + extra_items
+
+
+async def _llm_resolve_unmatched_preventive_medications(
+    existing_items: list[dict],
+    conditions: list[dict],
+    preventive_medications: list[dict] | None = None,
+) -> list[dict]:
+    """
+    Second pass over medication rows for medicines that _derive_items_from_medication_brands
+    couldn't resolve (not in product_medicines table, no explicit prevention_targets).
+    Asks the LLM for each unresolved medicine whether it targets deworming / flea_tick.
+    """
+    existing_item_names = {
+        _normalize_preventive_item_name(item.get("item_name", ""))
+        for item in existing_items
+    }
+    category_to_item_name = {"deworming": "Deworming", "flea_tick": "Tick/Flea"}
+
+    def _normalize_prevention_target(value: str) -> str | None:
+        token = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if token in {"flea", "tick", "tick_flea", "flea_tick", "tick/flea", "flea/tick"}:
+            return "flea_tick"
+        if token in {"deworm", "deworming", "worms", "worm"}:
+            return "deworming"
+        return None
+
+    medication_rows: list[dict] = []
+    for condition in (conditions or []):
+        if not isinstance(condition, dict):
+            continue
+        for med in (condition.get("medications") or []):
+            if isinstance(med, dict):
+                medication_rows.append(med)
+    for med in (preventive_medications or []):
+        if isinstance(med, dict):
+            medication_rows.append(med)
+
+    extra_items: list[dict] = []
+    for med in medication_rows:
+        med_name_raw = med.get("name")
+        med_name = med_name_raw.strip() if isinstance(med_name_raw, str) else ""
+        if not med_name:
+            continue
+
+        start_date_raw = med.get("start_date")
+        if start_date_raw is None:
+            continue
+        try:
+            parsed_start_date = parse_date(str(start_date_raw))
+        except ValueError:
+            continue
+        if parsed_start_date > datetime.utcnow().date():
+            continue
+        normalized_start_date = format_date_for_db(parsed_start_date)
+
+        # Skip if explicit targets were set or the table already resolved this.
+        explicit_categories: set[str] = set()
+        raw_targets = med.get("prevention_targets")
+        if isinstance(raw_targets, list):
+            for target in raw_targets:
+                normalized_target = _normalize_prevention_target(str(target))
+                if normalized_target:
+                    explicit_categories.add(normalized_target)
+
+        if explicit_categories or _get_preventive_categories_for_medicine(med_name):
+            continue  # already handled by the sync pass
+
+        # Unknown medicine — ask the LLM.
+        categories = await _llm_get_preventive_categories_for_medicine(med_name)
+        for category in categories:
+            tracked_item = category_to_item_name.get(category)
+            if not tracked_item:
+                continue
+            normalized_item = _normalize_preventive_item_name(tracked_item)
+            if normalized_item in existing_item_names:
+                continue
+            extra_items.append({"item_name": tracked_item, "last_done_date": normalized_start_date})
+            existing_item_names.add(normalized_item)
+
+    return existing_items + extra_items
+
+
+async def _rescue_vaccines_from_medication_lists(
+    existing_items: list[dict],
+    metadata: dict,
+    tracked_item_names: list[str],
+) -> tuple[list[dict], dict]:
+    """
+    Scan conditions[].medications[] and standalone_medications[] for entries
+    whose names match a known vaccine pattern, then:
+      1. Strip them from the medication list so they never reach ConditionMedication.
+      2. Promote them to items[] using the condition's date context.
+
+    This is the code-level safety net for the case where GPT classifies a
+    handwritten vaccination/deworming notebook as a Prescription and inferred
+    conditions fire, landing vaccine names in conditions[].medications[] instead
+    of items[].  The prompt gives GPT the right instruction; this function
+    guarantees correct routing regardless of what GPT actually returns.
+    """
+    existing_names = {
+        _normalize_preventive_item_name(item.get("item_name", ""))
+        for item in existing_items
+    }
+    derived: list[dict] = []
+
+    def _match_vaccine(med: dict) -> str | None:
+        """
+        Return the tracked item name if this medication entry is a vaccine,
+        or None if it isn't.
+
+        Primary signal: item_type == "vaccine" (set by GPT via the schema enum).
+        Fallback: word-boundary keyword match against _VACCINE_DETAIL_TO_ITEM
+        for documents where GPT omitted item_type.
+        """
+        if str(med.get("item_type") or "").strip().lower() == "vaccine":
+            # GPT confirmed it's a vaccine. Map name → tracked item if possible;
+            # return a sentinel so the caller still strips it even without a match.
+            norm = str(med.get("name") or "").strip().lower()
+            best_item: str | None = None
+            best_len = 0
+            for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
+                if re.search(r"\b" + re.escape(keyword) + r"\b", norm) and len(keyword) > best_len:
+                    best_item = item_name
+                    best_len = len(keyword)
+            return best_item or "__vaccine__"  # strip even if name is unrecognised
+
+        # Fallback: no item_type signal — use keyword matching on the name.
+        norm = str(med.get("name") or "").strip().lower()
+        best_item = None
+        best_len = 0
+        for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
+            if re.search(r"\b" + re.escape(keyword) + r"\b", norm) and len(keyword) > best_len:
+                best_item = item_name
+                best_len = len(keyword)
+        return best_item
+
+    def _best_date_from_condition(condition: dict) -> str | None:
+        for field in ("diagnosed_at", "episode_dates"):
+            value = condition.get(field)
+            candidates = value if isinstance(value, list) else ([value] if value else [])
+            for raw in candidates:
+                if not raw:
+                    continue
+                try:
+                    return format_date_for_db(parse_date(str(raw)))
+                except (ValueError, Exception):
+                    pass
+        return None
+
+    # --- conditions[].medications[] -----------------------------------------
+    for condition in (metadata.get("conditions") or []):
+        if not isinstance(condition, dict):
+            continue
+        survivors: list[dict] = []
+        for med in (condition.get("medications") or []):
+            if not isinstance(med, dict):
+                survivors.append(med)
+                continue
+            tracked_item = _match_vaccine(med)
+            if not tracked_item:
+                survivors.append(med)
+                continue
+            # It's a vaccine — strip it. For the sentinel, ask the LLM to map it.
+            if tracked_item == "__vaccine__":
+                vaccine_name = str(med.get("name") or "").strip()
+                tracked_item = await _llm_map_vaccine_to_tracked_item(
+                    vaccine_name, tracked_item_names
+                )
+            if tracked_item:
+                date_str = _best_date_from_condition(condition)
+                if date_str:
+                    norm = _normalize_preventive_item_name(tracked_item)
+                    if norm not in existing_names:
+                        derived.append({"item_name": tracked_item, "last_done_date": date_str})
+                        existing_names.add(norm)
+        condition["medications"] = survivors
+
+    # After stripping, remove any inferred conditions that are now empty
+    # (their only content was misrouted vaccines).
+    cleaned_conditions: list[dict] = []
+    for condition in (metadata.get("conditions") or []):
+        if not isinstance(condition, dict):
+            cleaned_conditions.append(condition)
+            continue
+        is_inferred = str(condition.get("source") or "").strip().lower() == "inferred"
+        has_meds = bool(condition.get("medications"))
+        has_monitoring = bool(condition.get("monitoring"))
+        has_diagnosis = bool(str(condition.get("diagnosis") or "").strip())
+        if is_inferred and not has_meds and not has_monitoring and not has_diagnosis:
+            continue  # ghost condition created solely around vaccines — discard
+        cleaned_conditions.append(condition)
+    metadata["conditions"] = cleaned_conditions
+
+    # --- standalone_medications[] -------------------------------------------
+    # Strip vaccine names; no date context available so we can't promote to
+    # items[], but we must prevent them writing to ConditionMedication.
+    metadata["standalone_medications"] = [
+        med for med in (metadata.get("standalone_medications") or [])
+        if not (isinstance(med, dict) and _match_vaccine(med))
+    ]
+
+    return existing_items + derived, metadata
 
 
 def _normalize_extra_vaccine_name(value: str | None) -> str:
@@ -2354,12 +2669,30 @@ def _match_preventive_master_from_list(
         "core vaccine dhpp": "dhppi",
         "core vaccine dhppi": "dhppi",
         "core vaccine": "dhppi" if "dhppi" in master_names else "feline core",
+        "dhp": "dhppi",
         "dhpp": "dhppi",
         "dhppi": "dhppi",
         "dhppil": "dhppi",
         "nobivac dhppi": "dhppi",
         "7 in 1": "dhppi",
         "9 in 1": "dhppi",
+        "10 in 1": "dhppi",
+        "10-in-1": "dhppi",
+        "arv": (
+            "rabies nobivac rl"
+            if "rabies nobivac rl" in master_names
+            else "rabies vaccine"
+        ),
+        "anti-rabies": (
+            "rabies nobivac rl"
+            if "rabies nobivac rl" in master_names
+            else "rabies vaccine"
+        ),
+        "anti rabies": (
+            "rabies nobivac rl"
+            if "rabies nobivac rl" in master_names
+            else "rabies vaccine"
+        ),
         "rabies": (
             "rabies nobivac rl"
             if "rabies nobivac rl" in master_names
@@ -2912,7 +3245,7 @@ async def extract_and_process_document(
         document.extraction_confidence = float(extraction_result.get("confidence") or 1.0)
 
         # --- Step 2: Validate and normalize ---
-        extracted_items, document_name, extracted_pet_name, metadata = _validate_extraction_dict(extraction_result, file_path=document.file_path)
+        extracted_items, document_name, extracted_pet_name, metadata = await _validate_extraction_dict(extraction_result, file_path=document.file_path)
         results["document_type"] = metadata["document_type"]
         results["diagnostic_summary"] = metadata["diagnostic_summary"]
         # Persist GPT-generated diagnostic summary on the document row.
@@ -3362,8 +3695,13 @@ async def extract_and_process_document(
                     if not med_name:
                         continue
 
-                    # Classify medication as medicine or supplement.
+                    # Classify medication as medicine, supplement, or vaccine.
                     item_type = str(med.get("item_type") or "medicine").strip().lower()
+                    if item_type == "vaccine":
+                        # Vaccines must never write to ConditionMedication.
+                        # _rescue_vaccines_from_medication_lists already stripped them
+                        # from this list; this guard catches any that slip through.
+                        continue
                     if item_type not in ("medicine", "supplement"):
                         item_type = "medicine"
 
@@ -3576,6 +3914,8 @@ async def extract_and_process_document(
                     if not med_name:
                         continue
                     item_type = str(med.get("item_type") or "medicine").strip().lower()
+                    if item_type == "vaccine":
+                        continue  # Never write vaccines to ConditionMedication
                     if item_type not in ("medicine", "supplement"):
                         item_type = "medicine"
 

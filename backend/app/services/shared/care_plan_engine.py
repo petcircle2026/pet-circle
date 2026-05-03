@@ -176,8 +176,8 @@ BASELINE_PROTOCOL: dict[tuple[str, str], int] = {
     # Deworming
     ("puppy", "deworming"): 28,           # every 4 weeks for puppies
     ("junior", "deworming"): 90,
-    ("adult", "deworming"): 180,
-    ("senior", "deworming"): 180,
+    ("adult", "deworming"): 90,
+    ("senior", "deworming"): 90,
     # Tick & Flea prevention
     ("puppy", "tick_flea"): 30,
     ("junior", "tick_flea"): 30,
@@ -284,6 +284,7 @@ _DISPLAY_NAME: dict[str, str] = {
     "dhppi": "DHPPi (Nobivac)",
     "rabies vaccine": "Rabies (Nobivac RL)",
     "tick/flea": "Flea & Tick Protection",
+    "tick flea": "Flea & Tick Protection",  # fallback when test_type "tick_flea" is title-cased
 }
 
 

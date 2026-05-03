@@ -1,83 +1,13 @@
 -- =============================================================================
--- PetCircle: Update Product Catalogs
--- Safe to re-run: all statements use ON CONFLICT DO UPDATE (upsert).
--- No TRUNCATEs — existing rows are updated in-place.
---
--- Tables updated:
---   product_food       (F001–F025,   25 rows)
---   product_supplement (S001–S116,  116 rows)
---   product_medicines  (SKU-001–SKU-054, 54 rows)
---
--- Prerequisites: migrations 044, 051 must have already created these tables.
+-- Migration 055: Replace product_supplement with updated Excel catalog
+-- Source: supplements_database.xlsx (Sheet1 + Sheet2, merged)
+-- Replaces all 111 original rows with 116 rows from the new catalog.
+-- S075-S078 (wound_care/Vetina) are new entries; MRP set to 0 (TBC).
 -- =============================================================================
 
 BEGIN;
 
--- =============================================================================
--- 1. PRODUCT_FOOD (F001–F025)
--- =============================================================================
-
-INSERT INTO product_food (
-    sku_id, brand_id, brand_name, product_line, life_stage, breed_size,
-    pack_size_kg, mrp, discounted_price, condition_tags, breed_tags,
-    vet_diet_flag, popularity_rank, monthly_units_sold, price_per_kg,
-    in_stock, notes
-) VALUES
-('F001', 'BR01', 'Royal Canin',        'Hypoallergenic',          'All',   'All',    2,    1690, 1520, 'allergy,skin,hypoallergenic',     'all',         TRUE,  3,  210, 760,  TRUE,  'Prescription range'),
-('F002', 'BR01', 'Royal Canin',        'Hypoallergenic',          'All',   'All',    7,    4990, 4490, 'allergy,skin,hypoallergenic',     'all',         TRUE,  1,  420, 641,  TRUE,  'Most popular pack'),
-('F003', 'BR01', 'Royal Canin',        'Hypoallergenic',          'All',   'All',    14,   8900, 7990, 'allergy,skin,hypoallergenic',     'all',         TRUE,  4,  85,  571,  TRUE,  'Value pack'),
-('F004', 'BR01', 'Royal Canin',        'Labrador Adult',          'Adult', 'Large',  3,    2100, 1890, 'joint,weight',                    'labrador',    FALSE, 2,  310, 630,  FALSE, 'Breed-specific'),
-('F005', 'BR01', 'Royal Canin',        'Labrador Adult',          'Adult', 'Large',  12,   7200, 6480, 'joint,weight',                    'labrador',    FALSE, 5,  90,  540,  FALSE, NULL),
-('F006', 'BR01', 'Royal Canin',        'Large Adult',             'Adult', 'Large',  4,    2400, 2160, 'joint,digestive',                 'large_breed', FALSE, 6,  180, 540,  FALSE, NULL),
-('F007', 'BR01', 'Royal Canin',        'Large Puppy',             'Puppy', 'Large',  4,    2600, 2340, 'growth',                          'large_breed', FALSE, 7,  150, 585,  FALSE, NULL),
-('F008', 'BR01', 'Royal Canin',        'Renal',                   'All',   'All',    2,    2100, 1890, 'kidney,renal',                    'all',         TRUE,  8,  45,  945,  TRUE,  'Prescription'),
-('F009', 'BR01', 'Royal Canin',        'Renal',                   'All',   'All',    7,    6500, 5850, 'kidney,renal',                    'all',         TRUE,  9,  30,  836,  TRUE,  NULL),
-('F010', 'BR01', 'Royal Canin',        'Gastrointestinal',        'All',   'All',    2,    2200, 1980, 'digestive,IBD,gastrointestinal',  'all',         TRUE,  10, 60,  990,  TRUE,  NULL),
-('F011', 'BR02', 'Hills Science Diet', 'i/d Digestive',           'All',   'All',    1.5,  1800, 1620, 'digestive,IBD',                   'all',         TRUE,  11, 55,  1080, TRUE,  NULL),
-('F012', 'BR02', 'Hills Science Diet', 'k/d Kidney Care',         'All',   'All',    1.5,  2100, 1890, 'kidney,renal',                    'all',         TRUE,  12, 40,  1260, TRUE,  'Prescription renal'),
-('F013', 'BR02', 'Hills Science Diet', 'z/d Allergy',             'All',   'All',    3.5,  4200, 3780, 'allergy,skin',                    'all',         TRUE,  13, 35,  1080, TRUE,  NULL),
-('F014', 'BR02', 'Hills Science Diet', 'Large Breed Adult',       'Adult', 'Large',  6,    3800, 3420, 'joint',                           'large_breed', FALSE, 14, 120, 570,  FALSE, NULL),
-('F015', 'BR02', 'Hills Science Diet', 'Large Breed Puppy',       'Puppy', 'Large',  6,    4100, 3690, 'growth',                          'large_breed', FALSE, 15, 95,  615,  TRUE,  NULL),
-('F016', 'BR03', 'Drools',             'Focus Adult Large',       'Adult', 'Large',  3,    1200, 1080, 'joint',                           'large_breed', FALSE, 16, 380, 360,  TRUE,  'Value India brand'),
-('F017', 'BR03', 'Drools',             'Focus Adult Large',       'Adult', 'Large',  12,   4200, 3780, 'joint',                           'large_breed', FALSE, 17, 160, 315,  TRUE,  NULL),
-('F018', 'BR03', 'Drools',             'Focus Puppy Large',       'Puppy', 'Large',  3,    1350, 1215, 'growth',                          'large_breed', FALSE, 18, 290, 405,  TRUE,  NULL),
-('F019', 'BR03', 'Drools',             'Absolute Calcium',        'Puppy', 'All',    3,    1100, 990,  'growth,bone',                     'all',         FALSE, 19, 210, 330,  TRUE,  NULL),
-('F020', 'BR04', 'Pedigree',           'Adult',                   'Adult', 'All',    10,   2200, 1980, NULL,                              'all',         FALSE, 20, 850, 198,  TRUE,  'Mass market'),
-('F021', 'BR04', 'Pedigree',           'Puppy',                   'Puppy', 'All',    3,    750,  675,  'growth',                          'all',         FALSE, 21, 620, 225,  TRUE,  NULL),
-('F022', 'BR05', 'Farmina N&D',        'GF Ancestral Grain Boar', 'Adult', 'Medium', 3,    3900, 3510, 'skin,coat,grain_free',            'all',         FALSE, 22, 70,  1170, TRUE,  'Premium grain-free'),
-('F023', 'BR05', 'Farmina N&D',        'Ocean Cod Puppy',         'Puppy', 'All',    2.5,  3200, 2880, 'growth,skin',                     'all',         FALSE, 23, 45,  1152, TRUE,  NULL),
-('F024', 'BR06', 'Acana',              'Regionals Meadowland',    'Adult', 'All',    2,    3500, 3150, 'skin,coat',                       'all',         FALSE, 24, 30,  1575, TRUE,  'Super-premium import'),
-('F025', 'BR01', 'Royal Canin',        'Satiety Weight Mgmt',     'All',   'All',    1.5,  1900, 1710, 'obesity,weight',                  'all',         TRUE,  25, 65,  1140, TRUE,  'Prescription weight')
-ON CONFLICT (sku_id) DO UPDATE SET
-    brand_id           = EXCLUDED.brand_id,
-    brand_name         = EXCLUDED.brand_name,
-    product_line       = EXCLUDED.product_line,
-    life_stage         = EXCLUDED.life_stage,
-    breed_size         = EXCLUDED.breed_size,
-    pack_size_kg       = EXCLUDED.pack_size_kg,
-    mrp                = EXCLUDED.mrp,
-    discounted_price   = EXCLUDED.discounted_price,
-    condition_tags     = EXCLUDED.condition_tags,
-    breed_tags         = EXCLUDED.breed_tags,
-    vet_diet_flag      = EXCLUDED.vet_diet_flag,
-    popularity_rank    = EXCLUDED.popularity_rank,
-    monthly_units_sold = EXCLUDED.monthly_units_sold,
-    price_per_kg       = EXCLUDED.price_per_kg,
-    in_stock           = EXCLUDED.in_stock,
-    notes              = EXCLUDED.notes,
-    active             = TRUE;
-
-DO $$
-DECLARE c INTEGER;
-BEGIN
-    SELECT COUNT(*) INTO c FROM product_food;
-    RAISE NOTICE 'product_food rows after upsert: %', c;
-END $$;
-
-
--- =============================================================================
--- 2. PRODUCT_SUPPLEMENT (S001–S116,  116 rows)
--- =============================================================================
+TRUNCATE TABLE product_supplement RESTART IDENTITY CASCADE;
 
 INSERT INTO product_supplement (
     sku_id, brand_id, brand_name, product_name, type, form, pack_size,
@@ -201,125 +131,16 @@ INSERT INTO product_supplement (
 ('S115', 'SB09', 'Venkys', 'Gutwell Probiotic Prebiotic Powder – 30 g', 'probiotic', 'powder', '30 g', 1100, 990, 'Saccharomyces cerevisiae, Lactobacillus complex, FOS, MOS, Enzyme blend', 'digestive,gut_health,immunity,hairball', 'adult,puppy,senior', TRUE, 99, NULL, 990, TRUE, '800 million CFU + enzyme complex'),
 ('S116', 'SB09', 'Venkys', 'Ventripro Puppy & Kitten Milk Replacer – 200 g', 'milk_replacer', 'powder', '200 g', 1100, 990, 'Protein, Fat, Colostrum, DHA, Calcium, Vitamins, Minerals', 'growth,nutrition,immunity', 'puppy,newborn', TRUE, 99, NULL, 990, TRUE, 'Complete milk replacer; 1:4 dilution')
 
-ON CONFLICT (sku_id) DO UPDATE SET
-    brand_id         = EXCLUDED.brand_id,
-    brand_name       = EXCLUDED.brand_name,
-    product_name     = EXCLUDED.product_name,
-    type             = EXCLUDED.type,
-    form             = EXCLUDED.form,
-    pack_size        = EXCLUDED.pack_size,
-    mrp              = EXCLUDED.mrp,
-    discounted_price = EXCLUDED.discounted_price,
-    key_ingredients  = EXCLUDED.key_ingredients,
-    condition_tags   = EXCLUDED.condition_tags,
-    life_stage_tags  = EXCLUDED.life_stage_tags,
-    active           = EXCLUDED.active,
-    popularity_rank  = EXCLUDED.popularity_rank,
-    monthly_units    = EXCLUDED.monthly_units,
-    price_per_unit   = EXCLUDED.price_per_unit,
-    in_stock         = EXCLUDED.in_stock,
-    notes            = EXCLUDED.notes;
+;
 
 DO $$
 DECLARE c INTEGER;
 BEGIN
     SELECT COUNT(*) INTO c FROM product_supplement;
-    RAISE NOTICE 'product_supplement rows after upsert: %', c;
-END $$;
-
-
--- =============================================================================
--- 3. PRODUCT_MEDICINES (SKU-001–SKU-054)
--- Source: PetCircle_TickFlea_Deworming_DB.xlsx
--- =============================================================================
-
-INSERT INTO product_medicines (
-    sku_id, brand_id, brand_name, product_name, type, form, pack_size,
-    mrp_paise, discounted_paise, key_ingredients, condition_tags, life_stage_tags,
-    active, popularity_rank, monthly_units_sold, price_per_unit_paise,
-    in_stock, dosage, repeat_frequency, notes
-) VALUES
-    ('SKU-001', 'BR-001', 'Boehringer', 'NexGard Spectra--Chewable Tablets--2–3.5 kg', 'Tick, Flea & Deworming (Combined)', 'Chewables', 'Box of 1', 69900, 62900, 'Afoxolaner 9mg + Milbemycin Oxime 1.5mg', 'Ticks, Fleas, Heartworm, Roundworm, Hookworm', 'Dog', TRUE, 2, 800, 69900, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks; Not for cats'),
-    ('SKU-002', 'BR-001', 'Boehringer', 'NexGard Spectra--Chewable Tablets--3.5–7.5 kg', 'Tick, Flea & Deworming (Combined)', 'Chewables', 'Box of 1', 84900, 76400, 'Afoxolaner 19mg + Milbemycin Oxime 3.1mg', 'Ticks, Fleas, Heartworm, Roundworm, Hookworm', 'Dog', TRUE, 1, 1200, 84900, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks; Not for cats'),
-    ('SKU-003', 'BR-001', 'Boehringer', 'NexGard Spectra--Chewable Tablets--7.5–15 kg', 'Tick, Flea & Deworming (Combined)', 'Chewables', 'Box of 1', 99900, 89900, 'Afoxolaner 38mg + Milbemycin Oxime 6.25mg', 'Ticks, Fleas, Heartworm, Roundworm, Hookworm', 'Dog', TRUE, 1, 1000, 99900, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks; Not for cats'),
-    ('SKU-004', 'BR-001', 'Boehringer', 'NexGard Spectra--Chewable Tablets--15–30 kg', 'Tick, Flea & Deworming (Combined)', 'Chewables', 'Box of 1', 119900, 107900, 'Afoxolaner 75mg + Milbemycin Oxime 12.5mg', 'Ticks, Fleas, Heartworm, Roundworm, Hookworm', 'Dog', TRUE, 2, 700, 119900, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks; Not for cats'),
-    ('SKU-005', 'BR-001', 'Boehringer', 'NexGard Spectra--Chewable Tablets--30–60 kg', 'Tick, Flea & Deworming (Combined)', 'Chewables', 'Box of 1', 139900, 125900, 'Afoxolaner 150mg + Milbemycin Oxime 25mg', 'Ticks, Fleas, Heartworm, Roundworm, Hookworm', 'Dog', TRUE, 3, 400, 139900, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks; Not for cats'),
-    ('SKU-006', 'BR-001', 'Boehringer', 'NexGard--Afoxolaner Chewable Tablets--2–4 kg', 'Tick & Flea Protection', 'Chewables', '3 Chewable Tablets', 129900, 116900, 'Afoxolaner 11.3mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 600, 43300, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks, min weight 2kg'),
-    ('SKU-007', 'BR-001', 'Boehringer', 'NexGard--Afoxolaner Chewable Tablets--4–10 kg', 'Tick & Flea Protection', 'Chewables', '3 Chewable Tablets', 149900, 134900, 'Afoxolaner 28.3mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 900, 50000, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks, min weight 4kg'),
-    ('SKU-008', 'BR-001', 'Boehringer', 'NexGard--Afoxolaner Chewable Tablets--10–25 kg', 'Tick & Flea Protection', 'Chewables', '3 Chewable Tablets', 169900, 152900, 'Afoxolaner 68mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 800, 56600, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks, min weight 10kg'),
-    ('SKU-009', 'BR-001', 'Boehringer', 'NexGard--Afoxolaner Chewable Tablets--25–50 kg', 'Tick & Flea Protection', 'Chewables', '3 Chewable Tablets', 199900, 179900, 'Afoxolaner 136mg', 'Ticks, Fleas', 'Dog', TRUE, 2, 500, 66600, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks, min weight 25kg'),
-    ('SKU-010', 'BR-001', 'Boehringer', 'Broadline--Spot-on--<2.5 kg', 'Tick, Flea & Deworming (Combined)', 'Spot-on, pipette', '1 (0.3ml)', 69900, 62900, 'Fipronil 25mg + (S)-Methoprene 6.25mg + Eprinomectin 0.5mg + Praziquantel 15mg', 'Ticks, Fleas, Roundworm, Hookworm, Tapeworm, Lungworm, Heartworm', 'Cat', TRUE, 3, 300, 69900, TRUE, '1 pipette per month', 'Monthly', 'For cats <2.5kg; min age 7 weeks'),
-    ('SKU-011', 'BR-001', 'Boehringer', 'Broadline--Spot-on--2.5–7.5 kg', 'Tick, Flea & Deworming (Combined)', 'Spot-on, pipette', '1 (0.9ml)', 84900, 76400, 'Fipronil 50mg + (S)-Methoprene 60mg + Eprinomectin 0.5mg + Praziquantel 15mg', 'Ticks, Fleas, Roundworm, Hookworm, Tapeworm, Lungworm, Heartworm', 'Cat', TRUE, 2, 400, 84900, TRUE, '1 pipette per month', 'Monthly', 'For cats 2.5–7.5kg; min age 7 weeks'),
-    ('SKU-012', 'BR-001', 'Boehringer', 'Frontline Plus--Spot-on--2–10 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '3 pipettes (0.67ml each)', 99900, 89900, 'Fipronil 9.8% + (S)-Methoprene 8.8%', 'Ticks, Fleas, Flea eggs & larvae', 'Dog', TRUE, 2, 700, 33300, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; covers 2–10kg'),
-    ('SKU-013', 'BR-001', 'Boehringer', 'Frontline Plus--Spot-on--10–20 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '3 pipettes (1.34ml each)', 114900, 103400, 'Fipronil 9.8% + (S)-Methoprene 8.8%', 'Ticks, Fleas, Flea eggs & larvae', 'Dog', TRUE, 1, 800, 38300, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; covers 10–20kg'),
-    ('SKU-014', 'BR-001', 'Boehringer', 'Frontline Plus--Spot-on--20–40 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '3 pipettes (2.68ml each)', 129900, 116900, 'Fipronil 9.8% + (S)-Methoprene 8.8%', 'Ticks, Fleas, Flea eggs & larvae', 'Dog', TRUE, 2, 600, 43300, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; covers 20–40kg'),
-    ('SKU-015', 'BR-001', 'Boehringer', 'Frontline Plus--Spot-on--General (Cat)', 'Tick & Flea Protection', 'Spot-on, pipette', '3 pipettes (0.5ml each)', 89900, 80900, 'Fipronil 9.8% + (S)-Methoprene 11.8%', 'Ticks, Fleas, Flea eggs & larvae', 'Cat', TRUE, 1, 600, 30000, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; single SKU for all cats'),
-    ('SKU-016', 'BR-002', 'Elanco', 'Drontal Plus Tasty Tablets', 'Deworming', 'Tablets', '17×6 Tablets', 185000, 166500, 'Febantel 150mg + Pyrantel 144mg + Praziquantel 50mg', 'Roundworm, Hookworm, Whipworm, Tapeworm', 'Dog', TRUE, 1, 400, 10900, TRUE, '1 tablet per 10kg body weight', 'Every 3 months (adults); every 2 weeks till 3 months, monthly 3–6 months', 'Min weight 2kg; tasty beef flavour'),
-    ('SKU-017', 'BR-002', 'Elanco', 'Drontal Puppy Suspension', 'Deworming', 'Syrup', '1 bottle (20ml)', 35000, 31500, 'Pyrantel 14.4mg/ml + Febantel 15mg/ml', 'Roundworm infestation, Hookworm', 'Dog - Puppy ≤6 months', TRUE, 2, 500, 35000, TRUE, '1ml per kg body weight', 'Every 2 weeks till 3 months age; monthly from 3–6 months', 'For puppies from 2 weeks of age'),
-    ('SKU-018', 'BR-002', 'Elanco', 'Milbemax', 'Deworming', 'Tablets', '24×2 Tablets', 240000, 216000, 'Milbemycin Oxime 12.5mg + Praziquantel 125mg', 'Roundworm, Hookworm, Whipworm, Lungworm, Eyeworm, Heartworm prevention', 'Dog', TRUE, 3, 250, 10000, TRUE, '1 tablet per 25kg body weight', 'Every 3 months', 'Min weight 5kg; also for heartworm prevention'),
-    ('SKU-019', 'BR-002', 'Elanco', 'Advocate--Spot-on--10–25 kg', 'Flea & Deworming (Combined)', 'Spot-on, pipette', '1 (2.5ml)', 129900, 116900, 'Imidacloprid 10% + Moxidectin 2.5%', 'Fleas, Heartworm, Roundworm, Hookworm, Whipworm, Mange, Ear mites', 'Dog', TRUE, 1, 600, 129900, TRUE, '1 pipette per month', 'Monthly', 'Min age 7 weeks; does NOT cover ticks'),
-    ('SKU-020', 'BR-002', 'Elanco', 'Advocate--Spot-on--25–40 kg', 'Flea & Deworming (Combined)', 'Spot-on, pipette', '1 (4ml)', 149900, 134900, 'Imidacloprid 10% + Moxidectin 2.5%', 'Fleas, Heartworm, Roundworm, Hookworm, Whipworm, Mange, Ear mites', 'Dog', TRUE, 2, 400, 149900, TRUE, '1 pipette per month', 'Monthly', 'Min age 7 weeks; does NOT cover ticks'),
-    ('SKU-021', 'BR-002', 'Elanco', 'Advocate--Spot-on--4–8 kg (Cat)', 'Flea & Deworming (Combined)', 'Spot-on, pipette', '1 (0.8ml)', 99900, 89900, 'Imidacloprid 10% + Moxidectin 1%', 'Fleas, Heartworm, Roundworm, Hookworm, Lungworm, Ear mites', 'Cat', TRUE, 2, 350, 99900, TRUE, '1 pipette per month', 'Monthly', 'Min age 9 weeks; does NOT cover ticks'),
-    ('SKU-022', 'BR-002', 'Elanco', 'Advantix--Spot-on--25–40 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '1 (4ml)', 99900, 89900, 'Imidacloprid 10% + Permethrin 50%', 'Ticks, Fleas, Sand flies, Mosquitoes, Stable flies', 'Dog', TRUE, 3, 300, 99900, TRUE, '1 pipette per month', '2 weeks in high-exposure areas', 'TOXIC TO CATS; min age 7 weeks, min weight 1.5kg'),
-    ('SKU-023', 'BR-002', 'Elanco', 'Seresto--Tick & Flea Collar--Small (upto 8kg)', 'Tick & Flea Protection', 'Collar', '1 collar', 249900, 224900, 'Imidacloprid 10% + Flumethrin 4.5%', 'Ticks, Fleas, Lice', 'Dog', TRUE, 1, 500, 249900, TRUE, '1 collar, continuous release', '8 months protection per collar', 'Water-resistant; for dogs upto 8kg'),
-    ('SKU-024', 'BR-002', 'Elanco', 'Seresto--Tick & Flea Collar--Large (>8kg)', 'Tick & Flea Protection', 'Collar', '1 collar', 269900, 242900, 'Imidacloprid 10% + Flumethrin 4.5%', 'Ticks, Fleas, Lice', 'Dog', TRUE, 1, 400, 269900, TRUE, '1 collar, continuous release', '8 months protection per collar', 'Water-resistant; for dogs >8kg'),
-    ('SKU-025', 'BR-002', 'Elanco', 'Kiltix--Tick & Flea Collar--Medium (upto 19kg)', 'Tick & Flea Protection', 'Collar', '1 collar', 69900, 62900, 'Propoxur 16% + Flumethrin 1.8%', 'Ticks, Fleas', 'Dog', TRUE, 4, 300, 69900, TRUE, '1 collar, continuous release', '3 months protection per collar', 'Budget-friendly option'),
-    ('SKU-026', 'BR-002', 'Elanco', 'Kiltix--Tick & Flea Collar--Large (>19kg)', 'Tick & Flea Protection', 'Collar', '1 collar', 79900, 71900, 'Propoxur 16% + Flumethrin 1.8%', 'Ticks, Fleas', 'Dog', TRUE, 4, 250, 79900, TRUE, '1 collar, continuous release', '3 months protection per collar', 'Budget-friendly option; for dogs >19kg'),
-    ('SKU-027', 'BR-003', 'Fluracto', 'Fluracto--SoftChew--2–4.5 kg', 'Tick & Flea Protection', 'Soft Chew, Chewable', 'Box of 1', 49900, 44900, 'Fluralaner 56.25mg', 'Ticks, Fleas', 'Dog', TRUE, 5, 200, 49900, TRUE, '1 chewable per 3 months', 'Every 3 months', 'Min age 8 weeks, min weight 2kg; Indian brand'),
-    ('SKU-028', 'BR-003', 'Fluracto', 'Fluracto--SoftChew--4.5–10 kg', 'Tick & Flea Protection', 'Soft Chew, Chewable', 'Box of 1', 59900, 53900, 'Fluralaner 112.5mg', 'Ticks, Fleas', 'Dog', TRUE, 5, 300, 59900, TRUE, '1 chewable per 3 months', 'Every 3 months', 'Min age 8 weeks, min weight 2kg'),
-    ('SKU-029', 'BR-003', 'Fluracto', 'Fluracto--SoftChew--10–20 kg', 'Tick & Flea Protection', 'Soft Chew, Chewable', 'Box of 1', 79900, 71900, 'Fluralaner 250mg', 'Ticks, Fleas', 'Dog', TRUE, 5, 400, 79900, TRUE, '1 chewable per 3 months', 'Every 3 months', 'Min age 8 weeks, min weight 2kg'),
-    ('SKU-030', 'BR-003', 'Fluracto', 'Fluracto--SoftChew--20–40 kg', 'Tick & Flea Protection', 'Soft Chew, Chewable', 'Box of 1', 99900, 89900, 'Fluralaner 500mg', 'Ticks, Fleas', 'Dog', TRUE, 5, 350, 99900, TRUE, '1 chewable per 3 months', 'Every 3 months', 'Min age 8 weeks, min weight 2kg'),
-    ('SKU-031', 'BR-003', 'Fluracto', 'Fluracto--SoftChew--40–56 kg', 'Tick & Flea Protection', 'Soft Chew, Chewable', 'Box of 1', 119900, 107900, 'Fluralaner 750mg', 'Ticks, Fleas', 'Dog', TRUE, 5, 150, 119900, TRUE, '1 chewable per 3 months', 'Every 3 months', 'Min age 8 weeks, min weight 2kg; for large breeds'),
-    ('SKU-032', 'BR-004', 'MSD Animal Health', 'Bravecto--Chew--2–4.5 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 1', 129900, 116900, 'Fluralaner 112.5mg', 'Ticks, Fleas (Brown dog tick, American dog tick)', 'Dog', TRUE, 2, 500, 129900, TRUE, '1 chewable every 12 weeks', 'Every 3 months (12 weeks)', 'Min age 8 weeks; longest-acting oral flea+tick'),
-    ('SKU-033', 'BR-004', 'MSD Animal Health', 'Bravecto--Chew--4.5–10 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 1', 149900, 134900, 'Fluralaner 250mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 800, 149900, TRUE, '1 chewable every 12 weeks', 'Every 3 months', 'Min age 8 weeks'),
-    ('SKU-034', 'BR-004', 'MSD Animal Health', 'Bravecto--Chew--10–20 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 1', 179900, 161900, 'Fluralaner 500mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 700, 179900, TRUE, '1 chewable every 12 weeks', 'Every 3 months', 'Min age 8 weeks'),
-    ('SKU-035', 'BR-004', 'MSD Animal Health', 'Bravecto--Chew--20–40 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 1', 199900, 179900, 'Fluralaner 1000mg', 'Ticks, Fleas', 'Dog', TRUE, 1, 600, 199900, TRUE, '1 chewable every 12 weeks', 'Every 3 months', 'Min age 8 weeks'),
-    ('SKU-036', 'BR-004', 'MSD Animal Health', 'Bravecto--Spot-on--Cat--2.8–6.25 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '1 pipette', 149900, 134900, 'Fluralaner 280mg', 'Ticks, Fleas', 'Cat', TRUE, 2, 300, 149900, TRUE, '1 pipette every 12 weeks', 'Every 3 months', 'Min age 6 months; also covers ear mites'),
-    ('SKU-037', 'BR-002', 'Elanco', 'Bayrocin--Enrofloxacin Tablets--150mg', 'Antibiotic (Bacterial Infections)', 'Tablets', 'Strip of 10 tablets', 13900, 12500, 'Enrofloxacin 150mg', 'Skin infections, UTI, Respiratory infections, Wound infections, GI infections', 'Dog & Cat', TRUE, 3, 600, 1400, TRUE, '5mg/kg body weight every 24 hours', '3–5 days course', 'Prescription required; not for ticks/fleas/worms'),
-    ('SKU-038', 'BR-002', 'Elanco', 'Drontal--Deworming Tablets--Cat', 'Deworming', 'Tablets', 'Strip of 2 tablets', 32000, 28800, 'Pyrantel 230mg + Praziquantel 20mg', 'Roundworm, Hookworm, Tapeworm', 'Cat', TRUE, 2, 300, 16000, TRUE, '1 tablet per 4kg body weight', 'Every 3 months', 'For cats above 6 weeks; not for pregnant cats'),
-    ('SKU-039', 'BR-004', 'MSD Animal Health', 'Interceptor Plus--2–8 kg', 'Deworming', 'Chewables', 'Box of 6', 129900, 116900, 'Milbemycin Oxime 2.3mg + Praziquantel 22.8mg', 'Heartworm, Roundworm, Hookworm, Whipworm, Tapeworm', 'Dog', TRUE, 4, 200, 21700, TRUE, '1 chewable per month', 'Monthly', 'Min age 6 weeks; beef flavoured'),
-    ('SKU-040', 'BR-005', 'Himalaya', 'Erina EP--Tick & Flea Spray', 'Tick & Flea Protection', 'Spray', '200ml bottle', 35000, 31500, 'Permethrin 0.1% + Pyrethrin 0.05%', 'Ticks, Fleas, Lice', 'Dog', TRUE, 2, 1200, 35000, TRUE, 'Spray on coat, avoid eyes; repeat as needed', 'Every 7–10 days or as needed', 'OTC; India-made; budget option; not for cats'),
-    ('SKU-041', 'BR-006', 'Beaphar', 'Beaphar--Tick & Flea Collar--Dog', 'Tick & Flea Protection', 'Collar', '1 collar', 49900, 44900, 'Deltamethrin 4%', 'Ticks, Fleas', 'Dog', TRUE, 5, 400, 49900, TRUE, '1 collar, continuous release', '4 months protection', 'Water-resistant; budget collar option in India'),
-    ('SKU-042', 'BR-007', 'Merck Animal Health', 'Panacur--Fenbendazole 10% Suspension--Dog', 'Deworming', 'Syrup/Suspension', '250ml bottle', 65000, 58500, 'Fenbendazole 100mg/ml', 'Roundworm, Hookworm, Whipworm, Giardia', 'Dog & Cat', TRUE, 3, 350, 65000, TRUE, '50mg/kg (0.5ml/kg) once daily for 3–5 days', 'Every 3 months or as per vet', 'Safe for pregnant animals; also treats Giardia'),
-    ('SKU-043', 'BR-008', 'Virbac', 'Milpro--Deworming Tablets--Dog <5kg', 'Deworming', 'Tablets', 'Strip of 2 tablets', 29900, 26900, 'Milbemycin Oxime 2.5mg + Praziquantel 25mg', 'Roundworm, Hookworm, Whipworm, Tapeworm, Heartworm prevention', 'Dog', TRUE, 3, 400, 15000, TRUE, '1 tablet per 5kg body weight', 'Every 3 months', 'Min age 2 weeks, min weight 0.5kg'),
-    ('SKU-044', 'BR-008', 'Virbac', 'Milpro--Deworming Tablets--Dog >5kg', 'Deworming', 'Tablets', 'Strip of 2 tablets', 49900, 44900, 'Milbemycin Oxime 12.5mg + Praziquantel 125mg', 'Roundworm, Hookworm, Whipworm, Tapeworm, Heartworm prevention', 'Dog', TRUE, 3, 350, 25000, TRUE, '1 tablet per 25kg body weight', 'Every 3 months', 'Min age 2 weeks, min weight 5kg'),
-    ('SKU-045', 'BR-008', 'Virbac', 'Milpro--Deworming Tablets--Cat', 'Deworming', 'Tablets', 'Strip of 2 tablets', 29900, 26900, 'Milbemycin Oxime 4mg + Praziquantel 10mg', 'Roundworm, Hookworm, Tapeworm, Heartworm prevention', 'Cat', TRUE, 3, 250, 15000, TRUE, '1 tablet per 2kg body weight', 'Every 3 months', 'Min age 6 weeks, min weight 0.5kg'),
-    ('SKU-046', 'BR-008', 'Virbac', 'Effipro--Spot-on--2–10 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '4 pipettes (0.67ml each)', 79900, 71900, 'Fipronil 9.7%', 'Ticks, Fleas, Lice', 'Dog', TRUE, 3, 600, 20000, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; fipronil without IGR'),
-    ('SKU-047', 'BR-008', 'Virbac', 'Effipro--Spot-on--10–20 kg', 'Tick & Flea Protection', 'Spot-on, pipette', '4 pipettes (1.34ml each)', 99900, 89900, 'Fipronil 9.7%', 'Ticks, Fleas, Lice', 'Dog', TRUE, 3, 500, 25000, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks'),
-    ('SKU-048', 'BR-008', 'Virbac', 'Effipro--Spot-on--Cat', 'Tick & Flea Protection', 'Spot-on, pipette', '4 pipettes (0.5ml each)', 74900, 67400, 'Fipronil 9.7%', 'Ticks, Fleas, Lice', 'Cat', TRUE, 3, 400, 18700, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; single SKU for all cats'),
-    ('SKU-049', 'BR-009', 'Zoetis', 'Simparica--Chew--1.3–2.5 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 3', 119900, 107900, 'Sarolaner 5mg', 'Ticks, Fleas, Mange (Demodex, Sarcoptes)', 'Dog', TRUE, 3, 300, 40000, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks, min weight 1.3kg'),
-    ('SKU-050', 'BR-009', 'Zoetis', 'Simparica--Chew--2.5–5 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 3', 139900, 125900, 'Sarolaner 10mg', 'Ticks, Fleas, Mange', 'Dog', TRUE, 2, 400, 46600, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks'),
-    ('SKU-051', 'BR-009', 'Zoetis', 'Simparica--Chew--5–10 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 3', 159900, 143900, 'Sarolaner 20mg', 'Ticks, Fleas, Mange', 'Dog', TRUE, 2, 500, 53300, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks'),
-    ('SKU-052', 'BR-009', 'Zoetis', 'Simparica--Chew--10–20 kg', 'Tick & Flea Protection', 'Chewables', 'Box of 3', 179900, 161900, 'Sarolaner 40mg', 'Ticks, Fleas, Mange', 'Dog', TRUE, 2, 400, 60000, TRUE, '1 chewable per month', 'Monthly', 'Min age 8 weeks'),
-    ('SKU-053', 'BR-009', 'Zoetis', 'Stronghold--Spot-on--2.6–7.5 kg (Cat)', 'Flea & Deworming (Combined)', 'Spot-on, pipette', '3 pipettes (0.75ml each)', 149900, 134900, 'Selamectin 60mg/ml', 'Fleas, Heartworm, Roundworm, Hookworm, Ear mites, Mange', 'Cat', TRUE, 3, 300, 50000, TRUE, '1 pipette per month', 'Monthly', 'Min age 8 weeks; does NOT cover ticks in cats'),
-    ('SKU-054', 'BR-010', 'Indian Immunologicals', 'Wormectin Plus--Tablets--Dog', 'Deworming', 'Tablets', 'Strip of 10 tablets', 15000, 13500, 'Ivermectin 6mcg/kg + Praziquantel 5mg/kg', 'Roundworm, Hookworm, Tapeworm, Mange (external)', 'Dog', TRUE, 5, 800, 1500, TRUE, 'As directed by vet', 'Every 3 months or as per vet', 'Budget dewormer; widely available in India; vet prescription advised')
-
-ON CONFLICT (sku_id) DO UPDATE SET
-    brand_id             = EXCLUDED.brand_id,
-    brand_name           = EXCLUDED.brand_name,
-    product_name         = EXCLUDED.product_name,
-    type                 = EXCLUDED.type,
-    form                 = EXCLUDED.form,
-    pack_size            = EXCLUDED.pack_size,
-    mrp_paise            = EXCLUDED.mrp_paise,
-    discounted_paise     = EXCLUDED.discounted_paise,
-    key_ingredients      = EXCLUDED.key_ingredients,
-    condition_tags       = EXCLUDED.condition_tags,
-    life_stage_tags      = EXCLUDED.life_stage_tags,
-    active               = TRUE,
-    popularity_rank      = EXCLUDED.popularity_rank,
-    monthly_units_sold   = EXCLUDED.monthly_units_sold,
-    price_per_unit_paise = EXCLUDED.price_per_unit_paise,
-    in_stock             = EXCLUDED.in_stock,
-    dosage               = EXCLUDED.dosage,
-    repeat_frequency     = EXCLUDED.repeat_frequency,
-    notes                = EXCLUDED.notes;
-
-DO $$
-DECLARE c INTEGER;
-BEGIN
-    SELECT COUNT(*) INTO c FROM product_medicines;
-    RAISE NOTICE 'product_medicines rows after upsert: %', c;
+    RAISE NOTICE 'product_supplement rows after replace: %', c;
+    IF c != 116 THEN
+        RAISE EXCEPTION 'Expected 116 rows, got %', c;
+    END IF;
 END $$;
 
 COMMIT;

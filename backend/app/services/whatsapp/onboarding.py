@@ -458,8 +458,8 @@ async def handle_onboarding_step(
     elif state == "awaiting_meal_details":
         await _step_meal_details(db, user, text, send_fn)
 
-    elif state == "awaiting_diet_portions":
-        await _step_diet_portions(db, user, text, send_fn)
+    # elif state == "awaiting_diet_portions":  # portions follow-up step disabled
+    #     await _step_diet_portions(db, user, text, send_fn)
 
     elif state == "awaiting_supplements":
         await _step_supplements_v2(db, user, text, send_fn)
@@ -1364,7 +1364,7 @@ async def _step_food_type(db, user, text, send_fn):
     # Contextual meal details question — store the example so we can
     # reference it if the user says "same".
     _MEAL_EXAMPLES = {
-        "home": "boiled chicken + rice in the morning, dal + roti at night, occasional egg",
+        "home": "2 cups boiled chicken and rice with 1 cup pumpkin soup daily",
         "packaged": "Royal Canin Adult kibble 50g × 3 times a day, small treat in the evening",
         "mix": "Royal Canin kibble 2 cups/day + 1 cup cooked carrot",
     }
@@ -1506,7 +1506,7 @@ async def _step_meal_details(db, user, text, send_fn):
             clarification = await _ai_clarify_input(
                 user_message=text,
                 step_context=f"what {pet.name}'s typical daily diet looks like — the actual meals they eat",
-                expected_format=f"e.g., {example_shown}" if example_shown else "e.g., boiled chicken + rice in the morning, dal + roti at night",
+                expected_format=f"e.g., {example_shown}" if example_shown else "e.g., 2 cups boiled chicken and rice with 1 cup pumpkin soup daily",
                 pet_name=pet.name,
                 prior_assistant_message=(
                     f"What does {pet.name}'s typical daily diet look like?"
@@ -1518,21 +1518,21 @@ async def _step_meal_details(db, user, text, send_fn):
             return
 
         items = await _parse_diet_input(text)
-        # Ask for portions only for items that have no quantity/detail.
-        items_missing = [(label, detail, kind) for label, detail, *rest in items
-                         for kind in [rest[0] if rest else "ingredient"]
-                         if not detail]
-        if items_missing:
-            await _store_meal_items(db, pet, items, food_type)
-            meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
-            _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)
-            _set_onboarding_data(user, "diet_raw_text", text)
-            _set_onboarding_data(user, "diet_items_pending_portions", [lbl for lbl, *_ in items_missing])
-            user.onboarding_state = "awaiting_diet_portions"
-            db.commit()
-            portions_q = _build_portions_question(pet.name, items_missing)
-            await send_fn(db, mobile, portions_q)
-            return
+        # Portions follow-up step disabled — skip asking "How much does X get of each?"
+        # items_missing = [(label, detail, kind) for label, detail, *rest in items
+        #                  for kind in [rest[0] if rest else "ingredient"]
+        #                  if not detail]
+        # if items_missing:
+        #     await _store_meal_items(db, pet, items, food_type)
+        #     meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
+        #     _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)
+        #     _set_onboarding_data(user, "diet_raw_text", text)
+        #     _set_onboarding_data(user, "diet_items_pending_portions", [lbl for lbl, *_ in items_missing])
+        #     user.onboarding_state = "awaiting_diet_portions"
+        #     db.commit()
+        #     portions_q = _build_portions_question(pet.name, items_missing)
+        #     await send_fn(db, mobile, portions_q)
+        #     return
         await _store_meal_items(db, pet, items, food_type)
         meal_supp_labels = await _store_meal_supplement_items(db, pet, text)
         _set_onboarding_data(user, "meal_supplement_labels", meal_supp_labels)

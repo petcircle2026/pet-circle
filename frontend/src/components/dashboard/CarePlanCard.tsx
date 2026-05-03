@@ -175,6 +175,7 @@ export default function CarePlanCard({
                     <div key={id} className="care-item">
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="care-name">{displayName}</div>
+                        {bucketKey !== "add" && (
                         <div className="care-meta">
                           {item.test_type === "food"
                             ? item.freq
@@ -184,6 +185,7 @@ export default function CarePlanCard({
                                 : item.freq
                               : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `${bucketKey === "attend" ? "End" : "Next"}: ${item.next_due || "--"}`}`}
                         </div>
+                        )}
                         {item.reason && !(bucketKey === "continue" && (item.test_type === "food" || item.test_type === "supplement")) && (
                           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4, marginTop: 3, fontStyle: "italic" }}>
                             {item.reason}
@@ -192,12 +194,9 @@ export default function CarePlanCard({
                       </div>
 
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
-                        {bucketKey === "add"
-                          ? <span className="s-tag s-tag-rec">Recommended</span>
-                          : item.test_type !== "food" && item.test_type !== "supplement"
-                            ? <span className={`s-tag ${itemStatusClass(item)}`}>{normalizeStatusTag(item.status_tag)}</span>
-                            : null
-                        }
+                        {bucketKey !== "add" && item.test_type !== "food" && item.test_type !== "supplement" && (
+                          <span className={`s-tag ${itemStatusClass(item)}`}>{normalizeStatusTag(item.status_tag)}</span>
+                        )}
 
                         {canOrder && (
                           <button

@@ -472,12 +472,36 @@ def _resolve_l5(
 
 
 def _resolve_l4(
-    db: Session, brand_name: str, product_line: str
+    db: Session, brand_name: str, product_line: str, *, pet: Pet | None = None
 ) -> list[ProductFood]:
-    """A2: all pack sizes for the (brand, line) pair sorted by popularity."""
+    """A2: all pack sizes for the (brand, line) pair sorted by popularity.
+
+    Rule C7: when pet weight is known, the pack size nearest to the pet's
+    30-day consumption (weight_kg × 10 g/kg/day × 30 days) is placed first
+    for pre-selection as the highlighted SKU.
+    """
     rows = _get_product_cache(db).foods_for_brand_and_line(brand_name, product_line)
-    rows.sort(key=lambda p: p.popularity_rank)
-    return _apply_oos_rule(rows)[:MAX_OPTIONS]
+    rows = _apply_oos_rule(rows)
+
+    # C7 — weight-based monthly consumption hint
+    target_kg: float | None = None
+    if pet is not None:
+        try:
+            w = float(pet.weight) if pet.weight is not None else None
+        except (TypeError, ValueError):
+            w = None
+        if w:
+            target_kg = round(w * 0.3, 2)  # 10 g/kg/day × 30 days
+
+    if target_kg is not None:
+        rows = sorted(
+            rows,
+            key=lambda p: (abs(float(p.pack_size_kg) - target_kg), p.popularity_rank or 999),
+        )
+    else:
+        rows = sorted(rows, key=lambda p: p.popularity_rank or 999)
+
+    return rows[:MAX_OPTIONS]
 
 
 def _resolve_l3(
@@ -681,7 +705,7 @@ def resolve_food_signal(
 
     # ---- L4 ----------------------------------------------------------------
     if brand_name and product_line:
-        products = _resolve_l4(db, brand_name, product_line)
+        products = _resolve_l4(db, brand_name, product_line, pet=pet)
         if products:
             if conditions:
                 products = _rerank_by_condition(products, conditions)
