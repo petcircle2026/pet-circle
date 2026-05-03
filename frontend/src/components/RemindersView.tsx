@@ -125,6 +125,10 @@ function displayItemName(itemName: string): string {
   return itemName;
 }
 
+function cleanMedicineName(name: string): string {
+  return name.replace(/--/g, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 function dateRank(isoDate: string | null | undefined): number {
   if (!isoDate) return Number.MIN_SAFE_INTEGER;
   const ts = new Date(isoDate).getTime();
@@ -592,7 +596,7 @@ export default function RemindersView({ data, token, onBack, onDashboardDataUpda
                                   lineHeight: 1.35,
                                 }}
                               >
-                                Medicine: <strong style={{ color: 'var(--t2, #666)', overflowWrap: 'anywhere' }}>{item.medicineName || '--'}</strong>
+                                Medicine: <strong style={{ color: 'var(--t2, #666)', overflowWrap: 'anywhere' }}>{item.medicineName ? cleanMedicineName(item.medicineName) : '--'}</strong>
                               </div>
                             )}
                           </>
@@ -722,7 +726,7 @@ export default function RemindersView({ data, token, onBack, onDashboardDataUpda
                                 <option value="">Select medicine</option>
                                 {editVals.medicineOptions.map((option) => (
                                   <option key={option} value={option}>
-                                    {option}
+                                    {cleanMedicineName(option)}
                                   </option>
                                 ))}
                                 <option value={MEDICINE_OTHER}>{MEDICINE_OTHER}</option>

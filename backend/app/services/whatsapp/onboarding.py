@@ -2739,10 +2739,21 @@ def _upsert_preventive_record(db, pet, master, parsed_date, medicine_name: str |
     Computes next_due_date and status so the NOT NULL constraint on
     PreventiveRecord.status is satisfied.
     """
-    from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+    from types import SimpleNamespace
+    from app.services.shared.preventive_calculator import (
+        compute_next_due_date,
+        compute_status,
+        get_effective_recurrence_days,
+    )
 
-    recurrence_days = master.recurrence_days or 365
     reminder_before_days = master.reminder_before_days or 30
+
+    # Use the full preventive calculator priority chain so medicine-specific
+    # intervals (e.g. Bravecto = 84 days) override the generic master default.
+    proxy = SimpleNamespace(custom_recurrence_days=None, medicine_name=medicine_name)
+    recurrence_days = get_effective_recurrence_days(db, master, proxy, pet)
+    custom_recurrence_days = proxy.custom_recurrence_days
+
     next_due = compute_next_due_date(parsed_date, recurrence_days)
     status = compute_status(next_due, reminder_before_days)
 
@@ -2753,6 +2764,8 @@ def _upsert_preventive_record(db, pet, master, parsed_date, medicine_name: str |
             existing.last_done_date = parsed_date
             existing.next_due_date = next_due
             existing.status = status
+            if custom_recurrence_days:
+                existing.custom_recurrence_days = custom_recurrence_days
         if medicine_name and not existing.medicine_name:
             existing.medicine_name = medicine_name
     else:
@@ -2763,6 +2776,7 @@ def _upsert_preventive_record(db, pet, master, parsed_date, medicine_name: str |
             next_due_date=next_due,
             status=status,
             medicine_name=medicine_name,
+            custom_recurrence_days=custom_recurrence_days,
         )
         db.add(record)
 
