@@ -300,10 +300,10 @@ export default function DotPlotSVG({
             </text>
             {/* X-axis date label — adaptive anchor prevents edge clipping */}
             <text
-              x={xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i]}
+              x={xs[i] < PAD + DOT_R ? PAD / 2 : xs[i] > cw - PAD - DOT_R ? cw - PAD / 2 : xs[i]}
               y={DATE_Y}
               textAnchor={
-                xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle"
+                xs[i] < PAD + DOT_R ? "start" : xs[i] > cw - PAD - DOT_R ? "end" : "middle"
               }
               fontFamily="Inter,sans-serif"
               fontSize="8"

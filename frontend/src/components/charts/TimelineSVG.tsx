@@ -274,10 +274,10 @@ export default function TimelineSVG({
             </text>
             {/* Primary label below node — adaptive anchor prevents edge clipping */}
             <text
-              x={xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i]}
+              x={xs[i] < PAD + NODE_R ? PAD / 2 : xs[i] > cw - PAD - NODE_R ? cw - PAD / 2 : xs[i]}
               y={LABEL_Y}
               textAnchor={
-                xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle"
+                xs[i] < PAD + NODE_R ? "start" : xs[i] > cw - PAD - NODE_R ? "end" : "middle"
               }
               fontFamily="Inter,sans-serif"
               fontSize="10"
@@ -288,8 +288,8 @@ export default function TimelineSVG({
             </text>
             {/* Optional sub-label — word-wrapped to 2 lines to prevent overlap */}
             {node.sub && (() => {
-              const anchor = xs[i] < cw / 4 ? "start" : xs[i] > (3 * cw) / 4 ? "end" : "middle";
-              const tx = xs[i] < cw / 4 ? PAD / 2 : xs[i] > (3 * cw) / 4 ? cw - PAD / 2 : xs[i];
+              const anchor = xs[i] < PAD + NODE_R ? "start" : xs[i] > cw - PAD - NODE_R ? "end" : "middle";
+              const tx = xs[i] < PAD + NODE_R ? PAD / 2 : xs[i] > cw - PAD - NODE_R ? cw - PAD / 2 : xs[i];
               const fill = node.type === "done" ? "#1A1A1A" : "#6B6B6B";
               const words = node.sub.split(" ");
               const lines: string[] = [];
