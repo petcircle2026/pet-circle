@@ -4264,6 +4264,7 @@ async def extract_and_process_document(
                     pet_id=pet.id,
                     preventive_master_id=master.id,
                     new_date=last_done_date,
+                    source="document",
                 )
 
                 if conflict:

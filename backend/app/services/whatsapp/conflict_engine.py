@@ -41,11 +41,18 @@ def check_and_create_conflict(
     pet_id: UUID,
     preventive_master_id: UUID,
     new_date: date,
+    source: str = "chat",
 ) -> ConflictFlag | None:
     """
-    Check if a newly extracted date conflicts with the existing record.
+    Check if a newly entered date conflicts with the existing record.
 
-    A conflict exists when:
+    Only applies to chat-entered dates (source="chat"). Document extraction
+    passes source="document" and always gets None — every date in a document
+    is a legitimate historical record that create_preventive_record() should
+    store directly; there is no concept of "which date is the most recent"
+    that needs human arbitration.
+
+    A conflict exists when (source="chat"):
         1. A preventive record already exists for (pet_id, preventive_master_id).
         2. The new_date differs from the existing record's last_done_date.
 
@@ -63,11 +70,16 @@ def check_and_create_conflict(
         db: SQLAlchemy database session.
         pet_id: UUID of the pet.
         preventive_master_id: UUID of the preventive master item.
-        new_date: The newly extracted date that may conflict.
+        new_date: The newly entered date that may conflict.
+        source: "chat" (default) or "document". Document dates never conflict.
 
     Returns:
         ConflictFlag if a conflict was created, None if no conflict exists.
     """
+    if source == "document":
+        # Documents contain historical records — every date is valid.
+        # create_preventive_record() handles exact-date deduplication.
+        return None
     # Find the latest existing record for this pet + preventive item.
     # Order by last_done_date descending to get the most recent one.
     preventive_repo = PreventiveRepository(db)

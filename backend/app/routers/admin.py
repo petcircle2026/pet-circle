@@ -23,6 +23,7 @@ Routes:
     POST   /admin/trigger-reminder/{pet_id}  — Trigger reminder for a pet
     POST   /admin/trigger-gcp-sync           — Migrate documents from Supabase to GCP
     GET    /admin/storage-stats              — Document counts by storage backend
+    POST   /admin/force-reextract/{pet_id}  — Force re-extraction of all docs for a pet
 """
 
 import hmac
@@ -910,6 +911,105 @@ def get_storage_stats(db: Session = Depends(get_db)):
         "gcp": stats.get("gcp", 0),
         "supabase": stats.get("supabase", 0),
         "total": total,
+    }
+
+
+@router.post("/force-reextract/{pet_id}")
+async def force_reextract_pet_documents(
+    pet_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Force re-extraction of all documents for a pet, regardless of current status.
+
+    Steps:
+      1. Delete all pending conflict_flags for this pet's preventive records.
+      2. Reset every document for this pet to extraction_status='pending'.
+      3. Re-run extraction for each document immediately.
+
+    Use this when document extraction succeeded but records were silently blocked
+    by the conflict engine (e.g. historical dates older than chat-entered dates).
+
+    Returns:
+        {"reextracted": N, "skipped": N, "errors": [...]}
+    """
+    from app.services.shared.document_upload import download_from_supabase, get_extraction_semaphore
+    from app.services.shared.gpt_extraction import extract_and_process_document
+
+    pet = db.query(Pet).filter(Pet.id == pet_id).first()
+    if not pet:
+        raise HTTPException(status_code=404, detail="Pet not found")
+
+    # Step 1: Clear pending conflict flags so re-extraction can create records freely.
+    conflict_ids = (
+        db.query(ConflictFlag.id)
+        .join(PreventiveRecord, ConflictFlag.preventive_record_id == PreventiveRecord.id)
+        .filter(
+            PreventiveRecord.pet_id == pet_id,
+            ConflictFlag.status == "pending",
+        )
+        .all()
+    )
+    conflict_count = len(conflict_ids)
+    if conflict_ids:
+        db.query(ConflictFlag).filter(
+            ConflictFlag.id.in_([c.id for c in conflict_ids])
+        ).delete(synchronize_session=False)
+        db.commit()
+    logger.info("force-reextract: cleared %d conflict flags for pet=%s", conflict_count, str(pet_id))
+
+    # Step 2: Reset all documents for this pet to pending.
+    docs = db.query(Document).filter(Document.pet_id == pet_id).all()
+    for doc in docs:
+        doc.extraction_status = "pending"
+        doc.retry_count = 0
+    db.commit()
+    logger.info("force-reextract: reset %d documents to pending for pet=%s", len(docs), str(pet_id))
+
+    # Step 3: Re-extract each document.
+    reextracted = 0
+    skipped = 0
+    errors: list[str] = []
+    semaphore = get_extraction_semaphore()
+
+    for doc in docs:
+        try:
+            file_bytes = await download_from_supabase(
+                doc.file_path,
+                backend=doc.storage_backend or "supabase",
+            )
+            if not file_bytes:
+                skipped += 1
+                errors.append(f"doc {doc.id}: could not download file")
+                continue
+
+            async with semaphore:
+                result = await extract_and_process_document(
+                    db=db,
+                    document_id=doc.id,
+                    document_text="",
+                    file_bytes=file_bytes,
+                )
+
+            if result.get("status") == "success":
+                reextracted += 1
+            else:
+                skipped += 1
+                if result.get("errors"):
+                    errors.append(f"doc {doc.id}: {result['errors']}")
+
+        except Exception as exc:
+            skipped += 1
+            errors.append(f"doc {doc.id}: {str(exc)}")
+            logger.error("force-reextract: doc %s failed: %s", str(doc.id), str(exc))
+
+    return {
+        "pet_id": str(pet_id),
+        "conflict_flags_cleared": conflict_count,
+        "documents_reset": len(docs),
+        "reextracted": reextracted,
+        "skipped": skipped,
+        "errors": errors,
     }
 
 

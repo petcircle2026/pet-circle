@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.models.lookup.preventive_master import PreventiveMaster
 
 import asyncio
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import List, Any
@@ -920,9 +921,15 @@ async def get_health_trends(db: Session, pet: Pet) -> dict[str, Any]:
 
     # Fetch vet questions for all conditions in parallel — each call may make a GPT
     # API call, so sequential execution multiplies latency by N conditions.
-    all_questions = await asyncio.gather(
-        *[_get_condition_questions(db, pet, condition) for condition in conditions]
+    # return_exceptions=True prevents a single AI failure from crashing cadence/signals.
+    raw_questions = await asyncio.gather(
+        *[_get_condition_questions(db, pet, condition) for condition in conditions],
+        return_exceptions=True,
     )
+    all_questions = [
+        q if isinstance(q, list) else _fallback_questions(condition)
+        for q, condition in zip(raw_questions, conditions)
+    ]
     ask_vet_conditions = [
         {
             "id": str(condition.id),
@@ -950,9 +957,22 @@ async def get_health_trends(db: Session, pet: Pet) -> dict[str, Any]:
     }
 
     today = date.today()
-    vaccines = _build_vaccine_cadence(preventive_rows, today, db=db, pet=pet)
-    flea_tick = _build_flea_tick_cadence(preventive_rows, db=db, pet=pet)
-    deworming = _build_deworming_cadence(preventive_rows, today, db=db, pet=pet)
+    _log = logging.getLogger(__name__)
+    try:
+        vaccines = _build_vaccine_cadence(preventive_rows, today, db=db, pet=pet)
+    except Exception as exc:
+        _log.warning("vaccine cadence failed: %s", exc, exc_info=True)
+        vaccines = None
+    try:
+        flea_tick = _build_flea_tick_cadence(preventive_rows, db=db, pet=pet)
+    except Exception as exc:
+        _log.warning("flea_tick cadence failed: %s", exc, exc_info=True)
+        flea_tick = None
+    try:
+        deworming = _build_deworming_cadence(preventive_rows, today, db=db, pet=pet)
+    except Exception as exc:
+        _log.warning("deworming cadence failed: %s", exc, exc_info=True)
+        deworming = None
     cadence = None if not any((vaccines, flea_tick, deworming)) else {
         "vaccines": vaccines,
         "flea_tick": flea_tick,

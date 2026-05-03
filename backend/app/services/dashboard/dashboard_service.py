@@ -628,7 +628,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
         own_db = SessionLocal()
         try:
             contact_repo = ContactRepository(own_db)
-            rows = contact_repo.find_all_for_pet(pet_id)
+            rows = contact_repo.find_by_pet(pet_id)
             return [
                 {
                     "id": str(c.id),
