@@ -1263,9 +1263,10 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- Handwritten medication lists are Prescriptions: A handwritten page listing drug names with "
     "doses and frequencies (e.g., 'Tab Pan 40mg BID', 'Tab Toxomox 500mg AIT', 'Tab Gabapentin "
     "600mg') is ALWAYS a Prescription even if no clinic letterhead or formal diagnosis is visible. "
-    "Set document_category to 'Prescription'. Place these medications inside a conditions[] entry "
-    "using a descriptive condition_name such as 'Treatment course' or 'Post-operative care' if a "
-    "broad grouping is inferable --- otherwise place them in standalone_medications[]. "
+    "Set document_category to 'Prescription'. Place these medications in standalone_medications[] "
+    "unless you can infer a real clinical condition name (a disease, disorder, or syndrome) from "
+    "the drug cluster and any written advice. Never use a meta-label like 'Treatment course' or "
+    "'Post-operative care' as a condition_name — if no real condition is inferable, use standalone_medications[]. "
     "Never leave prescribed medications unclassified.\n"
     "- For Prescription documents: ALWAYS populate clinical_exam with weight, temperature, pulse, "
     "respiration, mucous membranes, and any other examination notes written on the document. "
@@ -2424,8 +2425,18 @@ async def _rescue_vaccines_from_medication_lists(
                         existing_names.add(norm)
         condition["medications"] = survivors
 
+    _META_LABEL_CONDITION_NAMES = {
+        "treatment course",
+        "post-operative care",
+        "post operative care",
+        "postoperative care",
+        "medication course",
+        "drug therapy",
+    }
+
     # After stripping, remove any inferred conditions that are now empty
-    # (their only content was misrouted vaccines).
+    # (their only content was misrouted vaccines), and remove generic meta-label
+    # condition names that are not real diagnoses.
     cleaned_conditions: list[dict] = []
     for condition in (metadata.get("conditions") or []):
         if not isinstance(condition, dict):
@@ -2437,6 +2448,16 @@ async def _rescue_vaccines_from_medication_lists(
         has_diagnosis = bool(str(condition.get("diagnosis") or "").strip())
         if is_inferred and not has_meds and not has_monitoring and not has_diagnosis:
             continue  # ghost condition created solely around vaccines — discard
+        _cname_norm = str(condition.get("condition_name") or "").strip().lower().rstrip(".")
+        # Strip the "(inferred)" suffix before checking against meta-labels
+        _cname_norm = _cname_norm.replace("(inferred)", "").strip()
+        if _cname_norm in _META_LABEL_CONDITION_NAMES:
+            # Move medications to standalone_medications instead of discarding them
+            _orphaned = condition.get("medications") or []
+            if _orphaned:
+                existing_standalone = metadata.setdefault("standalone_medications", [])
+                existing_standalone.extend(_orphaned)
+            continue  # discard the meta-label condition itself
         cleaned_conditions.append(condition)
     metadata["conditions"] = cleaned_conditions
 
