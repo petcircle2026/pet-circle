@@ -72,7 +72,7 @@ from app.models import (
 )
 from app.repositories.condition_repository import ConditionRepository
 from app.services.dashboard.ai_insights_service import AI_INSIGHT_CACHE_DAYS, generate_recognition_bullets
-from app.services.shared.care_plan_engine import compute_care_plan, get_preventive_baseline_days, _normalize_item_name
+from app.services.shared.care_plan_engine import compute_care_plan, get_preventive_baseline_days
 from app.services.shared.document_upload import download_from_supabase
 from app.services.shared.gpt_extraction import _infer_document_category, _resolve_document_category
 from app.services.dashboard.life_stage_service import get_life_stage_data

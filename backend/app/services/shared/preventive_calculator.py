@@ -131,10 +131,10 @@ def get_effective_recurrence_days(
     if pet is not None and master.medicine_dependent:
         try:
             from app.services.shared.care_plan_engine import (
-                _normalize_item_name,
+                _classify_item_type_llm,
                 get_preventive_baseline_days,
             )
-            test_type = _normalize_item_name(master.item_name)
+            test_type = _classify_item_type_llm(master.item_name)
             baseline = get_preventive_baseline_days(pet, test_type)
             logger.debug(
                 "Recurrence: life-stage baseline=%d for test_type=%s, record_id=%s",

@@ -222,12 +222,6 @@ def _get_preventive_categories_for_medicine(medication_name: str | None, db=None
     if not normalized:
         return set()
 
-    # Hardcoded overrides for medicines the DB catalogs as single-use but clinical
-    # evidence confirms dual-use (e.g. Simparica Trio treats flea/tick + intestinal worms).
-    _DUAL_USE_OVERRIDES = {"simparica trio", "simparica"}
-    if any(override in normalized for override in _DUAL_USE_OVERRIDES):
-        return {"flea_tick", "deworming"}
-
     # Ensure mapping is initialized
     if not _MEDICINE_MAPPING_INITIALIZED:
         _initialize_medicine_mapping(db)
@@ -1268,7 +1262,18 @@ EXTRACTION_SYSTEM_PROMPT = (
     '"document_category": "...", "diagnostic_summary": null, "pet_name": null, "items": [], '
     '"conditions": [], "standalone_medications": [], "recommendations": [], '
     '"preventive_medications": [], "contacts": []}\n'
-    "- Return valid JSON only --- no markdown, no explanation, no extra text."
+    "- Return valid JSON only --- no markdown, no explanation, no extra text.\n"
+    "- VACCINE NAME MAPPING: When setting vaccine_name in vaccination_details[], use these canonical "
+    "tracked item names whenever possible:\n"
+    "  rabies / arv / anti-rabies / nobivac rl / anti rabies vaccine → 'Rabies Vaccine'\n"
+    "  dhpp / dhppi / dhppi+l / dhppil / nobivac dhppi / da2pp / da2ppl / "
+    "5 in 1 / 7 in 1 / 9 in 1 / 10 in 1 / dhp / canine distemper → 'DHPPi'\n"
+    "  kennel cough / bordetella / nobivac kc → 'Kennel Cough (Nobivac KC)'\n"
+    "  canine coronavirus / ccov → 'Canine Coronavirus (CCoV)'\n"
+    "  leptospirosis / lepto → 'Leptospirosis'\n"
+    "  fvrcp / feline core / tricat / felocell → 'Feline Core'\n"
+    "  core vaccine → 'Core Vaccine'\n"
+    "  For vaccines not in this list, use the name as written in the document."
 )
 
 # ---------------------------------------------------------------------------
@@ -1712,8 +1717,8 @@ async def _llm_map_vaccine_to_tracked_item(
     """
     Ask the LLM to map an unrecognised vaccine name to a tracked preventive item.
 
-    Called only when GPT marked item_type='vaccine' but _VACCINE_DETAIL_TO_ITEM
-    has no keyword match — i.e., a brand or abbreviation we've never seen before.
+    Called when a vaccine name doesn't match any canonical item in
+    _CANONICAL_VACCINE_ITEMS — i.e., a brand or abbreviation not in the reference list.
     Returns the matched tracked item name, or None if the LLM can't confidently map it.
     """
     try:
@@ -1952,7 +1957,7 @@ async def _validate_extraction_dict(
 
     # Derive tracked items from vaccination_details when GPT populated
     # vaccine details but did not include matching entries in the items array.
-    validated, extra_vaccines = _derive_items_from_vaccination_details(
+    validated, extra_vaccines = await _derive_items_from_vaccination_details(
         validated,
         normalized_vaccination_details,
     )
@@ -1987,48 +1992,22 @@ async def _validate_extraction_dict(
     return validated, document_name, extracted_pet_name, metadata
 
 
-# Mapping from common vaccine names in vaccination_details to tracked item names.
-_VACCINE_DETAIL_TO_ITEM: dict[str, str] = {
-    # DB item_name is "Rabies Vaccine"; display name "Rabies (Nobivac RL)" is
-    # applied separately via _DISPLAY_NAME in care_plan_engine.py.
-    "rabies": "Rabies Vaccine",
-    "arv": "Rabies Vaccine",
-    "anti-rabies": "Rabies Vaccine",
-    "anti rabies": "Rabies Vaccine",
-    "nobivac rl": "Rabies Vaccine",
+# Canonical tracked item names for vaccines (from preventive_master).
+# The extraction prompt instructs the LLM to output these names directly in
+# vaccination_details[].vaccine_name so no post-extraction keyword mapping is needed.
+# Keys are lowercase for case-insensitive lookup.
+_CANONICAL_VACCINE_ITEMS: dict[str, str] = {
     "rabies vaccine": "Rabies Vaccine",
-    "dhpp": "DHPPi",
     "dhppi": "DHPPi",
-    "dhppi+l": "DHPPi",
-    "dhppil": "DHPPi",
-    "nobivac dhppi": "DHPPi",
-    "da2pp": "DHPPi",
-    "da2ppl": "DHPPi",
-    "5 in 1": "DHPPi",
-    "7 in 1": "DHPPi",
-    "9 in 1": "DHPPi",
-    "10 in 1": "DHPPi",
-    "10-in-1": "DHPPi",
-    "dhp": "DHPPi",
-    "canine distemper": "DHPPi",
-    "kennel cough": "Kennel Cough (Nobivac KC)",
-    "bordetella": "Kennel Cough (Nobivac KC)",
-    "nobivac kc": "Kennel Cough (Nobivac KC)",
-    "canine coronavirus": "Canine Coronavirus (CCoV)",
-    "ccov": "Canine Coronavirus (CCoV)",
+    "kennel cough (nobivac kc)": "Kennel Cough (Nobivac KC)",
+    "canine coronavirus (ccov)": "Canine Coronavirus (CCoV)",
     "leptospirosis": "Leptospirosis",
-    "lepto": "Leptospirosis",
-    "fvrcp": "Feline Core",
     "feline core": "Feline Core",
-    "tricat": "Feline Core",
-    "felocell": "Feline Core",
-    # Keep this generic; species-aware resolution happens later in
-    # _match_preventive_master_from_list via aliases + available masters.
     "core vaccine": "Core Vaccine",
 }
 
 
-def _derive_items_from_vaccination_details(
+async def _derive_items_from_vaccination_details(
     existing_items: list[dict],
     vaccination_details: list[dict],
 ) -> tuple[list[dict], list[dict]]:
@@ -2038,6 +2017,10 @@ def _derive_items_from_vaccination_details(
 
     GPT often populates vaccination_details with rich metadata but omits
     the corresponding entry from the items array. This bridges that gap.
+    The extraction prompt instructs the LLM to output canonical item names
+    (e.g. 'Rabies Vaccine', 'DHPPi') so direct lookup against
+    _CANONICAL_VACCINE_ITEMS is the primary path; _llm_map_vaccine_to_tracked_item
+    handles any unrecognised names as a fallback.
     """
     if not vaccination_details:
         return existing_items, []
@@ -2058,18 +2041,19 @@ def _derive_items_from_vaccination_details(
         if not vaccine_name:
             continue
 
-        # Try to map the vaccine name to one or more tracked items.
-        # A single line can mention multiple antigens (e.g. "Nobivac DHPPi + KC").
-        normalized_vaccine = vaccine_name.lower().strip()
-        mapped_items: list[str] = []
-        for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
-            if keyword in normalized_vaccine:
-                if item_name not in mapped_items:
-                    mapped_items.append(item_name)
+        # Primary: direct match against canonical item names (LLM uses these via prompt).
+        canonical = _CANONICAL_VACCINE_ITEMS.get(vaccine_name.lower().strip())
+        if canonical:
+            mapped_items: list[str] = [canonical]
+        else:
+            # Fallback: ask LLM to map unrecognised vaccine name to a tracked item.
+            llm_item = await _llm_map_vaccine_to_tracked_item(
+                vaccine_name, list(_CANONICAL_VACCINE_ITEMS.values())
+            )
+            mapped_items = [llm_item] if llm_item else []
 
         if not mapped_items:
             # Preserve vaccine rows that don't map to tracked preventive items.
-            # These can be shown as separate extra vaccines to the pet parent.
             extra_vaccines.append(
                 {
                     "vaccine_name": vaccine_name,
@@ -2081,11 +2065,6 @@ def _derive_items_from_vaccination_details(
             )
             continue
 
-        # We need a date — try next_due_date is NOT last_done, we need administered date.
-        # vaccination_details doesn't have a standard "administered_date" key,
-        # so we skip if we can't determine when it was done.
-        # The items array is the primary source for last_done_date.
-        # Only derive if we can find a date from the detail.
         admin_date = detail.get("date") or detail.get("administered_date") or detail.get("last_done_date")
         if not admin_date:
             continue
@@ -2340,30 +2319,25 @@ async def _rescue_vaccines_from_medication_lists(
         or None if it isn't.
 
         Primary signal: item_type == "vaccine" (set by GPT via the schema enum).
-        Fallback: word-boundary keyword match against _VACCINE_DETAIL_TO_ITEM
-        for documents where GPT omitted item_type.
+        The extraction prompt instructs the LLM to output canonical item names
+        so a direct lookup against _CANONICAL_VACCINE_ITEMS is the primary path.
+        Unrecognised names with item_type='vaccine' return "__vaccine__" so the
+        caller can ask the LLM to map them via _llm_map_vaccine_to_tracked_item.
         """
-        if str(med.get("item_type") or "").strip().lower() == "vaccine":
-            # GPT confirmed it's a vaccine. Map name → tracked item if possible;
-            # return a sentinel so the caller still strips it even without a match.
-            norm = str(med.get("name") or "").strip().lower()
-            best_item: str | None = None
-            best_len = 0
-            for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
-                if re.search(r"\b" + re.escape(keyword) + r"\b", norm) and len(keyword) > best_len:
-                    best_item = item_name
-                    best_len = len(keyword)
-            return best_item or "__vaccine__"  # strip even if name is unrecognised
-
-        # Fallback: no item_type signal — use keyword matching on the name.
         norm = str(med.get("name") or "").strip().lower()
-        best_item = None
-        best_len = 0
-        for keyword, item_name in _VACCINE_DETAIL_TO_ITEM.items():
-            if re.search(r"\b" + re.escape(keyword) + r"\b", norm) and len(keyword) > best_len:
-                best_item = item_name
-                best_len = len(keyword)
-        return best_item
+        is_vaccine = str(med.get("item_type") or "").strip().lower() == "vaccine"
+
+        # Direct match against canonical names (primary path).
+        canonical = _CANONICAL_VACCINE_ITEMS.get(norm)
+        if canonical:
+            return canonical
+
+        # If GPT confirmed it's a vaccine but name wasn't canonical, return sentinel
+        # so the caller strips it and asks the LLM to identify it.
+        if is_vaccine:
+            return "__vaccine__"
+
+        return None
 
     def _best_date_from_condition(condition: dict) -> str | None:
         for field in ("diagnosed_at", "episode_dates"):
@@ -4209,24 +4183,23 @@ async def extract_and_process_document(
         # Build a lookup from tracked item_name → vaccination_detail dict so
         # that we can attach rich metadata (dose, manufacturer, batch, etc.)
         # to the preventive record after it is created.
-        # Mapping direction: vaccine_name from detail → item_name via
-        # _VACCINE_DETAIL_TO_ITEM, then invert so we can look up by item_name.
+        # The extraction prompt instructs the LLM to output canonical item names
+        # in vaccine_name, so we use it directly as the key.
         _vacc_meta_by_item: dict[str, dict] = {}
         for _vd in metadata.get("vaccination_details", []):
             if not isinstance(_vd, dict):
                 continue
-            _vn = str(_vd.get("vaccine_name") or _vd.get("vaccine_name_raw") or "").strip().lower()
-            for _keyword, _mapped_item in _VACCINE_DETAIL_TO_ITEM.items():
-                if _keyword in _vn and _mapped_item not in _vacc_meta_by_item:
-                    _vacc_meta_by_item[_mapped_item] = _vd
+            _vn = str(_vd.get("vaccine_name") or _vd.get("vaccine_name_raw") or "").strip()
+            if _vn and _vn not in _vacc_meta_by_item:
+                _vacc_meta_by_item[_vn] = _vd
         species_masters = _filter_non_applicable_puppy_series(
             species_masters,
             include_puppy_series=_should_include_puppy_series_for_pet(pet),
         )
 
         # Build medicine_name lookup from preventive_medications[] for use in items loop.
-        # GPT uses "flea_tick"; _normalize_item_name returns "tick_flea" — alias both.
-        from app.services.shared.care_plan_engine import _normalize_item_name
+        # GPT uses "flea_tick"; _classify_item_type_llm returns "tick_flea" — alias both.
+        from app.services.shared.care_plan_engine import _classify_item_type_llm
         med_name_by_target: dict[str, str] = {}
         for _pm in (metadata.get("preventive_medications") or []):
             _med_name = (
@@ -4287,7 +4260,8 @@ async def extract_and_process_document(
                 else:
                     # No conflict — create or update preventive record.
                     # Resolve medicine_name from preventive_medications[] lookup.
-                    _test_type = _normalize_item_name(item_name)
+                    import asyncio as _asyncio
+                    _test_type = await _asyncio.to_thread(_classify_item_type_llm, item_name)
                     _medicine_name = med_name_by_target.get(_test_type)  # None for vaccines
                     record = create_preventive_record(
                         db=db,

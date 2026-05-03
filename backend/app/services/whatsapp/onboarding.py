@@ -1612,16 +1612,16 @@ async def _step_supplements_v2(db, user, text, send_fn):
     ):
         # Guard: if the user sent preventive care info (flea/tick brands, deworming
         # medicines) during the supplements step, save it as a prefill for the upcoming
-        # preventive step rather than misclassifying it as a dietary supplement.
-        _PREVENTIVE_KEYWORDS = {
-            "flea", "tick", "deworming", "deworm", "worm", "simparica", "nexgard",
-            "bravecto", "frontline", "drontal", "milbemax", "panacur", "advocate",
-            "revolution", "credelio", "seresto", "advantix", "fipronil", "ivermectin",
-            "fenbendazole", "pyrantel", "albendazole", "prazitel", "verminator",
-            "blood test", "blood tests", "vaccine", "vaccination",
-        }
-        if any(kw in text_lower for kw in _PREVENTIVE_KEYWORDS):
-            prefill = await _parse_preventive_care(text)
+        # preventive step. The LLM in _parse_preventive_care detects preventive mentions
+        # using the keyword context in its prompt; call unconditionally and only act
+        # when the result contains at least one non-empty preventive field.
+        prefill = await _parse_preventive_care(text)
+        _has_preventive_data = any(
+            v and v != "none"
+            for k, v in prefill.items()
+            if k != "missing"
+        )
+        if _has_preventive_data:
             existing_prefill = _get_onboarding_data(user).get("preventive_prefill") or {}
             # Merge: only fill keys not already set.
             for k, v in prefill.items():
@@ -2196,53 +2196,16 @@ async def _step_prev_retry(db, user, text, send_fn):
 # Vaccine type selection helpers (new vaccine-specific question flow)
 # ---------------------------------------------------------------------------
 
-_GENERIC_VAX_LABELS: frozenset[str] = frozenset({
-    "vaccine", "vaccines", "shot", "shots", "jab", "jabs",
-    "vaccinated", "vaccination", "annual vaccine", "annual vaccines",
-})
-
-
 def _is_generic_vaccine_mention(parsed: dict) -> bool:
     """
     Return True if the parsed data contains a generic vaccine mention with no
     specific vaccine name provided by the user.  In that case we must ask which
     vaccines their pet actually receives.
 
-    Handles two scenarios:
-    1. GPT correctly put the generic date in the top-level ``vaccines`` field and
-       left ``vaccine_specifics`` empty (the normal case).
-    2. GPT erroneously put a generic label (e.g. "vaccines", "shots") as an entry
-       in ``vaccine_specifics`` instead of the top-level field — we still treat it
-       as generic so the follow-up question is always asked.
+    The LLM sets 'is_generic_mention': true when it detects only generic vaccine
+    terms (shot/jab/vaccinated/vaccination) without any specific vaccine name.
     """
-    generic = parsed.get("vaccines")
-    vaccine_specifics = parsed.get("vaccine_specifics") or []
-
-    # Case 1: top-level vaccines field is set — check there are no real specifics.
-    if generic and generic != "none":
-        real_specifics = [
-            s for s in vaccine_specifics
-            if isinstance(s, dict)
-            and str(s.get("name") or "").strip().lower() not in _GENERIC_VAX_LABELS
-            and str(s.get("date") or "").strip()
-        ]
-        return len(real_specifics) == 0
-
-    # Case 2: vaccines field is null/none — check if vaccine_specifics has only
-    # generic labels (GPT mis-classified a generic mention as a specific vaccine).
-    generic_entries = [
-        s for s in vaccine_specifics
-        if isinstance(s, dict)
-        and str(s.get("name") or "").strip().lower() in _GENERIC_VAX_LABELS
-        and str(s.get("date") or "").strip()
-    ]
-    real_entries = [
-        s for s in vaccine_specifics
-        if isinstance(s, dict)
-        and str(s.get("name") or "").strip().lower() not in _GENERIC_VAX_LABELS
-        and str(s.get("date") or "").strip()
-    ]
-    return bool(generic_entries) and not real_entries
+    return bool(parsed.get("is_generic_mention", False))
 
 
 def _is_flea_without_brand(parsed: dict) -> bool:
@@ -4091,133 +4054,6 @@ async def _parse_gender_weight_neutered(text: str) -> dict:
         return {"gender": None, "weight_kg": None, "neutered": None}
 
 
-def _keyword_parse_preventive_care(text: str) -> dict:
-    """
-    Rule-based fallback for preventive care parsing when the GPT API call fails.
-
-    Strategy: locate each category keyword in the text by position, then assign
-    each keyword a span from its position to the next keyword's position (or end).
-    This correctly handles both comma-separated input ("vaccines last dec, deworming
-    today") and comma-free run-on sentences ("vaccines last december deworming today
-    flea 3 months back") — the latter is a common WhatsApp typing style.
-
-    Dates are extracted from each per-category span using relative-date patterns.
-    Only categories not found in the text appear in missing[].
-
-    Returns a dict with the same shape as _parse_preventive_care().
-    """
-    t = (text or "").lower()
-    today_d = date.today()
-
-    _MONTH_NUMS: dict[str, int] = {
-        "jan": 1, "january": 1, "feb": 2, "february": 2,
-        "mar": 3, "march": 3, "apr": 4, "april": 4,
-        "may": 5, "jun": 6, "june": 6,
-        "jul": 7, "july": 7, "aug": 8, "august": 8,
-        "sep": 9, "september": 9, "oct": 10, "october": 10,
-        "nov": 11, "november": 11, "dec": 12, "december": 12,
-    }
-
-    def _extract_date(seg: str) -> str | None:
-        """Return an absolute date string from a segment, or None."""
-        if re.search(r"\btoday\b|\bthis\s+month\b|\bjust\s+now\b|\bnow\b", seg):
-            return today_d.strftime("%d %B %Y")
-        if re.search(r"\byesterday\b", seg):
-            return (today_d - timedelta(days=1)).strftime("%d %B %Y")
-        m = re.search(r"(\d+)\s+months?\s+(?:ago|back|earlier)", seg)
-        if m:
-            n = int(m.group(1))
-            yr, mo = today_d.year, today_d.month - n
-            while mo <= 0:
-                mo += 12
-                yr -= 1
-            return f"{calendar.month_name[mo]} {yr}"
-        m = re.search(r"(\d+)\s+weeks?\s+(?:ago|back|earlier)", seg)
-        if m:
-            d = today_d - timedelta(weeks=int(m.group(1)))
-            return d.strftime("%d %B %Y")
-        m = re.search(r"(\d+)\s+days?\s+(?:ago|back|earlier)", seg)
-        if m:
-            d = today_d - timedelta(days=int(m.group(1)))
-            return d.strftime("%d %B %Y")
-        if re.search(r"\blast\s+month\b", seg):
-            yr, mo = today_d.year, today_d.month - 1
-            if mo == 0:
-                mo = 12
-                yr -= 1
-            return f"{calendar.month_name[mo]} {yr}"
-        # Match month names: "last dec", "in jan", or just "jan".
-        # Strict less-than: "last april" when today is April → previous year.
-        for name, num in sorted(_MONTH_NUMS.items(), key=lambda x: -len(x[0])):
-            if re.search(rf"\b{re.escape(name)}\b", seg):
-                yr = today_d.year if num < today_d.month else today_d.year - 1
-                return f"{calendar.month_name[num]} {yr}"
-        return None
-
-    _vaccine_re = re.compile(
-        r"\b(?:vaccin\w*|jabs?|shots?|rabies|dhppi?|bordetella|"
-        r"core\s+vaccines?|kennel\s+cough|leptospirosis|corona(?:virus)?|fvrcp|felv)\b"
-    )
-    _deworm_re = re.compile(r"\b(?:deworm(?:ing)?|worming|worm(?:ed|ing)?)\b")
-    _flea_re = re.compile(
-        r"\b(?:flea|tick|simparica|nexgard|bravecto|frontline|advocate|"
-        r"revolution|credelio|seresto|advantix|fipronil|ivermectin)\b"
-    )
-    _blood_re = re.compile(r"\b(?:blood\s*test|blood\s*work|cbc|complete\s*blood|haemato)\b")
-    _none_re = re.compile(
-        r"\b(?:none|not\s+done|never|no\s+(?:vaccine|deworm|flea|tick|blood)|haven'?t|not\s+yet)\b"
-    )
-
-    result: dict = {
-        "vaccines": None,
-        "vaccine_specifics": [],
-        "deworming": None,
-        "flea_tick": None,
-        "blood_test": None,
-        "missing": [],
-    }
-
-    # Build a list of (category, match_start) for every category keyword found.
-    # Sorting by position lets us slice text[start:next_start] as per-category spans,
-    # which correctly handles comma-free run-on sentences like:
-    #   "vaccines last december deworming today flea 3 months back"
-    keyword_hits: list[tuple[str, int]] = []
-    for cat, pat in (
-        ("vaccines", _vaccine_re),
-        ("deworming", _deworm_re),
-        ("flea_tick", _flea_re),
-        ("blood_test", _blood_re),
-    ):
-        m = pat.search(t)
-        if m:
-            keyword_hits.append((cat, m.start()))
-
-    keyword_hits.sort(key=lambda x: x[1])
-
-    # Assign each category the text from its keyword to the next keyword (or end).
-    spans: list[tuple[str, str]] = []
-    for i, (cat, start) in enumerate(keyword_hits):
-        end = keyword_hits[i + 1][1] if i + 1 < len(keyword_hits) else len(t)
-        spans.append((cat, t[start:end]))
-
-    for cat, seg in spans:
-        is_none = bool(_none_re.search(seg))
-        dt = "none" if is_none else (_extract_date(seg) or today_d.strftime("%B %Y"))
-
-        if cat == "vaccines":
-            result["vaccines"] = dt
-        elif cat == "deworming":
-            result["deworming"] = {"date": dt, "medicine": None, "prevention_targets": []}
-        elif cat == "flea_tick":
-            result["flea_tick"] = {"date": dt, "medicine": None, "prevention_targets": []}
-        elif cat == "blood_test":
-            result["blood_test"] = dt
-
-    found = {cat for cat, _ in spans}
-    result["missing"] = [
-        k for k in ("vaccines", "deworming", "flea_tick", "blood_test") if k not in found
-    ]
-    return result
 
 
 async def _parse_preventive_care(
@@ -4236,12 +4072,13 @@ async def _parse_preventive_care(
             rather than returning null.
 
     Returns dict with keys:
-        vaccines (str|None)         — generic "vaccines done" date
-        vaccine_specifics (list)    — [{"name": "rabies", "date": "Dec 2025"}, ...]
-        deworming (dict|str|None)   — {"date": "...", "medicine": "...", "prevention_targets": [...]} or date string
-        flea_tick (dict|str|None)   — {"date": "...", "medicine": "...", "prevention_targets": [...]} or date string
+        vaccines (str|None)          — generic "vaccines done" date
+        vaccine_specifics (list)     — [{"name": "rabies", "date": "Dec 2025"}, ...]
+        deworming (dict|str|None)    — {"date": "...", "medicine": "...", "prevention_targets": [...]} or date string
+        flea_tick (dict|str|None)    — {"date": "...", "medicine": "...", "prevention_targets": [...]} or date string
         blood_test (str|None)
-        missing (list[str])         — which of the 4 categories were not mentioned
+        is_generic_mention (bool)    — True when user mentioned vaccines generically (shot/jab/vaccinated) with no specific name
+        missing (list[str])          — which of the 4 categories were not mentioned
     """
     from app.services.shared.gpt_extraction import _build_medicine_coverage_prompt
 
@@ -4253,6 +4090,13 @@ async def _parse_preventive_care(
         "Extract preventive care information from this message about a pet. "
         "Look for four categories: vaccines, deworming, flea & tick treatment, and blood tests. "
         "For each, extract the approximate date or timeframe when it was last done. "
+        "PREVENTIVE CARE INDICATORS: The following terms signal preventive care content — "
+        "flea, tick, deworming, deworm, worm, simparica, nexgard, bravecto, frontline, drontal, "
+        "milbemax, panacur, advocate, revolution, credelio, seresto, advantix, fipronil, "
+        "ivermectin, fenbendazole, pyrantel, albendazole, prazitel, verminator, "
+        "blood test, blood tests, vaccine, vaccination. "
+        "If NONE of these terms appear and the message is purely about food/supplements, "
+        "return all fields as null (the message is not about preventive care).\n\n"
         "IMPORTANT: The user may list multiple categories in a comma-free run-on sentence "
         "(e.g. 'vaccines last december deworming today flea 3 months back'). "
         "In such cases each category keyword (vaccines, deworming, flea, blood test) "
@@ -4262,14 +4106,17 @@ async def _parse_preventive_care(
         "For example, if today is 2026-04-06 and user says 'last Dec', return 'December 2025'. "
         "If user says '3 months ago', return 'January 2026'. Never return relative phrases.\n\n"
         "VACCINE RULES:\n"
-        "- If the user names a specific vaccine (rabies, DHPPi, 7-in-1, 9-in-1, "
-        "kennel cough, bordetella, feline core, FVRCP, FeLV, FIV, leptospirosis, "
-        "coronavirus, core vaccine), put each one as an entry in 'vaccine_specifics' "
-        "with its date. In that case 'vaccines' must stay null.\n"
-        "- If the user only says generic 'vaccines' / 'shots' / 'jabs' / 'vaccinated' "
-        "without naming any specific vaccine, set 'vaccines' to the date and leave "
-        "'vaccine_specifics' as an empty list.\n"
-        "- Specific names go in 'vaccine_specifics' even when only one is mentioned.\n\n"
+        "- SPECIFIC vaccine names: rabies, DHPPi, 7-in-1, 9-in-1, 5-in-1, kennel cough, "
+        "bordetella, feline core, FVRCP, FeLV, FIV, leptospirosis, coronavirus, core vaccine, "
+        "jabs (only when a specific name follows), shots (only when a specific name follows). "
+        "Put each specific vaccine as an entry in 'vaccine_specifics' with its date; "
+        "'vaccines' must stay null in that case.\n"
+        "- GENERIC mentions: 'vaccine', 'vaccines', 'shot', 'shots', 'jab', 'jabs', "
+        "'vaccinated', 'vaccination', 'annual vaccine', 'annual vaccines' — when the user "
+        "uses only these words without naming a specific vaccine, set 'vaccines' to the date, "
+        "leave 'vaccine_specifics' as [], and set 'is_generic_mention' to true.\n"
+        "- 'is_generic_mention' must be true ONLY when vaccines are mentioned AND no specific "
+        "vaccine name is identified. False otherwise.\n\n"
         "MEDICINE NAME RULES:\n"
         "- For deworming and flea & tick, if the user mentions a specific medicine or "
         "brand name (e.g. Simparica, NexGard, Bravecto, Frontline, Milbemax, Drontal, "
@@ -4291,6 +4138,7 @@ async def _parse_preventive_care(
         '"deworming": {"date": "date or timeframe", "medicine": "brand name"|null, "prevention_targets": ["deworming"|"flea_tick"]}|null, '
         '"flea_tick": {"date": "date or timeframe", "medicine": "brand name"|null, "prevention_targets": ["deworming"|"flea_tick"]}|null, '
         '"blood_test": "date or timeframe"|null, '
+        '"is_generic_mention": true|false, '
         '"missing": ["category names not mentioned"]}. '
         "If the user explicitly says 'none' or 'not done' for a category, "
         'set it to "none" (not null). '
@@ -4330,6 +4178,7 @@ async def _parse_preventive_care(
             "deworming": data.get("deworming"),
             "flea_tick": data.get("flea_tick"),
             "blood_test": data.get("blood_test"),
+            "is_generic_mention": bool(data.get("is_generic_mention", False)),
             "missing": data.get("missing", []),
         }
         # Guardrail: if GPT missed a specific combo vaccine mention like
@@ -4342,42 +4191,24 @@ async def _parse_preventive_care(
             if isinstance(combo_date, str) and combo_date and combo_date != "none":
                 parsed["vaccine_specifics"] = [{"name": combo_name, "date": combo_date}]
                 parsed["vaccines"] = None
-        # Guardrail: GPT sometimes returns a generic label (e.g. "vaccines", "shots")
-        # as a vaccine_specific entry instead of the top-level "vaccines" field.
-        # Promote it back so _is_generic_vaccine_mention detects it and asks which
-        # vaccines the pet actually receives.
-        if not parsed.get("vaccines") or parsed.get("vaccines") == "none":
-            specifics = parsed.get("vaccine_specifics") or []
-            generic_entries = [
-                s for s in specifics
-                if isinstance(s, dict)
-                and str(s.get("name") or "").strip().lower() in _GENERIC_VAX_LABELS
-                and str(s.get("date") or "").strip()
-            ]
-            real_entries = [
-                s for s in specifics
-                if isinstance(s, dict)
-                and str(s.get("name") or "").strip().lower() not in _GENERIC_VAX_LABELS
-            ]
-            if generic_entries and not real_entries:
-                # All specifics are generic labels — promote the date to vaccines field.
-                parsed["vaccines"] = generic_entries[0]["date"]
-                parsed["vaccine_specifics"] = []
+                parsed["is_generic_mention"] = False
         parsed = _apply_all_preventive_categories_intent(text, parsed)
         return _normalize_preventive_medicine_categories(parsed)
     except Exception as e:
         logger.warning(
-            "Preventive care GPT parse failed (%s: %s); falling back to keyword extraction",
+            "Preventive care GPT parse failed (%s: %s); returning empty result",
             type(e).__name__,
             str(e),
         )
-        # Use keyword/regex extraction so data the user already provided is
-        # not silently discarded when the API is temporarily unavailable.
-        # Only categories NOT detected by keyword will appear in missing[].
-        # Apply the same post-processors as the main path for semantic equivalence.
-        fallback = _keyword_parse_preventive_care(text)
-        fallback = _apply_all_preventive_categories_intent(text, fallback)
-        return _normalize_preventive_medicine_categories(fallback)
+        return {
+            "vaccines": None,
+            "vaccine_specifics": [],
+            "deworming": None,
+            "flea_tick": None,
+            "blood_test": None,
+            "is_generic_mention": False,
+            "missing": ["vaccines", "deworming", "flea_tick", "blood_test"],
+        }
 
 
 def _contains_all_preventive_categories_intent(text: str) -> bool:

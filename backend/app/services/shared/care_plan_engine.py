@@ -212,52 +212,26 @@ _STATUS_ACTIVE: str = "Active"
 _STATUS_DUE_SOON: str = "Due Soon"
 _QUALIFYING_ORDER_STATUSES: tuple[str, ...] = ("confirmed", "completed", "placed", "delivered")
 
-# Ordered keyword-to-test_type mapping for item_name normalisation.
-# Checked in order: longer / more specific patterns first to avoid false matches.
-_ITEM_NAME_PATTERNS: list[tuple[str, str]] = [
-    ("echocardiogram", "echo"),
-    ("electrocardiogram", "ecg"),
-    ("blood chem", "cbc_chemistry"),
-    ("haematology", "cbc_chemistry"),
-    ("hematology", "cbc_chemistry"),
-    ("cbc", "cbc_chemistry"),
-    ("urinalysis", "urinalysis"),
-    ("urine", "urinalysis"),
-    ("teeth cleaning", "dental"),
-    ("scaling", "dental"),
-    ("dental", "dental"),
-    ("chest x", "chest_xray"),
-    ("x-ray", "chest_xray"),
-    ("xray", "chest_xray"),
-    ("ultrasound", "usg"),
-    ("usg", "usg"),
-    ("echo", "echo"),
-    ("ecg", "ecg"),
-    ("fecal", "fecal"),
-    ("faecal", "fecal"),
-    ("stool", "fecal"),
-    ("deworming", "deworming"),
-    ("deworm", "deworming"),
-    ("in-1", "vaccine"),
-    (" in 1", "vaccine"),
-    ("tick", "tick_flea"),
-    ("flea", "tick_flea"),
-    ("preventive blood test", "cbc_chemistry"),
-    ("blood test", "cbc_chemistry"),
-    ("leptospirosis", "vaccine"),
-    ("bordetella", "vaccine"),
-    ("kennel cough", "vaccine"),
-    ("coronavirus", "vaccine"),
-    ("dhppi", "vaccine"),
-    ("rabies", "vaccine"),
-    ("nobivac", "vaccine"),
-    ("vaccination", "vaccine"),
-    ("vaccine", "vaccine"),
-    ("supplement", "supplement"),
-    ("kibble", "food"),
-    ("food", "food"),
-    ("diet", "food"),
-]
+# LLM item type classification cache — populated on first call per unique item name.
+# Prevents repeated LLM calls for the same item across concurrent care plan renders.
+_ITEM_TYPE_CACHE: dict[str, str] = {}
+
+# All known patterns passed to the LLM as few-shot context for accurate classification.
+_ITEM_CLASSIFICATION_CONTEXT = (
+    "Known keyword→category examples: "
+    "echocardiogram→echo, electrocardiogram→ecg, "
+    "blood chem/haematology/hematology/cbc→cbc_chemistry, "
+    "urinalysis/urine→urinalysis, "
+    "teeth cleaning/scaling/dental→dental, "
+    "chest x/x-ray/xray→chest_xray, "
+    "ultrasound/usg→usg, echo→echo, ecg→ecg, "
+    "fecal/faecal/stool→fecal, "
+    "deworming/deworm→deworming, "
+    "in-1/ in 1→vaccine, tick/flea→tick_flea, "
+    "preventive blood test/blood test→cbc_chemistry, "
+    "leptospirosis/bordetella/kennel cough/coronavirus/dhppi/rabies/nobivac/vaccination/vaccine→vaccine, "
+    "supplement→supplement, kibble/food/diet→food."
+)
 
 # Section presentation metadata per test_type (icon + display title).
 _SECTION_META: dict[str, dict[str, str]] = {
@@ -393,25 +367,56 @@ class CarePlanV2(TypedDict):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _normalize_item_name(item_name: str) -> str:
+def _classify_item_type_llm(item_name: str) -> str:
     """
-    Map a preventive master item_name to a canonical test_type key.
+    Classify an item_name into a canonical test_type using the LLM.
 
-    Checks _ITEM_NAME_PATTERNS in order (longest / most specific first) and
-    returns the first match.  Returns "other" when no pattern matches.
+    Uses a sync Anthropic/OpenAI call (safe in thread-pool context) with all
+    known classification examples as few-shot context.  Results are cached in
+    _ITEM_TYPE_CACHE to avoid repeated calls for the same item name.
 
     Args:
         item_name: The item_name string from preventive_master or
                    a medication name from condition_medications.
 
     Returns:
-        Canonical test_type string (e.g. "cbc_chemistry") or "other".
+        Canonical test_type string (e.g. "cbc_chemistry", "vaccine") or "other".
     """
     lower = item_name.strip().lower()
-    for keyword, test_type in _ITEM_NAME_PATTERNS:
-        if keyword in lower:
-            return test_type
-    return "other"
+    if lower in _ITEM_TYPE_CACHE:
+        return _ITEM_TYPE_CACHE[lower]
+
+    _VALID_TYPES = {
+        "vaccine", "deworming", "tick_flea", "dental", "cbc_chemistry",
+        "urinalysis", "fecal", "chest_xray", "usg", "ecg", "echo",
+        "supplement", "food", "other",
+    }
+    try:
+        from app.utils.ai_client import get_sync_ai_client
+        from app.core.constants import OPENAI_QUERY_MODEL
+        client = get_sync_ai_client()
+        response = client.messages.create(
+            model=OPENAI_QUERY_MODEL,
+            max_tokens=16,
+            temperature=0,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Classify this veterinary preventive item into one of these categories: "
+                    f"{', '.join(sorted(_VALID_TYPES))}.\n\n"
+                    f"{_ITEM_CLASSIFICATION_CONTEXT}\n\n"
+                    f"Item: {item_name}\n"
+                    "Reply with only the category name."
+                ),
+            }],
+        )
+        result = (response.content[0].text or "").strip().lower()
+        result = result if result in _VALID_TYPES else "other"
+    except Exception:
+        result = "other"
+
+    _ITEM_TYPE_CACHE[lower] = result
+    return result
 
 
 def _get_breed_size(weight_kg: float | None, breed: str | None) -> BreedSize:
@@ -1015,7 +1020,7 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
                 continue
 
             item_name = item.item_name
-            test_type = _normalize_item_name(item_name)
+            test_type = _classify_item_type_llm(item_name)
             if test_type == "other":
                 continue
 
@@ -1064,7 +1069,7 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
         active_meds = care_repo.find_active_condition_medications_with_refill(pet.id)
 
         for med in active_meds:
-            test_type = _normalize_item_name(med.name)
+            test_type = _classify_item_type_llm(med.name)
             # Food and supplement medications are handled by diet_items; skip.
             if test_type in ("other", "food", "supplement"):
                 continue
@@ -1128,7 +1133,7 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             # Do not surface Tick/Flea as a mandatory "Quick Fix" for dogs < 8 weeks.
             if _skip_flea_tick and master.item_name == "Tick/Flea":
                 continue
-            test_type = _normalize_item_name(master.item_name)
+            test_type = _classify_item_type_llm(master.item_name)
             if test_type not in _mandatory_phantom_types:
                 continue
             item_key = _build_item_key(
@@ -1318,7 +1323,7 @@ def compute_care_plan(db: Session, pet: Pet) -> CarePlanV2:
             care_repo = CareRepository(db)
             distinct_meds = care_repo.find_distinct_active_medications(pet.id)
             for clin_med in distinct_meds:
-                med_test_type = _normalize_item_name(clin_med.name)
+                med_test_type = _classify_item_type_llm(clin_med.name)
                 # Only handle clinical medications (non-preventive types).
                 # Preventive types (vaccine, deworming, tick_flea, etc.) are
                 # already handled by the prescriptions_by_key path above.

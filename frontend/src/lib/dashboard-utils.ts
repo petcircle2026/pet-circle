@@ -14,28 +14,6 @@ export const STATUS_CONFIG: Record<string, { color: string; bg: string; label: s
   cancelled: { color: '#8E8E93', bg: '#F2F2F7', label: 'Cancelled' },
 };
 
-// ─── Keyword Arrays ──────────────────────────────────────────────
-export const VACCINE_KW = [
-  "vaccine",
-  "rabies",
-  "dhpp",
-  "core vaccine",
-  "feline core",
-  "bordetella",
-  "kennel cough",
-  "nobivac",
-  "coronavirus",
-  "ccov",
-  "leptospirosis",
-  "canine influenza",
-  "felv",
-  "fiv",
-  "puppy booster",
-];
-export const DEWORMING_KW = ["deworming", "deworm"];
-export const FLEA_TICK_KW = ["tick", "flea"];
-export const CHECKUP_KW = ["checkup", "annual", "wellness", "blood test", "preventive blood"];
-
 // ─── Date Helpers ────────────────────────────────────────────────
 export function formatDMY(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
