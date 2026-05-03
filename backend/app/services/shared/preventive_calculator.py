@@ -464,6 +464,69 @@ def create_preventive_record(
     return record
 
 
+def create_custom_preventive_record(
+    db: Session,
+    pet_id: UUID,
+    custom_item: "CustomPreventiveItem",
+    last_done_date: date,
+    pet=None,
+) -> PreventiveRecord:
+    """
+    Create or update a preventive record for a user-scoped custom item.
+
+    Exact equivalent of create_preventive_record() for custom_preventive_item
+    references. Uses get_effective_recurrence_days() so the same recurrence
+    priority chain (custom override → medicine-specific → life-stage → default)
+    applies as for master-linked records.
+    """
+    from app.repositories.preventive_repository import PreventiveRepository
+    from types import SimpleNamespace
+
+    repo = PreventiveRepository(db)
+
+    proxy = SimpleNamespace(custom_recurrence_days=None, medicine_name=None)
+    effective_days = get_effective_recurrence_days(db, custom_item, proxy, pet)
+
+    next_due = compute_next_due_date(last_done_date, effective_days)
+    status = compute_status(next_due, custom_item.reminder_before_days)
+
+    existing = repo.find_by_pet_custom_and_date(pet_id, custom_item.id, last_done_date)
+    if existing:
+        existing.next_due_date = next_due
+        existing.status = status
+        db.commit()
+        return existing
+
+    placeholder = repo.find_oldest_placeholder_by_custom_item(pet_id, custom_item.id)
+    if placeholder:
+        placeholder.last_done_date = last_done_date
+        placeholder.next_due_date = next_due
+        placeholder.status = status
+        db.commit()
+        logger.info(
+            "Custom preventive placeholder filled: pet_id=%s, item=%s, "
+            "last_done=%s, next_due=%s, status=%s",
+            str(pet_id), custom_item.item_name, str(last_done_date), str(next_due), status,
+        )
+        return placeholder
+
+    record = PreventiveRecord(
+        pet_id=pet_id,
+        custom_preventive_item_id=custom_item.id,
+        last_done_date=last_done_date,
+        next_due_date=next_due,
+        status=status,
+    )
+    db.add(record)
+    db.commit()
+    logger.info(
+        "Custom preventive record created: pet_id=%s, item=%s, "
+        "last_done=%s, next_due=%s, status=%s",
+        str(pet_id), custom_item.item_name, str(last_done_date), str(next_due), status,
+    )
+    return record
+
+
 def days_to_freq_label(days: int) -> str:
     """Convert recurrence interval in days to a human-readable label."""
     if days <= 7:   return "Weekly"

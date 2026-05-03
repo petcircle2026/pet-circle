@@ -69,6 +69,7 @@ from app.core.constants import (
 from app.services.shared.preventive_calculator import (
     compute_next_due_date,
     compute_status,
+    get_effective_recurrence_days,
 )
 from app.utils.date_utils import format_date_for_user, get_today_ist
 from app.repositories.reminder_repository import ReminderRepository
@@ -203,8 +204,11 @@ def _handle_done_preventive_record(db: Session, reminder: Reminder, today: date)
     if not master:
         raise ValueError(f"Preventive master not found for record: {record.id}")
 
+    from app.models.core.pet import Pet
+    pet = db.query(Pet).filter(Pet.id == record.pet_id).first()
+    effective_days = get_effective_recurrence_days(db, master, record, pet)
     record.last_done_date = today
-    record.next_due_date = compute_next_due_date(today, master.recurrence_days)
+    record.next_due_date = compute_next_due_date(today, effective_days)
     record.status = compute_status(record.next_due_date, master.reminder_before_days)
     reminder.status = "completed"
     db.commit()
@@ -302,6 +306,10 @@ def _handle_snooze(db: Session, reminder: Reminder) -> dict:
         record = preventive_repo.get_by_id(reminder.preventive_record_id)
         if record and record.next_due_date:
             record.next_due_date = record.next_due_date + timedelta(days=snooze_days)
+            master_repo = PreventiveMasterRepository(db)
+            master = master_repo.get_by_id(record.preventive_master_id)
+            if master:
+                record.status = compute_status(record.next_due_date, master.reminder_before_days)
     elif reminder.source_type == "diet_item" and reminder.source_id:
         item = diet_repo.find_by_id(reminder.source_id)
         if item and item.last_purchase_date:

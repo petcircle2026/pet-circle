@@ -35,7 +35,6 @@ import json
 import logging
 import os
 import re
-from contextlib import nullcontext
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -2049,9 +2048,11 @@ async def _derive_items_from_vaccination_details(
     if not vaccination_details:
         return existing_items, []
 
-    # Track which item names are already present (normalized).
-    existing_names = {
-        _normalize_preventive_item_name(item.get("item_name", ""))
+    # Track (normalized_name, date) pairs already present so we deduplicate exact
+    # duplicates (same vaccine + same date) while allowing multiple historical doses
+    # of the same vaccine type on different dates.
+    existing_pairs: set[tuple[str, str | None]] = {
+        (_normalize_preventive_item_name(item.get("item_name", "")), item.get("last_done_date"))
         for item in existing_items
     }
 
@@ -2099,11 +2100,11 @@ async def _derive_items_from_vaccination_details(
             continue
 
         for mapped_item in mapped_items:
-            normalized_item = _normalize_preventive_item_name(mapped_item)
-            if normalized_item in existing_names:
+            key = (_normalize_preventive_item_name(mapped_item), parsed)
+            if key in existing_pairs:
                 continue
             derived.append({"item_name": mapped_item, "last_done_date": parsed})
-            existing_names.add(normalized_item)
+            existing_pairs.add(key)
 
     return existing_items + derived, extra_vaccines
 
@@ -2166,7 +2167,6 @@ def _derive_items_from_medication_brands(
         _normalize_preventive_item_name(item.get("item_name", ""))
         for item in existing_items
     }
-    extra_items: list[dict] = []
 
     category_to_item_name = {
         "deworming": "Deworming",
@@ -2193,13 +2193,20 @@ def _derive_items_from_medication_brands(
         if isinstance(med, dict):
             medication_rows.append(med)
 
+    # Collect all unique (item, date) pairs so every historical dose is stored,
+    # matching the vaccination path which deduplicates on (name, date) not just name.
+    existing_pairs: set[tuple[str, str]] = {
+        (_normalize_preventive_item_name(item.get("item_name", "")), item.get("last_done_date", ""))
+        for item in existing_items
+    }
+
+    extra_items: list[dict] = []
     for med in medication_rows:
         med_name_raw = med.get("name")
         med_name = med_name_raw.strip() if isinstance(med_name_raw, str) else ""
 
         start_date_raw = med.get("start_date")
         if start_date_raw is None:
-            # Preventive records require a concrete done date; skip incomplete meds.
             continue
         try:
             parsed_start_date = parse_date(str(start_date_raw))
@@ -2222,14 +2229,11 @@ def _derive_items_from_medication_brands(
             tracked_item = category_to_item_name.get(category)
             if not tracked_item:
                 continue
-            normalized_item = _normalize_preventive_item_name(tracked_item)
-            if normalized_item in existing_item_names:
+            key = (_normalize_preventive_item_name(tracked_item), normalized_start_date)
+            if key in existing_pairs:
                 continue
-            extra_items.append({
-                "item_name": tracked_item,
-                "last_done_date": normalized_start_date,
-            })
-            existing_item_names.add(normalized_item)
+            extra_items.append({"item_name": tracked_item, "last_done_date": normalized_start_date})
+            existing_pairs.add(key)
 
     return existing_items + extra_items
 
@@ -2269,6 +2273,12 @@ async def _llm_resolve_unmatched_preventive_medications(
         if isinstance(med, dict):
             medication_rows.append(med)
 
+    # Collect all unique (item, date) pairs so every historical dose is stored.
+    existing_pairs: set[tuple[str, str]] = {
+        (_normalize_preventive_item_name(item.get("item_name", "")), item.get("last_done_date", ""))
+        for item in existing_items
+    }
+
     extra_items: list[dict] = []
     for med in medication_rows:
         med_name_raw = med.get("name")
@@ -2305,11 +2315,11 @@ async def _llm_resolve_unmatched_preventive_medications(
             tracked_item = category_to_item_name.get(category)
             if not tracked_item:
                 continue
-            normalized_item = _normalize_preventive_item_name(tracked_item)
-            if normalized_item in existing_item_names:
+            key = (_normalize_preventive_item_name(tracked_item), normalized_start_date)
+            if key in existing_pairs:
                 continue
             extra_items.append({"item_name": tracked_item, "last_done_date": normalized_start_date})
-            existing_item_names.add(normalized_item)
+            existing_pairs.add(key)
 
     return existing_items + extra_items
 
@@ -2479,60 +2489,23 @@ def _upsert_custom_preventive_record_for_pet(
     last_done_date,
 ) -> None:
     """Create or update a pet-level preventive record for a custom vaccine item."""
-    from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+    from app.services.shared.preventive_calculator import create_custom_preventive_record
     from app.repositories.preventive_repository import PreventiveRepository
 
-    repo = PreventiveRepository(db)
-
     if last_done_date is None:
-        placeholder = repo.find_placeholder_by_custom_item(pet_id, custom_item.id)
-        if placeholder:
-            return
-        new_record = PreventiveRecord(
-            pet_id=pet_id,
-            custom_preventive_item_id=custom_item.id,
-            last_done_date=None,
-            next_due_date=None,
-            status="upcoming",
-        )
-        repo.create(
-            pet_id=pet_id,
-            preventive_master_id=None,
-            custom_preventive_item_id=custom_item.id,
-            last_done_date=None,
-            next_due_date=None,
-            status="upcoming",
-        )
+        repo = PreventiveRepository(db)
+        if not repo.find_placeholder_by_custom_item(pet_id, custom_item.id):
+            db.add(PreventiveRecord(
+                pet_id=pet_id,
+                custom_preventive_item_id=custom_item.id,
+                last_done_date=None,
+                next_due_date=None,
+                status="not_started",
+            ))
+            db.commit()
         return
 
-    next_due = compute_next_due_date(last_done_date, custom_item.recurrence_days)
-    status = compute_status(next_due, custom_item.reminder_before_days)
-
-    existing = repo.find_by_pet_custom_and_date(pet_id, custom_item.id, last_done_date)
-    if existing:
-        existing.next_due_date = next_due
-        existing.status = status
-        db.flush()
-        return
-
-    placeholder = repo.find_oldest_placeholder_by_custom_item(pet_id, custom_item.id)
-    if placeholder:
-        placeholder.last_done_date = last_done_date
-        placeholder.next_due_date = next_due
-        placeholder.status = status
-        db.flush()
-        return
-
-    db.add(
-        PreventiveRecord(
-            pet_id=pet_id,
-            custom_preventive_item_id=custom_item.id,
-            last_done_date=last_done_date,
-            next_due_date=next_due,
-            status=status,
-        )
-    )
-    db.flush()
+    create_custom_preventive_record(db, pet_id=pet_id, custom_item=custom_item, last_done_date=last_done_date)
 
 
 def _persist_extra_vaccines_for_pet(
@@ -2571,22 +2544,21 @@ def _persist_extra_vaccines_for_pet(
         seen_keys.add(dedupe_key)
 
         try:
-            scope = db.begin_nested() if hasattr(db, "begin_nested") else nullcontext()
-            with scope:
-                custom_item = _upsert_custom_item_for_extra_vaccine(
-                    db,
-                    user_id=pet.user_id,
-                    species=pet.species,
-                    vaccine_name=vaccine_name,
-                )
-                _upsert_custom_preventive_record_for_pet(
-                    db,
-                    pet_id=pet.id,
-                    custom_item=custom_item,
-                    last_done_date=done_date,
-                )
-                saved += 1
+            custom_item = _upsert_custom_item_for_extra_vaccine(
+                db,
+                user_id=pet.user_id,
+                species=pet.species,
+                vaccine_name=vaccine_name,
+            )
+            _upsert_custom_preventive_record_for_pet(
+                db,
+                pet_id=pet.id,
+                custom_item=custom_item,
+                last_done_date=done_date,
+            )
+            saved += 1
         except Exception as exc:
+            db.rollback()
             logger.warning(
                 "Could not persist extra vaccine '%s' for pet %s: %s",
                 vaccine_name,

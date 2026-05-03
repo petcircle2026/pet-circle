@@ -1027,7 +1027,7 @@ async def _step_prev_add_name(db, user, pets, pet, ctx, text, mobile, send_text_
 async def _step_prev_add_date(db, user, pets, pet, ctx, text, mobile, send_text_message):
     from app.models.preventive.custom_preventive_item import CustomPreventiveItem
     from app.models.preventive.preventive_record import PreventiveRecord
-    from app.services.shared.preventive_calculator import compute_next_due_date, compute_status
+    from app.services.shared.preventive_calculator import create_custom_preventive_record
 
     item_name = ctx.get("item_name", "")
     if text.lower() == "skip":
@@ -1059,22 +1059,18 @@ async def _step_prev_add_date(db, user, pets, pet, ctx, text, mobile, send_text_
         db.flush()
 
     if last_done:
-        next_due = compute_next_due_date(last_done, 30)
-        status = compute_status(next_due, 7)
+        create_custom_preventive_record(db, pet_id=pet.id, custom_item=custom_item, last_done_date=last_done)
     else:
-        next_due = None
-        status = "upcoming"
-
-    db.add(
-        PreventiveRecord(
-            pet_id=pet.id,
-            custom_preventive_item_id=custom_item.id,
-            last_done_date=last_done,
-            next_due_date=next_due,
-            status=status,
+        db.add(
+            PreventiveRecord(
+                pet_id=pet.id,
+                custom_preventive_item_id=custom_item.id,
+                last_done_date=None,
+                next_due_date=None,
+                status="not_started",
+            )
         )
-    )
-    db.commit()
+        db.commit()
     date_display = f", last done {last_done}" if last_done else ""
     _schedule_precompute(str(pet.id))
     await _send_done(

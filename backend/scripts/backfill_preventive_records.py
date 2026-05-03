@@ -58,7 +58,7 @@ def main():
                 record = PreventiveRecord(
                     pet_id=pet.id,
                     preventive_master_id=master.id,
-                    status="upcoming",
+                    status="not_started",
                 )
                 db.add(record)
                 total_created += 1

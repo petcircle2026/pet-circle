@@ -5503,12 +5503,14 @@ def seed_preventive_records_for_pet(db: Session, pet: Pet) -> int:
                 )
                 today = get_today_ist()
 
+                from app.services.shared.preventive_calculator import compute_status
+
                 record = PreventiveRecord(
                     pet_id=pet.id,
                     preventive_master_id=master.id,
                     last_done_date=previous_birthday,
                     next_due_date=next_birthday,
-                    status="upcoming" if next_birthday <= today else "up_to_date",
+                    status=compute_status(next_birthday, master.reminder_before_days),
                 )
             else:
                 # Baseline record — no history yet, dates unknown.
