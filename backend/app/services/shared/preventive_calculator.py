@@ -58,7 +58,7 @@ def get_medicine_recurrence_days(db: Session, medicine_name: str | None) -> int 
         return None
 
     try:
-        from app.models.product_medicines import ProductMedicines
+        from app.models import ProductMedicines
 
         product = (
             db.query(ProductMedicines)
