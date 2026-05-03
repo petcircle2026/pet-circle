@@ -323,8 +323,8 @@ export default function DotPlotSVG({
               cy={ly}
               r={6}
               fill={item.fill}
-              stroke={item.dashed ? "#8A8A8A" : item.fill === "none" ? "#8A8A8A" : "none"}
-              strokeWidth={item.dashed ? 1.5 : 0}
+              stroke={item.dashed ? "#8A8A8A" : item.fill === "none" ? "#8A8A8A" : "white"}
+              strokeWidth={1.5}
               strokeDasharray={item.dashed ? "3 2" : undefined}
             />
             <text
