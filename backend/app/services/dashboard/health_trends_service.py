@@ -305,6 +305,10 @@ def _build_vaccine_cadence(
     done_vaccine_count = 0
 
     for idx, (node_date, group) in enumerate(date_groups.items(), start=1):
+        if node_date is None:
+            # Skip vaccines with no administered or scheduled date — they have
+            # no chronological position and would render as "--" on the timeline.
+            continue
         names = [m.item_name for _, m in group]
         all_done = all(bool(r.last_done_date) for r, _ in group)
         if all_done and node_date:
@@ -351,9 +355,9 @@ def _build_vaccine_cadence(
             status = disp["status_display"]
             if status == "Overdue":
                 overdue_dates.append(disp["next_due"])
-            elif status == "Due soon":
+            elif status == "Upcoming":
                 due_soon_dates.append(disp["next_due"])
-            elif status == "On track":
+            elif status == "Up to date":
                 upcoming_dates.append(disp["next_due"])
     overdue_dates.sort()
     due_soon_dates.sort()
