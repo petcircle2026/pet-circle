@@ -324,6 +324,34 @@ def _build_vaccine_cadence(
             }
         )
 
+    # Append one upcoming round: for each vaccine take the next_due_date from
+    # its most recently done record, then group by date and show the earliest.
+    vaccine_latest_done: dict[str, tuple[date, date]] = {}
+    for rec, master in vaccine_pairs:
+        if not rec.last_done_date or not rec.next_due_date:
+            continue
+        name = master.item_name if master else ""
+        current = vaccine_latest_done.get(name)
+        if current is None or rec.last_done_date > current[0]:
+            vaccine_latest_done[name] = (rec.last_done_date, rec.next_due_date)
+
+    upcoming_by_date: dict[date, list[str]] = {}
+    for name, (_, next_due) in vaccine_latest_done.items():
+        upcoming_by_date.setdefault(next_due, []).append(name)
+
+    if upcoming_by_date:
+        earliest_upcoming = min(upcoming_by_date.keys())
+        upcoming_names = sorted(upcoming_by_date[earliest_upcoming])
+        rounds.append(
+            {
+                "id": f"R{len(rounds) + 1}",
+                "label": f"R{len(rounds) + 1}",
+                "vaccines": " · ".join(upcoming_names),
+                "done": False,
+                "date": earliest_upcoming.isoformat(),
+            }
+        )
+
     gaps = []
     for prev, cur in zip(done_dates, done_dates[1:], strict=False):
         if prev and cur:
@@ -355,9 +383,9 @@ def _build_vaccine_cadence(
             status = disp["status_display"]
             if status == "Overdue":
                 overdue_dates.append(disp["next_due"])
-            elif status == "Upcoming":
+            elif status == "Due soon":
                 due_soon_dates.append(disp["next_due"])
-            elif status == "Up to date":
+            elif status == "On track":
                 upcoming_dates.append(disp["next_due"])
     overdue_dates.sort()
     due_soon_dates.sort()
