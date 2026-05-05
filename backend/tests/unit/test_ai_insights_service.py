@@ -32,6 +32,7 @@ class _ScalarQuery:
     def options(self, *args, **kwargs): return self
     def with_entities(self, *args, **kwargs): return self
     def distinct(self, *args, **kwargs): return self
+    def limit(self, *args, **kwargs): return self
 
     def scalar(self):
         if isinstance(self._value, list):
@@ -221,12 +222,21 @@ class _FakeInsightDB:
 @pytest.mark.asyncio
 async def test_generate_recognition_bullets_orders_conditions_preventive_diet():
     # scalar_values consumed in order:
-    # 1st query → active_condition_count (scalar) = 4
+    # 1st query → conditions (find_by_pet_and_active_with_relations): 4 condition objects
     # 2nd query → preventive base; then .count() calls (distinct per master/custom):
     #   vaccine: master=0, custom=0 → vaccine_count=0
     #   total:   master=0, custom=2 → total=2 → other=2
+    # all_rows[0] → diet items
     db = _FakeSession(
-        scalar_values=[4, [0, 0, 0, 2]],
+        scalar_values=[
+            [
+                SimpleNamespace(name="Hip Dysplasia", condition_type="chronic"),
+                SimpleNamespace(name="Fungal Infection", condition_type="episodic"),
+                SimpleNamespace(name="Pyoderma", condition_type="episodic"),
+                SimpleNamespace(name="Ear Mites", condition_type="recurrent"),
+            ],
+            [0, 0, 0, 2],
+        ],
         all_rows=[
             [
                 SimpleNamespace(type="packaged", label="Royal Canin Adult kibble", detail="50g x 3/day", source=None),

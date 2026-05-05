@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 from typing import List
 
-from sqlalchemy import and_, desc
+from sqlalchemy import and_, desc, text as sa_text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.health.weight_history import WeightHistory
@@ -520,6 +520,48 @@ class HealthRepository:
                 DiagnosticTestResult.observed_at != None,
             )
             .order_by(desc(DiagnosticTestResult.observed_at))
+            .all()
+        )
+
+    def get_active_medications_deduped(self, pet_id: UUID, today: date):
+        """
+        Return one row per unique medication name (case-insensitive) for a pet.
+        Null end_date (lifelong) wins dedup via NULLS FIRST; includes episode_dates
+        so callers can apply the FIX_B 30-day rule for null-end-date meds.
+        """
+        return self.db.execute(
+            sa_text("""
+                SELECT DISTINCT ON (LOWER(cm.name))
+                    cm.name         AS med_name,
+                    cm.dose,
+                    cm.frequency,
+                    cm.end_date,
+                    c.name          AS condition_name,
+                    c.id            AS condition_id,
+                    c.document_id,
+                    c.episode_dates
+                FROM condition_medications cm
+                JOIN conditions c ON cm.condition_id = c.id
+                WHERE c.pet_id = :pet_id
+                  AND (cm.end_date >= :today OR cm.end_date IS NULL)
+                ORDER BY LOWER(cm.name), cm.end_date DESC NULLS FIRST
+            """),
+            {"pet_id": str(pet_id), "today": today},
+        ).fetchall()
+
+    def get_abnormal_diagnostics(self, pet_id: UUID, limit: int = 50):
+        """
+        Return diagnostic test results with status_flag in (low, high, abnormal),
+        ordered by most recent first.
+        """
+        return (
+            self.db.query(DiagnosticTestResult)
+            .filter(
+                DiagnosticTestResult.pet_id == pet_id,
+                DiagnosticTestResult.status_flag.in_(["low", "high", "abnormal"]),
+            )
+            .order_by(DiagnosticTestResult.observed_at.desc())
+            .limit(limit)
             .all()
         )
 

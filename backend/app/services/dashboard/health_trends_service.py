@@ -31,7 +31,6 @@ from app.repositories.product_repository import ProductRepository
 from app.core.constants import HIGH_OVERDUE_DAYS, URGENT_OVERDUE_DAYS
 from app.services.dashboard.condition_aggregation_service import is_medication_active
 
-_ASK_VET_CONDITION_TYPES = {"chronic", "episodic", "recurrent"}
 _METABOLIC_MARKERS = ("alt", "creatinine", "glucose", "bilirubin")
 _BLOOD_GROUP_ORDER: list[tuple[str, tuple[str, ...]]] = [
     ("cbc", ("hemoglobin", "haemoglobin", "wbc", "rbc", "platelet", "pcv", "hct", "mcv", "mch")),
@@ -907,14 +906,9 @@ async def _get_condition_questions(db: Session, pet: Pet, condition: Condition) 
     return questions[:3]
 
 
-_SYNTHETIC_CONDITION_NAMES: frozenset[str] = frozenset({"Prescription Medications"})
-
-
 def _fetch_active_conditions(db: Session, pet_id: Any) -> list[Condition]:
-    """Fetch active chronic/episodic conditions with related medication/monitoring."""
-    condition_repo = ConditionRepository(db)
-    conditions = condition_repo.find_by_pet_and_active_with_relations(pet_id, _ASK_VET_CONDITION_TYPES)
-    return [c for c in conditions if c.name not in _SYNTHETIC_CONDITION_NAMES]
+    """Fetch displayable active conditions with related medication/monitoring."""
+    return ConditionRepository(db).find_displayable_active(pet_id)
 
 
 def _fetch_latest_blood_results(db: Session, pet_id: Any) -> list[DiagnosticTestResult]:

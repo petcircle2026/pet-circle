@@ -8,6 +8,7 @@ from uuid import UUID
 from typing import List
 from datetime import datetime, timezone
 
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.health.condition import Condition
@@ -73,6 +74,40 @@ class ConditionRepository:
             query = query.filter(Condition.condition_type.in_(condition_types))
         return query.order_by(Condition.created_at.desc()).all()
 
+    # Condition types and names shown on dashboard surfaces (Ask Your Vet, Overview).
+    DISPLAYABLE_CONDITION_TYPES: frozenset[str] = frozenset({"chronic", "episodic", "recurrent"})
+    EXCLUDED_CONDITION_NAMES: frozenset[str] = frozenset({"Prescription Medications"})
+
+    def find_displayable_active(self, pet_id: UUID) -> List[Condition]:
+        """
+        Return active conditions that are suitable for display on dashboard surfaces
+        (Overview recognition bullet and Ask Your Vet section).
+
+        Applies three filters consistently:
+        - condition_type restricted to DISPLAYABLE_CONDITION_TYPES
+        - excludes synthetic entries in EXCLUDED_CONDITION_NAMES
+        - excludes GPT-inferred conditions (name contains "(inferred)")
+        """
+        rows = (
+            self.db.query(Condition)
+            .options(
+                selectinload(Condition.medications),
+                selectinload(Condition.monitoring),
+            )
+            .filter(
+                Condition.pet_id == pet_id,
+                Condition.is_active == True,
+                Condition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
+            )
+            .order_by(Condition.created_at.desc())
+            .all()
+        )
+        return [
+            c for c in rows
+            if c.name not in self.EXCLUDED_CONDITION_NAMES
+            and "(inferred)" not in (c.name or "").lower()
+        ]
+
     def create(
         self,
         pet_id: UUID,
@@ -99,6 +134,38 @@ class ConditionRepository:
             .order_by(AggregatedCondition.last_record_date.desc().nullslast())
             .all()
         )
+
+    def get_aggregated_conditions_for_insights(self, pet_id: UUID):
+        """
+        Return aggregated condition rows joined with their latest episode condition,
+        ordered by last_record_date desc. Returns raw Row objects with all fields
+        needed to build the GPT conditions payload (including vet_resolved, source).
+        """
+        return self.db.execute(
+            sa_text("""
+                SELECT
+                    ac.id                           AS condition_family_id,
+                    ac.name,
+                    ac.condition_type,
+                    ac.episode_dates,
+                    ac.diagnosed_at,
+                    ac.last_record_date,
+                    ac.medication_end_date,
+                    ac.latest_episode_condition_id,
+                    ac.soft_resolution,
+                    ac.recurrence_watch,
+                    ac.medications,
+                    ac.monitoring,
+                    c.vet_resolved,
+                    c.source
+                FROM aggregated_conditions ac
+                LEFT JOIN conditions c
+                    ON c.id = ac.latest_episode_condition_id
+                WHERE ac.pet_id = :pet_id
+                ORDER BY ac.last_record_date DESC NULLS LAST
+            """),
+            {"pet_id": str(pet_id)},
+        ).fetchall()
 
     def upsert_aggregated_condition(self, pet_id: UUID, family_data: dict) -> AggregatedCondition:
         """Insert or update an aggregated condition family row.

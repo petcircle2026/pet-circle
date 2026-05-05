@@ -825,12 +825,13 @@ async def get_or_generate_insight(
             normalized_insight_type = "vet_questions"
 
         if normalized_insight_type == "health_conditions_v2":
-            from app.models.health.aggregated_condition import AggregatedCondition
-            from app.models.health.diagnostic_test_result import DiagnosticTestResult
             from app.models.nutrition.diet_item import DietItem
-            from sqlalchemy import text as sa_text
+            from app.repositories.condition_repository import ConditionRepository
+            from app.repositories.health_repository import HealthRepository
             from datetime import date as _date
             _today = _date.today()
+            _condition_repo = ConditionRepository(db)
+            _health_repo = HealthRepository(db)
 
             age_months = _get_pet_age_months(pet) if not isinstance(pet, dict) else None
             age_years = round(age_months / 12, 1) if age_months else None
@@ -852,31 +853,7 @@ async def get_or_generate_insight(
                 "medications", "medication", "supplements", "supplement", "rx medications",
             }
 
-            agg_rows = db.execute(
-                sa_text("""
-                    SELECT
-                        ac.id                           AS condition_family_id,
-                        ac.name,
-                        ac.condition_type,
-                        ac.episode_dates,
-                        ac.diagnosed_at,
-                        ac.last_record_date,
-                        ac.medication_end_date,
-                        ac.latest_episode_condition_id,
-                        ac.soft_resolution,
-                        ac.recurrence_watch,
-                        ac.medications,
-                        ac.monitoring,
-                        c.vet_resolved,
-                        c.source
-                    FROM aggregated_conditions ac
-                    LEFT JOIN conditions c
-                        ON c.id = ac.latest_episode_condition_id
-                    WHERE ac.pet_id = :pet_id
-                    ORDER BY ac.last_record_date DESC NULLS LAST
-                """),
-                {"pet_id": str(pet_id)},
-            ).fetchall()
+            agg_rows = _condition_repo.get_aggregated_conditions_for_insights(pet_id)
 
             def _compute_status(row):
                 if row.vet_resolved:
@@ -920,23 +897,7 @@ async def get_or_generate_insight(
                 if row.name.lower().strip() not in _NON_CONDITION_NAMES
             ]
 
-            active_meds_raw = db.execute(
-                sa_text("""
-                    SELECT DISTINCT ON (LOWER(cm.name))
-                        cm.name         AS med_name,
-                        cm.dose,
-                        cm.frequency,
-                        cm.end_date,
-                        c.name          AS condition_name,
-                        c.episode_dates
-                    FROM condition_medications cm
-                    JOIN conditions c ON cm.condition_id = c.id
-                    WHERE c.pet_id = :pet_id
-                      AND (cm.end_date >= :today OR cm.end_date IS NULL)
-                    ORDER BY LOWER(cm.name), cm.end_date DESC NULLS FIRST
-                """),
-                {"pet_id": str(pet_id), "today": _today},
-            ).fetchall()
+            active_meds_raw = _health_repo.get_active_medications_deduped(pet_id, _today)
 
             def _null_end_date_active(row) -> bool:
                 episode_dates = row.episode_dates or []
@@ -965,16 +926,7 @@ async def get_or_generate_insight(
                 for m in active_meds
             ]
 
-            abnormal_results = (
-                db.query(DiagnosticTestResult)
-                .filter(
-                    DiagnosticTestResult.pet_id == pet_id,
-                    DiagnosticTestResult.status_flag.in_(["low", "high", "abnormal"]),
-                )
-                .order_by(DiagnosticTestResult.observed_at.desc())
-                .limit(50)
-                .all()
-            )
+            abnormal_results = _health_repo.get_abnormal_diagnostics(pet_id)
             labs_payload = [
                 {
                     "test_name": r.parameter_name,
@@ -1146,7 +1098,7 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
         return []
 
     condition_repo = ConditionRepository(db)
-    active_conditions = condition_repo.find_by_pet_and_active(pet.id)
+    active_conditions = condition_repo.find_displayable_active(pet.id)
     active_condition_count = len(active_conditions)
 
     from app.repositories.preventive_repository import PreventiveRepository
