@@ -85,36 +85,25 @@ class ConditionRepository:
         "rx medications",
     })
 
-    def find_displayable_aggregated(
-        self, pet_id: UUID, *, load_condition_relations: bool = False
-    ) -> List[AggregatedCondition]:
+    def find_displayable_aggregated(self, pet_id: UUID) -> List[AggregatedCondition]:
         """
         Single canonical source for conditions shown on all dashboard surfaces.
 
-        Called by both precompute (health_conditions_v2) and health_trends
-        (Ask Your Vet) so both surfaces always show the same condition set.
+        Called by precompute (health_conditions_v2), health_trends (Ask Your Vet),
+        dashboard_service (recognition bullets), and ai_insights (bullet count)
+        so all surfaces show the same condition set.
 
         Filters:
         - condition_type in DISPLAYABLE_CONDITION_TYPES
         - name not in _EXCLUDED_NAMES_LC (case-insensitive)
         - name does not contain "(inferred)"
         - latest episode source != 'inferred'
-
-        load_condition_relations=True eagerly loads medications + monitoring on
-        latest_episode_condition so callers can return Condition ORM objects.
         """
         from sqlalchemy.orm import joinedload
 
-        lec_opt = joinedload(AggregatedCondition.latest_episode_condition)
-        if load_condition_relations:
-            lec_opt = lec_opt.options(
-                selectinload(Condition.medications),
-                selectinload(Condition.monitoring),
-            )
-
         rows = (
             self.db.query(AggregatedCondition)
-            .options(lec_opt)
+            .options(joinedload(AggregatedCondition.latest_episode_condition))
             .filter(
                 AggregatedCondition.pet_id == pet_id,
                 AggregatedCondition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
@@ -134,6 +123,49 @@ class ConditionRepository:
                 or (r.latest_episode_condition.source or "").lower() != "inferred"
             )
         ]
+
+    def find_displayable_conditions(self, pet_id: UUID) -> List[Condition]:
+        """
+        Return Condition ORM objects (with medications + monitoring) for all
+        displayable aggregated families, one per family.
+
+        Uses find_displayable_aggregated() for the canonical family list, then
+        queries the Condition table by family_id so the result is never empty
+        due to a NULL latest_episode_condition_id on AggregatedCondition.
+
+        Order matches find_displayable_aggregated (diagnosed_at desc, name asc).
+        """
+        agg_rows = self.find_displayable_aggregated(pet_id)
+        if not agg_rows:
+            return []
+
+        family_ids = [ac.id for ac in agg_rows]
+        family_order = {ac.id: i for i, ac in enumerate(agg_rows)}
+
+        conditions = (
+            self.db.query(Condition)
+            .options(
+                selectinload(Condition.medications),
+                selectinload(Condition.monitoring),
+            )
+            .filter(
+                Condition.condition_family_id.in_(family_ids),
+                Condition.is_active == True,
+            )
+            .order_by(Condition.diagnosed_at.desc().nullslast())
+            .all()
+        )
+
+        # One Condition per family — keep the first seen (latest diagnosed_at).
+        seen: set = set()
+        per_family: dict = {}
+        for c in conditions:
+            fid = c.condition_family_id
+            if fid not in seen:
+                seen.add(fid)
+                per_family[fid] = c
+
+        return [per_family[fid] for fid in family_ids if fid in per_family]
 
     def create(
         self,
