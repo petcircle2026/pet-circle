@@ -513,7 +513,10 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_conditions_sync():
         own_db = SessionLocal()
         try:
-            rows = ConditionRepository(own_db).find_displayable_active(pet_id)
+            agg = ConditionRepository(own_db).find_displayable_aggregated(
+                pet_id, load_condition_relations=True
+            )
+            rows = [ac.latest_episode_condition for ac in agg if ac.latest_episode_condition is not None]
             own_db.expunge_all()  # detach while keeping eager-loaded attrs
             return rows
         except Exception as exc:

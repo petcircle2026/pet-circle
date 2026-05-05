@@ -757,6 +757,23 @@ async def _generate_health_conditions_v2_gpt(user_payload: dict) -> dict:
         parsed = json.loads(raw)
         if "headline_state" not in parsed or "conditions" not in parsed:
             raise ValueError("Missing required keys in health_conditions_v2 response")
+
+        # Remove any synthetic GPT-hallucinated entries (e.g. "Treatment course (inferred)")
+        # that leak through when inferred_from_medication=true conditions are in the input.
+        if parsed.get("conditions"):
+            parsed["conditions"] = [
+                c for c in parsed["conditions"]
+                if "(inferred)" not in (c.get("name") or "").lower()
+            ]
+
+        # Stable sort: active before monitoring, then alphabetical by name within each group.
+        # This makes the Analysis card order consistent with Ask Your Vet (find_displayable_active).
+        _STATUS_RANK = {"active": 0, "monitoring": 1}
+        parsed["conditions"] = sorted(
+            parsed["conditions"],
+            key=lambda c: (_STATUS_RANK.get((c.get("status") or "").lower(), 2), (c.get("name") or "").lower()),
+        )
+
         if "meta" not in parsed:
             total_input = len(user_payload.get("conditions", []))
             displayed = len(parsed.get("conditions") or [])
@@ -849,15 +866,11 @@ async def get_or_generate_insight(
                 "neutered": pet.get("neutered") if isinstance(pet, dict) else getattr(pet, "neutered", None),
             }
 
-            _NON_CONDITION_NAMES = {
-                "prescription medications", "prescription medication",
-                "medications", "medication", "supplements", "supplement", "rx medications",
-            }
-
-            agg_rows = _condition_repo.get_aggregated_conditions_for_insights(pet_id)
+            agg_rows = _condition_repo.find_displayable_aggregated(pet_id)
 
             def _compute_status(row):
-                if row.vet_resolved:
+                lec = row.latest_episode_condition
+                if lec and lec.vet_resolved:
                     return "resolved"
                 return _compute_condition_status(
                     row.condition_type,
@@ -869,13 +882,15 @@ async def get_or_generate_insight(
             if agg_rows:
                 conditions_payload = [
                     {
-                        "id": str(row.condition_family_id),
+                        "id": str(row.id),
                         "name": row.name,
                         "condition_type": row.condition_type,
                         "condition_status": _compute_status(row),
                         "soft_resolution": bool(row.soft_resolution) if row.soft_resolution is not None else False,
                         "recurrence_watch": bool(row.recurrence_watch) if row.recurrence_watch is not None else False,
-                        "inferred_from_medication": (row.source or "").lower() == "inferred",
+                        "inferred_from_medication": (
+                            (row.latest_episode_condition.source if row.latest_episode_condition else None) or ""
+                        ).lower() == "inferred",
                         "episode_dates": row.episode_dates or [],
                         "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
                         "last_record_date": str(row.last_record_date) if row.last_record_date else None,
@@ -883,7 +898,6 @@ async def get_or_generate_insight(
                         "monitoring": row.monitoring or [],
                     }
                     for row in agg_rows
-                    if row.name.lower().strip() not in _NON_CONDITION_NAMES
                 ]
             else:
                 # aggregated_conditions table not yet populated — fall back to raw conditions
@@ -903,7 +917,7 @@ async def get_or_generate_insight(
                         "monitoring": [m.get("name", "") for m in c.get("monitoring", [])],
                     }
                     for c in (conditions or [])
-                    if c.get("name", "").lower().strip() not in _NON_CONDITION_NAMES
+                    if c.get("name", "").lower().strip() not in _condition_repo._EXCLUDED_NAMES_LC
                 ]
 
             active_meds_raw = _health_repo.get_active_medications_deduped(pet_id, _today)
@@ -1106,8 +1120,7 @@ async def generate_recognition_bullets(db: Session, pet: Pet) -> list[Bullet]:
         return []
 
     condition_repo = ConditionRepository(db)
-    active_conditions = condition_repo.find_displayable_active(pet.id)
-    active_condition_count = len(active_conditions)
+    active_condition_count = len(condition_repo.find_displayable_aggregated(pet.id))
 
     from app.repositories.preventive_repository import PreventiveRepository
     preventive_repo = PreventiveRepository(db)

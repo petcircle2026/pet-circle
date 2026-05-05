@@ -77,35 +77,62 @@ class ConditionRepository:
     # Condition types and names shown on dashboard surfaces (Ask Your Vet, Overview).
     DISPLAYABLE_CONDITION_TYPES: frozenset[str] = frozenset({"chronic", "episodic", "recurrent"})
     EXCLUDED_CONDITION_NAMES: frozenset[str] = frozenset({"Prescription Medications"})
+    # Lowercase set used for case-insensitive exclusion in find_displayable_aggregated.
+    _EXCLUDED_NAMES_LC: frozenset[str] = frozenset({
+        "prescription medications", "prescription medication",
+        "medications", "medication",
+        "supplements", "supplement",
+        "rx medications",
+    })
 
-    def find_displayable_active(self, pet_id: UUID) -> List[Condition]:
+    def find_displayable_aggregated(
+        self, pet_id: UUID, *, load_condition_relations: bool = False
+    ) -> List[AggregatedCondition]:
         """
-        Return active conditions suitable for display on all dashboard surfaces
-        (conditions tab, Ask Your Vet, Overview recognition bullets).
+        Single canonical source for conditions shown on all dashboard surfaces.
 
-        Filters applied consistently:
-        - condition_type restricted to DISPLAYABLE_CONDITION_TYPES
-        - excludes synthetic entries in EXCLUDED_CONDITION_NAMES
-        - excludes GPT-inferred conditions (source == 'inferred')
+        Called by both precompute (health_conditions_v2) and health_trends
+        (Ask Your Vet) so both surfaces always show the same condition set.
+
+        Filters:
+        - condition_type in DISPLAYABLE_CONDITION_TYPES
+        - name not in _EXCLUDED_NAMES_LC (case-insensitive)
+        - name does not contain "(inferred)"
+        - latest episode source != 'inferred'
+
+        load_condition_relations=True eagerly loads medications + monitoring on
+        latest_episode_condition so callers can return Condition ORM objects.
         """
-        rows = (
-            self.db.query(Condition)
-            .options(
+        from sqlalchemy.orm import joinedload
+
+        lec_opt = joinedload(AggregatedCondition.latest_episode_condition)
+        if load_condition_relations:
+            lec_opt = lec_opt.options(
                 selectinload(Condition.medications),
                 selectinload(Condition.monitoring),
             )
+
+        rows = (
+            self.db.query(AggregatedCondition)
+            .options(lec_opt)
             .filter(
-                Condition.pet_id == pet_id,
-                Condition.is_active == True,
-                Condition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
-                Condition.source != "inferred",
+                AggregatedCondition.pet_id == pet_id,
+                AggregatedCondition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
             )
-            .order_by(Condition.diagnosed_at.desc().nullslast(), Condition.name.asc())
+            .order_by(
+                AggregatedCondition.diagnosed_at.desc().nullslast(),
+                AggregatedCondition.name.asc(),
+            )
             .all()
         )
         return [
-            c for c in rows
-            if c.name not in self.EXCLUDED_CONDITION_NAMES
+            r for r in rows
+            if r.name.lower().strip() not in self._EXCLUDED_NAMES_LC
+            and "(inferred)" not in (r.name or "").lower()
+            and (
+                r.latest_episode_condition is None
+                or (r.latest_episode_condition.source or "").lower() != "inferred"
+            )
         ]
 
     def create(

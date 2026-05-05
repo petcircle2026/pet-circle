@@ -907,8 +907,15 @@ async def _get_condition_questions(db: Session, pet: Pet, condition: Condition) 
 
 
 def _fetch_active_conditions(db: Session, pet_id: Any) -> list[Condition]:
-    """Fetch displayable active conditions with related medication/monitoring."""
-    return ConditionRepository(db).find_displayable_active(pet_id)
+    """
+    Fetch displayable conditions via the canonical AggregatedCondition query so Ask
+    Your Vet shows exactly the same condition set as the Health Conditions card.
+    Returns the latest_episode_condition per family (ORM Condition with relationships).
+    """
+    agg_conditions = ConditionRepository(db).find_displayable_aggregated(
+        pet_id, load_condition_relations=True
+    )
+    return [ac.latest_episode_condition for ac in agg_conditions if ac.latest_episode_condition is not None]
 
 
 def _fetch_latest_blood_results(db: Session, pet_id: Any) -> list[DiagnosticTestResult]:

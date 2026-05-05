@@ -201,26 +201,13 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                 "neutered": pet.neutered,
             }
 
-            # Aggregated conditions — one row per condition family.
-            # condition_status is computed fresh here; the stored value is never trusted.
-            # treatment_route and vet_resolved come from the latest episode conditions row via JOIN.
-            _NON_CONDITION_NAMES = {
-                "prescription medications",
-                "prescription medication",
-                "medications",
-                "medication",
-                "supplements",
-                "supplement",
-                "rx medications",
-            }
-
-            agg_rows = _condition_repo.get_aggregated_conditions_for_insights(pet_id)
+            agg_rows = _condition_repo.find_displayable_aggregated(pet_id)
 
             from app.services.dashboard.condition_aggregation_service import _compute_condition_status
 
             def compute_status(row):
-                # vet_resolved overrides all computed logic
-                if row.vet_resolved:
+                lec = row.latest_episode_condition
+                if lec and lec.vet_resolved:
                     return "resolved"
                 return _compute_condition_status(
                     row.condition_type,
@@ -231,13 +218,15 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
 
             conditions_payload = [
                 {
-                    "id": str(row.condition_family_id),
+                    "id": str(row.id),
                     "name": row.name,
                     "condition_type": row.condition_type,
                     "condition_status": compute_status(row),
                     "soft_resolution": bool(row.soft_resolution) if row.soft_resolution is not None else False,
                     "recurrence_watch": bool(row.recurrence_watch) if row.recurrence_watch is not None else False,
-                    "inferred_from_medication": (row.source or "").lower() == "inferred",
+                    "inferred_from_medication": (
+                        (row.latest_episode_condition.source if row.latest_episode_condition else None) or ""
+                    ).lower() == "inferred",
                     "episode_dates": row.episode_dates or [],
                     "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
                     "last_record_date": str(row.last_record_date) if row.last_record_date else None,
@@ -245,7 +234,6 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                     "monitoring": row.monitoring or [],
                 }
                 for row in agg_rows
-                if row.name.lower().strip() not in _NON_CONDITION_NAMES
             ]
 
             # Active medications — one row per unique med name.
