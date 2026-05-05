@@ -84,6 +84,7 @@ from app.services.dashboard.condition_service import (
     update_condition_medication,
     update_condition_monitoring,
 )
+from app.services.dashboard.condition_aggregation_service import aggregate_conditions_for_pet
 from app.services.dashboard.dashboard_service import (
     get_dashboard_data,
     get_document_file_for_token,
@@ -833,7 +834,7 @@ class AddConditionRequest(BaseModel):
 
 
 @router.post("/{token}/conditions")
-def dashboard_add_condition(
+async def dashboard_add_condition(
     token: str,
     body: AddConditionRequest,
     db: Session = Depends(get_db),
@@ -867,6 +868,7 @@ def dashboard_add_condition(
                 existing.managed_by = body.managed_by
                 existing.source = "manual"
                 db.commit()
+                await aggregate_conditions_for_pet(db, pet_id)
                 return {"status": "reactivated", "condition_id": str(existing.id)}
             raise HTTPException(status_code=409, detail=f"Condition '{body.name}' already exists.")
 
@@ -923,6 +925,7 @@ def dashboard_add_condition(
             ))
 
         db.commit()
+        await aggregate_conditions_for_pet(db, pet_id)
         return {"status": "created", "condition_id": str(condition.id)}
 
     except HTTPException:

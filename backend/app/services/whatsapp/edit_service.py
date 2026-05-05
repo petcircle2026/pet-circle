@@ -32,6 +32,7 @@ from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.contact_repository import ContactRepository
 from app.repositories.custom_preventive_item_repository import CustomPreventiveItemRepository
 from app.repositories.reminder_repository import ReminderRepository
+from app.services.dashboard.condition_aggregation_service import aggregate_conditions_for_pet
 
 logger = logging.getLogger(__name__)
 
@@ -1124,6 +1125,7 @@ async def _step_cond_since(db, user, pets, pet, ctx, text, mobile, send_text_mes
         )
     )
     db.commit()
+    await aggregate_conditions_for_pet(db, pet.id)
     _schedule_precompute(str(pet.id))
     await _send_done(
         db, user, pet,
