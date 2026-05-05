@@ -99,7 +99,8 @@ _SUB_PATTERNS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
         ("incontinence", ("incontinence",)),
     ],
     "skin": [
-        ("infection", ("pyoderma", "fungal", "ringworm")),
+        ("bacterial_infection", ("pyoderma",)),
+        ("fungal_infection", ("fungal", "ringworm")),
         ("allergic", ("dermatitis", "pruritus", "itch", "hot spot", "allergy")),
         ("ear", ("otitis", "ear mite", "ear discharge", "ear infection")),
         ("parasitic", ("mange",)),
