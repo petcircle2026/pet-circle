@@ -2119,6 +2119,36 @@ async def dashboard_regenerate_vet_questions(
         return []
 
 
+@router.post("/{token}/health-conditions/regenerate")
+async def dashboard_regenerate_health_conditions(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Force-regenerate the health_conditions_v2 AI insight and update the DB cache.
+
+    Bypasses the 7-day cache. Triggered when conditions change or data is stale.
+    Returns: {headline_state, summary_body, conditions[], meta}
+    """
+    try:
+        dt = validate_dashboard_token(db, token)
+        data = await get_dashboard_data(db, token)
+        result = await get_or_generate_insight(
+            db=db,
+            pet_id=dt.pet_id,
+            insight_type="health_conditions_v2",
+            pet=data["pet"],
+            conditions=data["conditions"],
+            force=True,
+        )
+        return result
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Dashboard not found or link has expired.")
+    except Exception as e:
+        logger.error("Regenerate health conditions error: %s", str(e), exc_info=True)
+        raise HTTPException(status_code=503, detail="Could not regenerate health conditions insight.")
+
+
 # --- Nudges ---
 
 @router.get("/{token}/nudges")

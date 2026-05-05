@@ -226,6 +226,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                     row.condition_type,
                     row.medication_end_date,
                     row.episode_dates or [],
+                    recurrence_watch=bool(row.recurrence_watch),
                 )
 
             conditions_payload = [

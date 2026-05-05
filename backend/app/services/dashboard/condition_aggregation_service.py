@@ -162,6 +162,7 @@ def _compute_condition_status(
     condition_type: str,
     medication_end_date: date | None,
     episode_dates: list[str],
+    recurrence_watch: bool = False,
 ) -> str:
     """Compute condition_status from type, medication end_date, and episode_dates."""
     today = date.today()
@@ -169,22 +170,32 @@ def _compute_condition_status(
     if condition_type == "chronic":
         return "active"
 
+    # recurrence_watch = one episode seen, watching for second → always monitoring
+    if recurrence_watch:
+        return "monitoring"
+
     if medication_end_date is not None:
         if medication_end_date >= today:
             return "active"
         days_since_end = (today - medication_end_date).days
         if days_since_end <= 30:
             return "monitoring"
+        # Recurrent conditions with multiple episodes stay monitoring longer
+        # so the insight engine can surface the pattern.
+        if condition_type == "recurrent" and len(episode_dates) > 1 and days_since_end <= 90:
+            return "monitoring"
         return "resolved"
 
-    # No medication_end_date — use episode_dates
-    # Spec (Sheet 1): episode_date <= 30 days ago → monitoring; > 30 days ago → resolved
+    # No medication ever recorded — condition was never formally treated or
+    # vet-confirmed resolved. Keep as monitoring with a long window so untreated
+    # conditions remain visible to the insight engine.
     if episode_dates:
         try:
             from app.utils.date_utils import parse_date
             latest = parse_date(max(episode_dates))
             days_ago = (today - latest).days
-            if days_ago <= 30:
+            window = 365 if condition_type in ("episodic", "recurrent") else 30
+            if days_ago <= window:
                 return "monitoring"
         except Exception:
             pass

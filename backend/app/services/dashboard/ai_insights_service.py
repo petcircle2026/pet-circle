@@ -855,41 +855,17 @@ async def get_or_generate_insight(
 
             agg_rows = _condition_repo.get_aggregated_conditions_for_insights(pet_id)
 
+            from app.services.dashboard.condition_aggregation_service import _compute_condition_status
+
             def _compute_status(row):
                 if row.vet_resolved:
                     return "resolved"
-                if row.condition_type == "chronic":
-                    return "active"
-                # recurrence_watch = one episode seen, watching for second → always monitoring
-                if row.recurrence_watch:
-                    return "monitoring"
-                med_end = row.medication_end_date
-                episode_dates = row.episode_dates or []
-                if med_end:
-                    if med_end >= _today:
-                        return "active"
-                    if (_today - med_end).days <= 30:
-                        return "monitoring"
-                    # Recurrent conditions with multiple episodes stay monitoring longer
-                    # so GPT can surface the pattern rather than treating them as resolved.
-                    if row.condition_type == "recurrent" and len(episode_dates) > 1:
-                        if (_today - med_end).days <= 90:
-                            return "monitoring"
-                    return "resolved"
-                # No medication ever recorded — condition was never formally treated or
-                # vet-confirmed resolved. Keep as monitoring with a 365-day window so
-                # untreated conditions (e.g. "never treated — discuss with vet") remain
-                # visible to the insight engine instead of silently dropping off.
-                if episode_dates:
-                    try:
-                        from app.utils.date_utils import parse_date
-                        latest = parse_date(max(episode_dates))
-                        window = 365 if row.condition_type in ("episodic", "recurrent") else 30
-                        if (_today - latest).days <= window:
-                            return "monitoring"
-                    except Exception:
-                        pass
-                return "resolved"
+                return _compute_condition_status(
+                    row.condition_type,
+                    row.medication_end_date,
+                    row.episode_dates or [],
+                    recurrence_watch=bool(row.recurrence_watch),
+                )
 
             conditions_payload = [
                 {
