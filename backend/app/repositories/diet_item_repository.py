@@ -19,10 +19,10 @@ class DietItemRepository:
         self.db = db
 
     def find_by_pet(self, pet_id: UUID) -> List[DietItem]:
-        """Find all diet items for a pet."""
+        """Find all active diet items for a pet."""
         return (
             self.db.query(DietItem)
-            .filter(DietItem.pet_id == pet_id)
+            .filter(DietItem.pet_id == pet_id, DietItem.is_active == True)
             .all()
         )
 

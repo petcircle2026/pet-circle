@@ -947,7 +947,7 @@ async def get_or_generate_insight(
                 for r in abnormal_results
             ]
 
-            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id, DietItem.is_active == True).all()
             diet_payload = [
                 {
                     "item_name": d.label,

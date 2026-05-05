@@ -173,7 +173,7 @@ class HealthService:
 
         record = (
             self.db.query(DietItem)
-            .filter(DietItem.pet_id == pet_id)
+            .filter(DietItem.pet_id == pet_id, DietItem.is_active == True)
             .order_by(DietItem.created_at.desc())
             .first()
         )

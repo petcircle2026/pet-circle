@@ -86,5 +86,9 @@ class DietItem(Base):
     # Non-supplement items (packaged, homemade) have source=None or "manual"
     source = Column(String(50), nullable=True, default="manual")
 
+    # Soft-delete flag: False when the item has been removed from the pet's current diet.
+    # All queries feeding GPT/AI contexts must filter is_active == True.
+    is_active = Column(Boolean, nullable=False, default=True)
+
     # Relationships
     pet = relationship("Pet")

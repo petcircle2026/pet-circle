@@ -513,7 +513,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_conditions_sync():
         own_db = SessionLocal()
         try:
-            rows = HealthRepository(own_db).get_active_conditions_with_relations(pet_id)
+            rows = ConditionRepository(own_db).find_displayable_active(pet_id)
             own_db.expunge_all()  # detach while keeping eager-loaded attrs
             return rows
         except Exception as exc:
