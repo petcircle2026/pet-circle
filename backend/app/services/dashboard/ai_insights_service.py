@@ -947,7 +947,7 @@ async def get_or_generate_insight(
                 for r in abnormal_results
             ]
 
-            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id, DietItem.is_active == True).all()
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
             diet_payload = [
                 {
                     "item_name": d.label,
@@ -978,7 +978,7 @@ async def get_or_generate_insight(
     except Exception as exc:
         logger.error("GPT insight generation failed for %s/%s: %s", pet_id, insight_type, exc, exc_info=True)
         if insight_type == "health_conditions_v2":
-            raise  # surface the real error so regenerate endpoint returns 503 with detail
+            return dict(_HEALTH_CONDITIONS_V2_FALLBACK)
         if insight_type == "health_summary":
             return {"summary": "Summary is currently unavailable."}
         return []

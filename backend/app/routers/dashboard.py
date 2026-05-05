@@ -2146,7 +2146,7 @@ async def dashboard_regenerate_health_conditions(
         raise HTTPException(status_code=404, detail="Dashboard not found or link has expired.")
     except Exception as e:
         logger.error("Regenerate health conditions error: %s", str(e), exc_info=True)
-        raise HTTPException(status_code=503, detail=f"Could not regenerate health conditions insight: {e}")
+        raise HTTPException(status_code=503, detail="Could not regenerate health conditions insight.")
 
 
 # --- Nudges ---
