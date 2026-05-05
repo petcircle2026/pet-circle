@@ -236,7 +236,7 @@ def _build_health_conditions_summary_from_aggregated(agg_rows: list) -> list[dic
             )
         summary.append(
             {
-                "id": str(agg.id),
+                "id": str(agg.condition_family_id),
                 "icon": "🩺",
                 "title": agg.name,
                 "severity": _condition_severity_from_status(runtime_status, agg.condition_type),
