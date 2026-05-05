@@ -137,35 +137,46 @@ class ConditionRepository:
 
     def get_aggregated_conditions_for_insights(self, pet_id: UUID):
         """
-        Return aggregated condition rows joined with their latest episode condition,
-        ordered by last_record_date desc. Returns raw Row objects with all fields
-        needed to build the GPT conditions payload (including vet_resolved, source).
+        Return aggregated condition rows with their latest episode condition loaded,
+        ordered by last_record_date desc. Each row exposes vet_resolved and source
+        via the latest_episode_condition relationship.
         """
-        return self.db.execute(
-            sa_text("""
-                SELECT
-                    ac.id                           AS condition_family_id,
-                    ac.name,
-                    ac.condition_type,
-                    ac.episode_dates,
-                    ac.diagnosed_at,
-                    ac.last_record_date,
-                    ac.medication_end_date,
-                    ac.latest_episode_condition_id,
-                    ac.soft_resolution,
-                    ac.recurrence_watch,
-                    ac.medications,
-                    ac.monitoring,
-                    c.vet_resolved,
-                    c.source
-                FROM aggregated_conditions ac
-                LEFT JOIN conditions c
-                    ON c.id = ac.latest_episode_condition_id
-                WHERE ac.pet_id = :pet_id
-                ORDER BY ac.last_record_date DESC NULLS LAST
-            """),
-            {"pet_id": str(pet_id)},
-        ).fetchall()
+        from sqlalchemy.orm import joinedload
+        rows = (
+            self.db.query(AggregatedCondition)
+            .options(joinedload(AggregatedCondition.latest_episode_condition))
+            .filter(AggregatedCondition.pet_id == pet_id)
+            .order_by(AggregatedCondition.last_record_date.desc().nullslast())
+            .all()
+        )
+
+        class _Row:
+            """Adapter to keep the same attribute interface as the old raw SQL rows."""
+            __slots__ = (
+                "condition_family_id", "name", "condition_type", "episode_dates",
+                "diagnosed_at", "last_record_date", "medication_end_date",
+                "latest_episode_condition_id", "soft_resolution", "recurrence_watch",
+                "medications", "monitoring", "vet_resolved", "source",
+            )
+
+            def __init__(self, ac: AggregatedCondition):
+                self.condition_family_id = ac.id
+                self.name = ac.name
+                self.condition_type = ac.condition_type
+                self.episode_dates = ac.episode_dates
+                self.diagnosed_at = ac.diagnosed_at
+                self.last_record_date = ac.last_record_date
+                self.medication_end_date = ac.medication_end_date
+                self.latest_episode_condition_id = ac.latest_episode_condition_id
+                self.soft_resolution = ac.soft_resolution
+                self.recurrence_watch = ac.recurrence_watch
+                self.medications = ac.medications
+                self.monitoring = ac.monitoring
+                lec = ac.latest_episode_condition
+                self.vet_resolved = lec.vet_resolved if lec else None
+                self.source = lec.source if lec else None
+
+        return [_Row(ac) for ac in rows]
 
     def upsert_aggregated_condition(self, pet_id: UUID, family_data: dict) -> AggregatedCondition:
         """Insert or update an aggregated condition family row.
