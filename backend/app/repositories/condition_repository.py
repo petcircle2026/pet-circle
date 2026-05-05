@@ -100,7 +100,7 @@ class ConditionRepository:
                 Condition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
                 Condition.source != "inferred",
             )
-            .order_by(Condition.diagnosed_at.desc().nullslast(), Condition.created_at.desc())
+            .order_by(Condition.diagnosed_at.desc().nullslast(), Condition.name.asc())
             .all()
         )
         return [
@@ -146,7 +146,7 @@ class ConditionRepository:
             self.db.query(AggregatedCondition)
             .options(joinedload(AggregatedCondition.latest_episode_condition))
             .filter(AggregatedCondition.pet_id == pet_id)
-            .order_by(AggregatedCondition.last_record_date.desc().nullslast())
+            .order_by(AggregatedCondition.last_record_date.desc().nullslast(), AggregatedCondition.name.asc())
             .all()
         )
 
@@ -176,7 +176,12 @@ class ConditionRepository:
                 self.vet_resolved = lec.vet_resolved if lec else None
                 self.source = lec.source if lec else None
 
-        return [_Row(ac) for ac in rows]
+        return [
+            r for r in (_Row(ac) for ac in rows)
+            if (r.source or "").lower() != "inferred"
+            and r.name not in self.EXCLUDED_CONDITION_NAMES
+            and "(inferred)" not in (r.name or "").lower()
+        ]
 
     def upsert_aggregated_condition(self, pet_id: UUID, family_data: dict) -> AggregatedCondition:
         """Insert or update an aggregated condition family row.
