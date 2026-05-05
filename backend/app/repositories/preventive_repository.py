@@ -514,8 +514,9 @@ class PreventiveRepository:
 
     def count_core_split_by_vaccine(self, pet_id: UUID, vaccine_keywords: list[str]) -> tuple[int, int]:
         """
-        Count core/custom items split into vaccine vs other.
-        Used by onboarding for care plan message composition.
+        Count distinct item types split into vaccine vs other.
+        Counts distinct preventive_master_id / custom_preventive_item_id so that
+        multiple historical records for the same item type count as one.
         Returns: (vaccine_count, other_count)
         """
         from sqlalchemy import or_
@@ -542,8 +543,24 @@ class PreventiveRepository:
             *[PreventiveMaster.item_name.ilike(f"%{kw}%") for kw in vaccine_keywords],
             *[CustomPreventiveItem.item_name.ilike(f"%{kw}%") for kw in vaccine_keywords],
         )
-        vaccine_count = base_q.filter(vaccine_filter).count()
-        total = base_q.count()
+
+        def distinct_item_count(query) -> int:
+            master_ids = (
+                query.filter(PreventiveRecord.preventive_master_id.isnot(None))
+                .with_entities(PreventiveRecord.preventive_master_id)
+                .distinct()
+                .count()
+            )
+            custom_ids = (
+                query.filter(PreventiveRecord.custom_preventive_item_id.isnot(None))
+                .with_entities(PreventiveRecord.custom_preventive_item_id)
+                .distinct()
+                .count()
+            )
+            return master_ids + custom_ids
+
+        vaccine_count = distinct_item_count(base_q.filter(vaccine_filter))
+        total = distinct_item_count(base_q)
         return vaccine_count, total - vaccine_count
 
     def find_placeholder_by_custom_item(

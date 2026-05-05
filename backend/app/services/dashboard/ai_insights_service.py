@@ -734,24 +734,6 @@ async def _generate_health_conditions_v2_gpt(user_payload: dict) -> dict:
     Returns:
         Structured dict: {headline_state, summary_body, conditions[], meta}.
     """
-    pet_name = user_payload.get("pet", {}).get("name", "")
-
-    if (
-        not user_payload.get("conditions")
-        and not user_payload.get("abnormal_labs")
-        and not user_payload.get("current_diet")
-    ):
-        return {
-            "headline_state": f"No records shared for {pet_name} yet" if pet_name else "No records shared yet",
-            "summary_body": (
-                f"No health records have been shared for {pet_name} yet. "
-                "Uploading a recent prescription or blood panel will help us "
-                "surface personalised health insights."
-            ) if pet_name else "No health records shared yet.",
-            "conditions": [],
-            "meta": {"total_conditions": 0, "displayed_count": 0, "resolved_count": 0},
-        }
-
     client = _get_openai_client()
 
     async def _call() -> str:
@@ -908,9 +890,15 @@ async def get_or_generate_insight(
                     if (_today - med_end).days <= 30:
                         return "monitoring"
                     return "resolved"
-                if row.last_record_date:
-                    if (_today - row.last_record_date).days <= 45:
-                        return "monitoring"
+                episode_dates = row.episode_dates or []
+                if episode_dates:
+                    try:
+                        from app.utils.date_utils import parse_date
+                        latest = parse_date(max(episode_dates))
+                        if (_today - latest).days <= 30:
+                            return "monitoring"
+                    except Exception:
+                        pass
                 return "resolved"
 
             conditions_payload = [
@@ -932,22 +920,39 @@ async def get_or_generate_insight(
                 if row.name.lower().strip() not in _NON_CONDITION_NAMES
             ]
 
-            active_meds = db.execute(
+            active_meds_raw = db.execute(
                 sa_text("""
                     SELECT DISTINCT ON (LOWER(cm.name))
                         cm.name         AS med_name,
                         cm.dose,
                         cm.frequency,
                         cm.end_date,
-                        c.name          AS condition_name
+                        c.name          AS condition_name,
+                        c.episode_dates
                     FROM condition_medications cm
                     JOIN conditions c ON cm.condition_id = c.id
                     WHERE c.pet_id = :pet_id
                       AND (cm.end_date >= :today OR cm.end_date IS NULL)
-                    ORDER BY LOWER(cm.name), c.diagnosed_at DESC NULLS LAST
+                    ORDER BY LOWER(cm.name), cm.end_date DESC NULLS FIRST
                 """),
                 {"pet_id": str(pet_id), "today": _today},
             ).fetchall()
+
+            def _null_end_date_active(row) -> bool:
+                episode_dates = row.episode_dates or []
+                if not episode_dates:
+                    return False
+                try:
+                    from app.utils.date_utils import parse_date
+                    latest = parse_date(max(episode_dates))
+                    return (_today - latest).days <= 30
+                except Exception:
+                    return False
+
+            active_meds = [
+                m for m in active_meds_raw
+                if m.end_date is not None or _null_end_date_active(m)
+            ]
 
             medications_payload = [
                 {
@@ -981,7 +986,7 @@ async def get_or_generate_insight(
                 for r in abnormal_results
             ]
 
-            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id, DietItem.is_active == True).all()
             diet_payload = [
                 {
                     "item_name": d.label,

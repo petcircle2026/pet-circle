@@ -20,6 +20,7 @@ from datetime import date, timedelta
 from typing import List, Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -640,3 +641,11 @@ async def aggregate_conditions_for_pet(db: Session, pet_id: UUID) -> None:
         logger.warning("aggregate_conditions_for_pet flush failed for pet=%s: %s", pet_id, exc)
         db.rollback()
         raise
+
+    db.execute(
+        sa_text(
+            "DELETE FROM pet_ai_insights "
+            "WHERE pet_id = :pet_id AND insight_type = 'health_conditions_v2'"
+        ),
+        {"pet_id": str(pet_id)},
+    )

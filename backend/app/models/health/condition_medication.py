@@ -52,7 +52,7 @@ class ConditionMedication(Base):
     def status(self) -> str:
         """Compute medication status from date fields.
 
-        'completed'  — end_date is in the past
+        'completed'  — end_date is in the past, or null end_date with episode > 30 days ago
         'upcoming'   — started_at is in the future
         'active'     — everything else (ongoing or no dates set)
         """
@@ -61,4 +61,15 @@ class ConditionMedication(Base):
             return "completed"
         if self.started_at and self.started_at > today:
             return "upcoming"
+        if self.end_date is None:
+            # FIX_B: null end_date is only active if episode is within 30 days
+            try:
+                episode_dates = (self.condition.episode_dates or []) if self.condition else []
+                if episode_dates:
+                    from app.utils.date_utils import parse_date
+                    latest = parse_date(max(episode_dates))
+                    if (today - latest).days > 30:
+                        return "completed"
+            except Exception:
+                pass
         return "active"

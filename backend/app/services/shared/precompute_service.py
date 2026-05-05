@@ -223,8 +223,13 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                         ac.last_record_date,
                         ac.medication_end_date,
                         ac.latest_episode_condition_id,
+                        ac.soft_resolution,
+                        ac.recurrence_watch,
+                        ac.medications,
+                        ac.monitoring,
                         c.treatment_route,
-                        c.vet_resolved
+                        c.vet_resolved,
+                        c.source
                     FROM aggregated_conditions ac
                     LEFT JOIN conditions c
                         ON c.id = ac.latest_episode_condition_id
@@ -248,14 +253,18 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
 
             conditions_payload = [
                 {
-                    "condition_family_id": str(row.condition_family_id),
+                    "id": str(row.condition_family_id),
                     "name": row.name,
                     "condition_type": row.condition_type,
                     "condition_status": compute_status(row),
+                    "soft_resolution": bool(row.soft_resolution) if row.soft_resolution is not None else False,
+                    "recurrence_watch": bool(row.recurrence_watch) if row.recurrence_watch is not None else False,
+                    "inferred_from_medication": (row.source or "").lower() == "inferred",
                     "episode_dates": row.episode_dates or [],
                     "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
                     "last_record_date": str(row.last_record_date) if row.last_record_date else None,
-                    "treatment_route": row.treatment_route,
+                    "medications": row.medications or [],
+                    "monitoring": row.monitoring or [],
                 }
                 for row in agg_rows
                 if row.name.lower().strip() not in _NON_CONDITION_NAMES
@@ -264,7 +273,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             # Active medications — one row per unique med name.
             # NULL end_date (lifelong/ongoing) wins over dated prescriptions;
             # among dated prescriptions the latest end_date wins.
-            active_meds = db.execute(
+            active_meds_raw = db.execute(
                 sa_text("""
                     SELECT DISTINCT ON (LOWER(cm.name))
                         cm.name         AS med_name,
@@ -273,7 +282,8 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                         cm.end_date,
                         c.id            AS condition_id,
                         c.name          AS condition_name,
-                        c.document_id
+                        c.document_id,
+                        c.episode_dates
                     FROM condition_medications cm
                     JOIN conditions c ON cm.condition_id = c.id
                     WHERE c.pet_id = :pet_id
@@ -282,6 +292,22 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
                 """),
                 {"pet_id": str(pet_id), "today": today},
             ).fetchall()
+
+            def _null_end_date_active_pre(row) -> bool:
+                episode_dates = row.episode_dates or []
+                if not episode_dates:
+                    return False
+                try:
+                    from app.utils.date_utils import parse_date
+                    latest = parse_date(max(episode_dates))
+                    return (today - latest).days <= 30
+                except Exception:
+                    return False
+
+            active_meds = [
+                m for m in active_meds_raw
+                if m.end_date is not None or _null_end_date_active_pre(m)
+            ]
 
             medications_payload = [
                 {
@@ -319,7 +345,7 @@ async def precompute_dashboard_enrichments(pet_id_str: str) -> None:
             ]
 
             # Current diet items.
-            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id).all()
+            diet_rows = db.query(DietItem).filter(DietItem.pet_id == pet_id, DietItem.is_active == True).all()
 
             diet_payload = [
                 {
