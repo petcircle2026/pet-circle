@@ -598,17 +598,24 @@ async def aggregate_conditions_for_pet(db: Session, pet_id: UUID) -> None:
 
     families = _group_into_families(conditions)
 
+    # Track which AggregatedCondition IDs are claimed in this run so that stale
+    # condition_family_id values (left over from a previous different grouping)
+    # don't cause two families to collide on the same row.
+    claimed_agg_ids: set = set()
+
     for family_rows in families:
         merged = _merge_family(family_rows)
         members: list[Condition] = merged.pop("_family_members")
 
         # Find existing AggregatedCondition row for this family.
-        # Match by condition_family_id already written on any member.
+        # Match by condition_family_id already written on any member, but only
+        # if that row hasn't already been claimed by another family this run.
         existing_agg: AggregatedCondition | None = None
         for member in members:
             if member.condition_family_id:
-                existing_agg = db.query(AggregatedCondition).get(member.condition_family_id)
-                if existing_agg:
+                candidate = db.query(AggregatedCondition).get(member.condition_family_id)
+                if candidate and candidate.id not in claimed_agg_ids:
+                    existing_agg = candidate
                     break
 
         if existing_agg is None:
@@ -625,6 +632,8 @@ async def aggregate_conditions_for_pet(db: Session, pet_id: UUID) -> None:
             for key, value in merged.items():
                 setattr(existing_agg, key, value)
             db.flush()
+
+        claimed_agg_ids.add(existing_agg.id)
 
         # Write condition_family_id + recurrence_watch back to member rows
         for member in members:
@@ -649,6 +658,18 @@ async def aggregate_conditions_for_pet(db: Session, pet_id: UUID) -> None:
                     merged_date = merged_mon_map.get(key)
                     if merged_date and (mon.next_due_date is None or merged_date > mon.next_due_date):
                         mon.next_due_date = merged_date
+
+    # Delete any AggregatedCondition rows for this pet that were not claimed by
+    # any family in this run — they are stale leftovers from a previous grouping.
+    stale_aggs = (
+        db.query(AggregatedCondition)
+        .filter(AggregatedCondition.pet_id == pet_id)
+        .all()
+    )
+    for agg in stale_aggs:
+        if agg.id not in claimed_agg_ids:
+            logger.debug("Deleting stale aggregated condition id=%s name=%r for pet=%s", agg.id, agg.name, pet_id)
+            db.delete(agg)
 
     try:
         db.flush()
