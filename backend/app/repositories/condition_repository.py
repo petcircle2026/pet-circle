@@ -80,13 +80,13 @@ class ConditionRepository:
 
     def find_displayable_active(self, pet_id: UUID) -> List[Condition]:
         """
-        Return active conditions that are suitable for display on dashboard surfaces
-        (Overview recognition bullet and Ask Your Vet section).
+        Return active conditions suitable for display on all dashboard surfaces
+        (conditions tab, Ask Your Vet, Overview recognition bullets).
 
-        Applies three filters consistently:
+        Filters applied consistently:
         - condition_type restricted to DISPLAYABLE_CONDITION_TYPES
         - excludes synthetic entries in EXCLUDED_CONDITION_NAMES
-        - excludes GPT-inferred conditions (name contains "(inferred)")
+        - excludes GPT-inferred conditions (source == 'inferred')
         """
         rows = (
             self.db.query(Condition)
@@ -98,14 +98,14 @@ class ConditionRepository:
                 Condition.pet_id == pet_id,
                 Condition.is_active == True,
                 Condition.condition_type.in_(self.DISPLAYABLE_CONDITION_TYPES),
+                Condition.source != "inferred",
             )
-            .order_by(Condition.created_at.desc())
+            .order_by(Condition.diagnosed_at.desc().nullslast(), Condition.created_at.desc())
             .all()
         )
         return [
             c for c in rows
             if c.name not in self.EXCLUDED_CONDITION_NAMES
-            and "(inferred)" not in (c.name or "").lower()
         ]
 
     def create(
