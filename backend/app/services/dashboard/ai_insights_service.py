@@ -860,19 +860,32 @@ async def get_or_generate_insight(
                     return "resolved"
                 if row.condition_type == "chronic":
                     return "active"
+                # recurrence_watch = one episode seen, watching for second → always monitoring
+                if row.recurrence_watch:
+                    return "monitoring"
                 med_end = row.medication_end_date
+                episode_dates = row.episode_dates or []
                 if med_end:
                     if med_end >= _today:
                         return "active"
                     if (_today - med_end).days <= 30:
                         return "monitoring"
+                    # Recurrent conditions with multiple episodes stay monitoring longer
+                    # so GPT can surface the pattern rather than treating them as resolved.
+                    if row.condition_type == "recurrent" and len(episode_dates) > 1:
+                        if (_today - med_end).days <= 90:
+                            return "monitoring"
                     return "resolved"
-                episode_dates = row.episode_dates or []
+                # No medication ever recorded — condition was never formally treated or
+                # vet-confirmed resolved. Keep as monitoring with a 365-day window so
+                # untreated conditions (e.g. "never treated — discuss with vet") remain
+                # visible to the insight engine instead of silently dropping off.
                 if episode_dates:
                     try:
                         from app.utils.date_utils import parse_date
                         latest = parse_date(max(episode_dates))
-                        if (_today - latest).days <= 30:
+                        window = 365 if row.condition_type in ("episodic", "recurrent") else 30
+                        if (_today - latest).days <= window:
                             return "monitoring"
                     except Exception:
                         pass
