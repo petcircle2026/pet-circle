@@ -525,8 +525,7 @@ async def get_dashboard_data(db: Session, token: str) -> dict:
     def _fetch_agg_conditions_sync():
         own_db = SessionLocal()
         try:
-            rows = ConditionRepository(own_db).get_aggregated_conditions_for_pet(pet_id)
-            own_db.expunge_all()
+            rows = ConditionRepository(own_db).get_aggregated_conditions_for_insights(pet_id)
             return rows
         except Exception as exc:
             logger.warning("parallel _fetch_agg_conditions failed pet=%s: %s", _pet_id_str, exc)
