@@ -867,24 +867,45 @@ async def get_or_generate_insight(
                     recurrence_watch=bool(row.recurrence_watch),
                 )
 
-            conditions_payload = [
-                {
-                    "id": str(row.condition_family_id),
-                    "name": row.name,
-                    "condition_type": row.condition_type,
-                    "condition_status": _compute_status(row),
-                    "soft_resolution": bool(row.soft_resolution) if row.soft_resolution is not None else False,
-                    "recurrence_watch": bool(row.recurrence_watch) if row.recurrence_watch is not None else False,
-                    "inferred_from_medication": (row.source or "").lower() == "inferred",
-                    "episode_dates": row.episode_dates or [],
-                    "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
-                    "last_record_date": str(row.last_record_date) if row.last_record_date else None,
-                    "medications": row.medications or [],
-                    "monitoring": row.monitoring or [],
-                }
-                for row in agg_rows
-                if row.name.lower().strip() not in _NON_CONDITION_NAMES
-            ]
+            if agg_rows:
+                conditions_payload = [
+                    {
+                        "id": str(row.condition_family_id),
+                        "name": row.name,
+                        "condition_type": row.condition_type,
+                        "condition_status": _compute_status(row),
+                        "soft_resolution": bool(row.soft_resolution) if row.soft_resolution is not None else False,
+                        "recurrence_watch": bool(row.recurrence_watch) if row.recurrence_watch is not None else False,
+                        "inferred_from_medication": (row.source or "").lower() == "inferred",
+                        "episode_dates": row.episode_dates or [],
+                        "diagnosed_at": str(row.diagnosed_at) if row.diagnosed_at else None,
+                        "last_record_date": str(row.last_record_date) if row.last_record_date else None,
+                        "medications": row.medications or [],
+                        "monitoring": row.monitoring or [],
+                    }
+                    for row in agg_rows
+                    if row.name.lower().strip() not in _NON_CONDITION_NAMES
+                ]
+            else:
+                # aggregated_conditions table not yet populated — fall back to raw conditions
+                conditions_payload = [
+                    {
+                        "id": c.get("id", ""),
+                        "name": c.get("name", ""),
+                        "condition_type": c.get("condition_type", "episodic"),
+                        "condition_status": "active" if c.get("is_active") else "resolved",
+                        "soft_resolution": False,
+                        "recurrence_watch": False,
+                        "inferred_from_medication": False,
+                        "episode_dates": [],
+                        "diagnosed_at": c.get("diagnosed_at"),
+                        "last_record_date": c.get("created_at"),
+                        "medications": [m.get("name", "") for m in c.get("medications", [])],
+                        "monitoring": [m.get("name", "") for m in c.get("monitoring", [])],
+                    }
+                    for c in (conditions or [])
+                    if c.get("name", "").lower().strip() not in _NON_CONDITION_NAMES
+                ]
 
             active_meds_raw = _health_repo.get_active_medications_deduped(pet_id, _today)
 
