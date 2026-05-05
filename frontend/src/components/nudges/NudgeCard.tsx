@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { NudgeItem } from "@/lib/api";
+import { nudgePriorityBadgeClass } from "@/components/dashboard/dashboard-utils";
 
 interface NudgeCardProps {
   nudge: NudgeItem;
@@ -11,13 +12,6 @@ interface NudgeCardProps {
 }
 
 const LONG_MESSAGE_LIMIT = 100;
-
-function getPriorityBadgeClass(priority: string): string {
-  const normalized = priority.toLowerCase();
-  if (normalized === "urgent") return "s-tag s-tag-r";
-  if (normalized === "high") return "s-tag s-tag-y";
-  return "s-tag";
-}
 
 function getPriorityLabel(priority: string): string {
   const normalized = priority.toLowerCase();
@@ -60,7 +54,7 @@ export default function NudgeCard({ nudge, onDismiss, onAddToCart, isAdded }: Nu
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--t1)", lineHeight: 1.3 }}>{nudge.title}</h3>
-            <span className={getPriorityBadgeClass(nudge.priority)}>{getPriorityLabel(nudge.priority)}</span>
+            <span className={nudgePriorityBadgeClass(nudge.priority)}>{getPriorityLabel(nudge.priority)}</span>
           </div>
 
           <p style={{ marginTop: 6, fontSize: 12, lineHeight: 1.5, color: "var(--t2)" }}>{messageText}</p>

@@ -333,10 +333,9 @@ export function computeCarePlanCounts(
 
   // Only count items from the "continue" bucket — items in "add" (Quick Fixes)
   // and "attend" should not inflate the overdue/on-track/due-soon totals.
-  const EXCLUDED_TYPES = new Set(["food", "supplement"]);
   for (const section of buckets.continue) {
     for (const item of section.items) {
-      if (EXCLUDED_TYPES.has(item.test_type || "")) continue;
+      if (isItemFoodOrSupplement(item.test_type)) continue;
       const cls = itemStatusClass(item);
       if (cls === "s-tag-r") overdue += 1;
       else if (cls === "s-tag-y") dueSoon += 1;
@@ -345,4 +344,23 @@ export function computeCarePlanCounts(
   }
 
   return { onTrack, dueSoon, overdue };
+}
+
+/** Single test for food/supplement item type used across care plan rendering. */
+export function isItemFoodOrSupplement(testType: string | null | undefined): boolean {
+  return testType === "food" || testType === "supplement";
+}
+
+/** Regex matching mandatory annual vaccines shown in the banner. */
+export const MANDATORY_VACCINE_RE = /dhppi|rabies/i;
+
+/** Regex matching vaccine/preventive section titles. */
+export const VACCINE_SECTION_RE = /vaccine|vaccination|preventive/i;
+
+/** CSS badge class for nudge priority strings ("urgent", "high", etc.). */
+export function nudgePriorityBadgeClass(priority: string): string {
+  const p = priority.toLowerCase();
+  if (p === "urgent") return "s-tag s-tag-r";
+  if (p === "high") return "s-tag s-tag-y";
+  return "s-tag";
 }

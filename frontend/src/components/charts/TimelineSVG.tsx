@@ -1,5 +1,7 @@
 "use client";
 
+import { STATUS_CONFIG } from "@/lib/dashboard-utils";
+
 // ─── Chart geometry constants ─────────────────────────────────────────────────
 /** Minimum SVG canvas width. */
 const VW = 358;
@@ -35,7 +37,7 @@ interface NodeStyle {
 
 const NODE_STYLE: Record<string, NodeStyle> = {
   done: {
-    fill: "#34C759",
+    fill: STATUS_CONFIG.done.color,
     stroke: "white",
     strokeWidth: 2,
     textFill: "white",
@@ -49,17 +51,17 @@ const NODE_STYLE: Record<string, NodeStyle> = {
   },
   missed: {
     fill: "none",
-    stroke: "#FF3B30",
+    stroke: STATUS_CONFIG.overdue.color,
     strokeWidth: 1.5,
     strokeDasharray: "3 2",
-    textFill: "#FF3B30",
+    textFill: STATUS_CONFIG.overdue.color,
   },
   now: {
     fill: "none",
-    stroke: "#FF9500",
+    stroke: STATUS_CONFIG.upcoming.color,
     strokeWidth: 1.5,
     strokeDasharray: "3 2",
-    textFill: "#FF9500",
+    textFill: STATUS_CONFIG.upcoming.color,
   },
 };
 

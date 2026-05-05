@@ -1,5 +1,7 @@
 "use client";
 
+import { STATUS_CONFIG } from "@/lib/dashboard-utils";
+
 // ─── Chart geometry constants ─────────────────────────────────────────────────
 /** Minimum SVG canvas width. */
 const VW = 358;
@@ -31,9 +33,9 @@ const LEGEND_Y = DATE_Y + 22;
  * Matches the green / amber / red rule described in the task spec.
  */
 function gapColor(weeks: number): string {
-  if (weeks <= 6) return "#34C759";   // on time
-  if (weeks <= 12) return "#FF9500";  // delayed
-  return "#FF3B30";                   // critical
+  if (weeks <= 6) return STATUS_CONFIG.done.color;      // on time
+  if (weeks <= 12) return STATUS_CONFIG.upcoming.color; // delayed
+  return STATUS_CONFIG.overdue.color;                   // critical
 }
 
 /**
@@ -41,7 +43,7 @@ function gapColor(weeks: number): string {
  * Uses amber-orange for delays beyond 12 weeks, grey for acceptable gaps.
  */
 function gapTextColor(weeks: number): string {
-  return weeks > 12 ? "#FF9500" : "#8A8A8A";
+  return weeks > 12 ? STATUS_CONFIG.upcoming.color : "#8A8A8A";
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -125,10 +127,10 @@ function dotXPositions(n: number): number[] {
 }
 
 const DEFAULT_LEGEND: DotPlotLegendItem[] = [
-  { fill: "#34C759", label: "≤6w on time" },
-  { fill: "#FF9500", label: "7–12w delayed" },
-  { fill: "#FF3B30", label: ">12w critical" },
-  { fill: "none",    label: "upcoming", dashed: true },
+  { fill: STATUS_CONFIG.done.color,     label: "≤6w on time" },
+  { fill: STATUS_CONFIG.upcoming.color, label: "7–12w delayed" },
+  { fill: STATUS_CONFIG.overdue.color,  label: ">12w critical" },
+  { fill: "none",                       label: "upcoming", dashed: true },
 ];
 
 /**
@@ -201,7 +203,7 @@ export default function DotPlotSVG({
               fontFamily="Inter,sans-serif"
               fontSize="10"
               fontWeight="600"
-              fill="#FF3B30"
+              fill={STATUS_CONFIG.overdue.color}
             >
               {gap.label}
             </text>
@@ -211,7 +213,7 @@ export default function DotPlotSVG({
               y1={bracketY}
               x2={toX}
               y2={bracketY}
-              stroke="#FF3B30"
+              stroke={STATUS_CONFIG.overdue.color}
               strokeWidth="0.8"
             />
             {/* Left vertical dashed post */}
@@ -220,7 +222,7 @@ export default function DotPlotSVG({
               y1={bracketY}
               x2={fromX}
               y2={vertBottom}
-              stroke="#FF3B30"
+              stroke={STATUS_CONFIG.overdue.color}
               strokeWidth="0.8"
               strokeDasharray="2 2"
             />
@@ -230,7 +232,7 @@ export default function DotPlotSVG({
               y1={bracketY}
               x2={toX}
               y2={vertBottom}
-              stroke="#FF3B30"
+              stroke={STATUS_CONFIG.overdue.color}
               strokeWidth="0.8"
               strokeDasharray="2 2"
             />
@@ -267,7 +269,7 @@ export default function DotPlotSVG({
         const fill = dose.isUpcoming
           ? "none"
           : i === 0
-          ? "#34C759" // first dose is always on-time green
+          ? STATUS_CONFIG.done.color // first dose is always on-time green
           : gapColor(gw);
         const stroke = dose.isUpcoming ? "#8A8A8A" : "white";
         const strokeWidth = 1.5;
@@ -311,7 +313,7 @@ export default function DotPlotSVG({
                 dose.isUpcoming
                   ? "#8A8A8A"
                   : gw > 12 && i > 0
-                  ? "#FF3B30"
+                  ? STATUS_CONFIG.overdue.color
                   : "#8A8A8A"
               }
             >

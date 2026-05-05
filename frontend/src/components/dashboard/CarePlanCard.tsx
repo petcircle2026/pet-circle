@@ -1,8 +1,9 @@
 "use client";
 
 import type { CarePlanItem, CarePlanSection } from "@/lib/api";
-import { BUTTONS, FLEX } from "@/lib/css-classes";
-import { BUCKET_META, itemStatusClass, normalizeStatusTag } from "./dashboard-utils";
+import { FLEX } from "@/lib/css-classes";
+import { parseDMY } from "@/lib/dashboard-utils";
+import { BUCKET_META, MANDATORY_VACCINE_RE, VACCINE_SECTION_RE, isItemFoodOrSupplement, itemStatusClass, normalizeStatusTag } from "./dashboard-utils";
 
 interface CarePlanCardProps {
   petName: string;
@@ -99,11 +100,11 @@ export default function CarePlanCard({
 
             {sections.map((section) => {
               const isVaccineSection = bucketKey === "continue" &&
-                /vaccine|vaccination|preventive/i.test(section.title);
+                VACCINE_SECTION_RE.test(section.title);
 
               const mandatoryVaccineItems = isVaccineSection
                 ? section.items.filter((i) =>
-                    /dhppi|rabies/i.test(i.name) && i.test_type !== "food" && i.test_type !== "supplement"
+                    MANDATORY_VACCINE_RE.test(i.name) && !isItemFoodOrSupplement(i.test_type)
                   )
                 : [];
 
@@ -122,14 +123,10 @@ export default function CarePlanCard({
                   .sort();
                 const bannerMonth = nextDates[0]
                   ? (() => {
-                      // next_due is a display string in DD/MM/YY or DD/MM/YYYY format
-                      const parts = nextDates[0].split("/");
-                      const d = parts.length === 3
-                        ? new Date(`20${parts[2].length === 2 ? parts[2] : parts[2].slice(-2)}-${parts[1]}-${parts[0]}`)
-                        : new Date(nextDates[0]);
-                      return Number.isNaN(d.getTime())
-                        ? nextDates[0]
-                        : d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+                      const parsed = parseDMY(nextDates[0]);
+                      return parsed
+                        ? parsed.toLocaleDateString("en-GB", { month: "long", year: "numeric" })
+                        : nextDates[0];
                     })()
                   : null;
 
@@ -155,7 +152,7 @@ export default function CarePlanCard({
                   // continue bucket (hidden by the condition below), so requiring a
                   // reason before showing the Order button would block newly-added
                   // items (e.g. "omega") that haven't had a GPT reason generated yet.
-                  const isFoodOrSupplement = item.test_type === "food" || item.test_type === "supplement";
+                  const isFoodOrSupplement = isItemFoodOrSupplement(item.test_type);
                   const canOrder = bucketKey !== "attend" && (item.orderable || isFoodOrSupplement);
                   const ctaText = (item.cta_label || "Order Now").replace(/\s*[→>-]+\s*$/, "");
 
@@ -186,7 +183,7 @@ export default function CarePlanCard({
                               : `${item.freq} · ${normalizeStatusTag(item.status_tag) === "Urgent" && item.next_due ? `Overdue since ${item.next_due}` : `${bucketKey === "attend" ? "End" : "Next"}: ${item.next_due || "--"}`}`}
                         </div>
                         )}
-                        {item.reason && !(bucketKey === "continue" && (item.test_type === "food" || item.test_type === "supplement")) && (
+                        {item.reason && !(bucketKey === "continue" && isFoodOrSupplement) && (
                           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4, marginTop: 3, fontStyle: "italic" }}>
                             {item.reason}
                           </div>
@@ -194,7 +191,7 @@ export default function CarePlanCard({
                       </div>
 
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 }}>
-                        {bucketKey !== "add" && item.test_type !== "food" && item.test_type !== "supplement" && (
+                        {bucketKey !== "add" && !isFoodOrSupplement && (
                           <span className={`s-tag ${itemStatusClass(item)}`}>{item.status_tag}</span>
                         )}
 
@@ -222,7 +219,7 @@ export default function CarePlanCard({
                           </button>
                         )}
 
-                        {!canOrder && item.signal_level === "L1" && item.info_prompt && item.test_type !== "food" && item.test_type !== "supplement" && (
+                        {!canOrder && item.signal_level === "L1" && item.info_prompt && !isFoodOrSupplement && (
                           <div style={{ fontSize: 11, color: "var(--t3)", fontStyle: "italic", textAlign: "right", maxWidth: 160, lineHeight: 1.4 }}>
                             {item.info_prompt}
                           </div>

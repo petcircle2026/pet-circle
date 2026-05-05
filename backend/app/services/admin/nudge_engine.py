@@ -100,7 +100,6 @@ def _make_nudge(pet_id, category: str, priority: str, title: str, message: str,
 def _generate_vaccine_nudges(db: Session, pet_id, pet_name: str, species: str) -> list[Nudge]:
     """Generate nudges for overdue/upcoming/missing vaccines."""
     nudges = []
-    today = date.today()
     preventive_repo = PreventiveRepository(db)
     master_repo = PreventiveMasterRepository(db)
 
@@ -127,7 +126,7 @@ def _generate_vaccine_nudges(db: Session, pet_id, pet_name: str, species: str) -
                 f"{pet_name}'s {item_name} is past due. Please schedule it soon.",
                 mandatory=True, icon="💉",
             ))
-        elif rec.next_due_date and (rec.next_due_date - today).days <= 7 and rec.status != "up_to_date":
+        elif rec.status == "upcoming":
             nudges.append(_make_nudge(
                 pet_id, "vaccine", "high",
                 f"{item_name} due soon",
@@ -169,7 +168,6 @@ def _get_medicine_warning(medicine_name: str | None, db: Session) -> str:
 def _generate_deworming_nudges(db: Session, pet_id, pet_name: str, species: str) -> list[Nudge]:
     """Generate nudges for overdue/upcoming deworming."""
     nudges = []
-    today = date.today()
     records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
     latest_by_name: dict[str, PreventiveRecord] = {}
@@ -192,7 +190,7 @@ def _generate_deworming_nudges(db: Session, pet_id, pet_name: str, species: str)
                 f"{pet_name}'s {item_name} is past due.{warning}",
                 mandatory=True, icon="💊",
             ))
-        elif rec.next_due_date and (rec.next_due_date - today).days <= 7 and rec.status != "up_to_date":
+        elif rec.status == "upcoming":
             nudges.append(_make_nudge(
                 pet_id, "deworming", "high",
                 f"{item_name} due soon",
@@ -229,7 +227,7 @@ def _generate_flea_nudges(db: Session, pet_id, pet_name: str, species: str) -> l
                 f"{pet_name}'s {item_name} is past due.{warning}",
                 icon="🐛",
             ))
-        elif rec.next_due_date and (rec.next_due_date - today).days <= 7 and rec.status != "up_to_date":
+        elif rec.status == "upcoming":
             nudges.append(_make_nudge(
                 pet_id, "flea", "high",
                 f"{item_name} due soon",

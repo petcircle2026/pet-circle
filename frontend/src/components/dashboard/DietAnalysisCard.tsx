@@ -2,6 +2,7 @@
 
 import Donut from "@/components/charts/Donut";
 import type { NutritionAnalysis } from "@/lib/api";
+import { STATUS_CONFIG } from "@/lib/dashboard-utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -12,7 +13,11 @@ interface DietAnalysisCardProps {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const NUTR_COLOR = { green: "#34C759", amber: "#FF9F1C", red: "#FF3B30" };
+const NUTR_COLOR = {
+  green: STATUS_CONFIG.done.color,
+  amber: STATUS_CONFIG.upcoming.color,
+  red: STATUS_CONFIG.overdue.color,
+};
 
 const MACRO_LABELS = ["Protein", "Fat", "Carbs", "Fibre"] as const;
 

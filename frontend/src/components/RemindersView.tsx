@@ -9,6 +9,7 @@ import {
   updatePreventiveDate,
   updatePreventiveFrequency,
 } from '@/lib/api';
+import { diffDaysFromToday, STATUS_CONFIG } from '@/lib/dashboard-utils';
 import { normalizeStatusTag } from '@/components/dashboard/dashboard-utils';
 
 interface RemindersViewProps {
@@ -210,28 +211,20 @@ function mapStatusFromNext(nextISO: string | null, fallback: string, lastISO?: s
     if (!lastISO) return 'overdue';
     return fallback;
   }
-  const next = new Date(nextISO);
-  if (Number.isNaN(next.getTime())) return fallback;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const ms = next.getTime() - now.getTime();
-  const days = Math.floor(ms / 86400000);
+  const days = diffDaysFromToday(nextISO);
+  if (days === null) return fallback;
   if (days < 0) return 'overdue';
   if (days <= CARE_PLAN_DUE_SOON_DAYS) return 'upcoming';
   return 'up_to_date';
 }
 
-const dotClass: Record<string, { bg: string; border: string }> = {
-  red: { bg: '#FF3B30', border: '#FF3B30' },
-  orange: { bg: '#FF9500', border: '#FF9500' },
-  green: { bg: '#34C759', border: '#34C759' },
-};
-
 function getStatusDot(status: string | undefined): { bg: string; border: string } {
   const normalized = normalizeStatusTag(status || '');
-  if (normalized === 'Urgent') return dotClass.red;
-  if (normalized === 'Due soon') return dotClass.orange;
-  return dotClass.green;
+  const color =
+    normalized === 'Urgent'   ? STATUS_CONFIG.overdue.color :
+    normalized === 'Due soon' ? STATUS_CONFIG.upcoming.color :
+                                STATUS_CONFIG.done.color;
+  return { bg: color, border: color };
 }
 
 const editFieldStyle: CSSProperties = {

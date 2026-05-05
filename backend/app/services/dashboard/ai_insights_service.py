@@ -44,6 +44,7 @@ from app.repositories.pet_ai_insight_repository import PetAiInsightRepository
 from app.repositories.condition_repository import ConditionRepository
 from app.repositories.diet_repository import DietRepository
 from app.services.shared.care_plan_engine import _get_breed_size, _get_life_stage, _get_pet_age_months
+from app.services.dashboard.condition_aggregation_service import _compute_condition_status
 from app.utils.retry import retry_openai_call
 
 logger = logging.getLogger(__name__)
@@ -854,8 +855,6 @@ async def get_or_generate_insight(
             }
 
             agg_rows = _condition_repo.get_aggregated_conditions_for_insights(pet_id)
-
-            from app.services.dashboard.condition_aggregation_service import _compute_condition_status
 
             def _compute_status(row):
                 if row.vet_resolved:
