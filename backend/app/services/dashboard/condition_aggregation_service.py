@@ -511,7 +511,10 @@ def _merge_family(family: list[Any]) -> dict[str, Any]:
     merged_monitoring = list(mon_map.values())
 
     # ── condition_status: computed from merged data ───────────────────────────
-    condition_status = _compute_condition_status(merged_type, medication_end_date, merged_episodes)
+    condition_status = _compute_condition_status(
+        merged_type, medication_end_date, merged_episodes,
+        recurrence_watch=recurrence_watch,
+    )
 
     # ── soft_resolution: True if latest-episode row has resolved status ───────
     soft_resolution = False

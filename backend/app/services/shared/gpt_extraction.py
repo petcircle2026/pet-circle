@@ -3814,41 +3814,21 @@ async def extract_and_process_document(
                 # on the condition by taking the max of _condition_max_med_end and
                 # any already-stored medication end_dates.
                 if condition_obj.condition_status != "resolved":
-                    if condition_obj.condition_type == "chronic":
-                        condition_obj.condition_status = "active"
-                    else:
-                        # For merge path: check if existing meds have a later end_date.
-                        _all_meds = care_repo.find_condition_medications_for_condition(condition_obj.id)
-                        for _em in _all_meds:
-                            if _em.end_date and (
-                                _condition_max_med_end is None or _em.end_date > _condition_max_med_end
-                            ):
-                                _condition_max_med_end = _em.end_date
+                    from app.services.dashboard.condition_aggregation_service import _compute_condition_status
+                    # For merge path: check if existing meds have a later end_date.
+                    _all_meds = care_repo.find_condition_medications_for_condition(condition_obj.id)
+                    for _em in _all_meds:
+                        if _em.end_date and (
+                            _condition_max_med_end is None or _em.end_date > _condition_max_med_end
+                        ):
+                            _condition_max_med_end = _em.end_date
 
-                        if _condition_max_med_end is not None:
-                            _days = (_today - _condition_max_med_end).days
-                            if _days <= 0:
-                                condition_obj.condition_status = "active"
-                            elif _days <= 30:
-                                condition_obj.condition_status = "monitoring"
-                            else:
-                                condition_obj.condition_status = "resolved"
-                        else:
-                            # No medication end_date — fall back to latest episode_date.
-                            _latest_ep_date = None
-                            if condition_obj.episode_dates:
-                                try:
-                                    _latest_ep_date = parse_date(condition_obj.episode_dates[-1])
-                                except Exception:
-                                    pass
-                            if _latest_ep_date:
-                                _ep_days = (_today - _latest_ep_date).days
-                                if _ep_days <= 30:
-                                    condition_obj.condition_status = "monitoring"
-                                else:
-                                    condition_obj.condition_status = "resolved"
-                            else:
-                                condition_obj.condition_status = "resolved"
+                    condition_obj.condition_status = _compute_condition_status(
+                        condition_obj.condition_type or "episodic",
+                        _condition_max_med_end,
+                        condition_obj.episode_dates or [],
+                        recurrence_watch=False,  # not known at extraction time; aggregation sets it later
+                    )
                     db.flush()
 
             except Exception as e:

@@ -225,11 +225,15 @@ def _build_health_conditions_summary_from_aggregated(agg_rows: list) -> list[dic
     from app.services.dashboard.condition_aggregation_service import _compute_condition_status
     summary: list[dict] = []
     for agg in agg_rows:
-        runtime_status = _compute_condition_status(
-            agg.condition_type or "episodic",
-            agg.medication_end_date,
-            agg.episode_dates or [],
-        )
+        if agg.vet_resolved:
+            runtime_status = "resolved"
+        else:
+            runtime_status = _compute_condition_status(
+                agg.condition_type or "episodic",
+                agg.medication_end_date,
+                agg.episode_dates or [],
+                recurrence_watch=bool(agg.recurrence_watch),
+            )
         summary.append(
             {
                 "id": str(agg.id),
