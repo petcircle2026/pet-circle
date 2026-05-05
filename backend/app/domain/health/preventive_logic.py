@@ -1,20 +1,14 @@
 """
-Preventive Care Calculation Logic
+Preventive Care — Vaccine Eligibility and Frequency Utilities
 
-Pure business logic for calculating preventive care status and due dates.
-No database access, no side effects - fully testable in isolation.
+Utility functions for vaccine age-eligibility and frequency label conversion.
 
-Core formula:
-    next_due_date = last_done_date + frequency_days
-
-Status determination:
-    - today > next_due_date -> 'overdue'
-    - today + reminder_before_days >= next_due_date -> 'upcoming'
-    - else -> 'up_to_date'
+Status computation (overdue / upcoming / up_to_date) is handled exclusively by
+compute_status() in app.services.shared.preventive_calculator, which uses the
+IST timezone.  Do NOT add status logic here.
 """
 
 import logging
-from datetime import date, timedelta
 
 from app.core.constants import (
     PUPPY_AGE_CUTOFF_DAYS,
@@ -23,86 +17,6 @@ from app.core.constants import (
 from app.utils.frequency import days_to_frequency_label, frequency_to_days
 
 logger = logging.getLogger(__name__)
-
-
-def calculate_next_due_date(last_done_date: date, frequency_days: int) -> date:
-    """
-    Calculate when preventive is next due.
-
-    Args:
-        last_done_date: When preventive was last performed
-        frequency_days: How many days between occurrences
-
-    Returns:
-        Next due date
-    """
-    return last_done_date + timedelta(days=frequency_days)
-
-
-def get_preventive_status(
-    next_due_date: date,
-    current_date: date = None,
-    reminder_before_days: int = 7,
-) -> str:
-    """
-    Determine preventive status based on due date.
-
-    Status logic (all comparisons use current date):
-    - today > next_due_date -> 'overdue'
-    - today + reminder_before_days >= next_due_date -> 'upcoming'
-    - else -> 'up_to_date'
-
-    Args:
-        next_due_date: When preventive is due
-        current_date: Date to use for comparison (default: today)
-        reminder_before_days: Days before due date to mark as 'upcoming'
-
-    Returns:
-        Status: 'overdue', 'upcoming', or 'up_to_date'
-    """
-    if current_date is None:
-        current_date = date.today()
-
-    if current_date > next_due_date:
-        return "overdue"
-
-    reminder_date = current_date + timedelta(days=reminder_before_days)
-    if reminder_date >= next_due_date:
-        return "upcoming"
-
-    return "up_to_date"
-
-
-def is_overdue(next_due_date: date, current_date: date = None) -> bool:
-    """Check if preventive is overdue."""
-    if current_date is None:
-        current_date = date.today()
-    return current_date > next_due_date
-
-
-def is_upcoming(
-    next_due_date: date,
-    current_date: date = None,
-    reminder_before_days: int = 7,
-) -> bool:
-    """Check if preventive is coming up soon."""
-    if current_date is None:
-        current_date = date.today()
-    reminder_date = current_date + timedelta(days=reminder_before_days)
-    return current_date <= next_due_date <= reminder_date
-
-
-def days_until_due(next_due_date: date, current_date: date = None) -> int:
-    """
-    Calculate days until preventive is due.
-
-    Returns:
-        Positive = days until due
-        Zero or negative = already due (overdue)
-    """
-    if current_date is None:
-        current_date = date.today()
-    return (next_due_date - current_date).days
 
 
 def get_frequency_in_days(frequency_months: int | None) -> int:
@@ -127,36 +41,6 @@ def parse_frequency_string(frequency_str: str) -> int | None:
         Frequency in days, or None if unable to parse
     """
     return frequency_to_days(frequency_str)
-
-
-def should_send_reminder(
-    next_due_date: date,
-    current_date: date = None,
-    reminder_before_days: int = 7,
-) -> bool:
-    """
-    Determine if a reminder should be sent for this preventive.
-
-    Reminders are sent when status is 'overdue' or 'upcoming'.
-    """
-    status = get_preventive_status(next_due_date, current_date, reminder_before_days)
-    return status in ("overdue", "upcoming")
-
-
-def calculate_overdue_duration(next_due_date: date, current_date: date = None) -> int:
-    """
-    Calculate how many days overdue a preventive is.
-
-    Returns:
-        Days overdue (0 if not overdue)
-    """
-    if current_date is None:
-        current_date = date.today()
-
-    if not is_overdue(next_due_date, current_date):
-        return 0
-
-    return (current_date - next_due_date).days
 
 
 def get_frequency_label(frequency_days: int) -> str:

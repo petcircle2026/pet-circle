@@ -16,11 +16,7 @@ from sqlalchemy.orm import Session
 from app.repositories.pet_repository import PetRepository
 from app.repositories.preventive_repository import PreventiveRepository
 from app.repositories.health_repository import HealthRepository
-from app.domain.health.preventive_logic import (
-    get_preventive_status,
-    days_until_due,
-    get_frequency_label,
-)
+from app.services.shared.preventive_calculator import compute_status
 
 
 class HealthService:
@@ -133,7 +129,7 @@ class HealthService:
             if item and item.item_name == preventive_type:
                 if record.next_due_date is None:
                     return False
-                status = get_preventive_status(record.next_due_date, today)
+                status = compute_status(record.next_due_date)
                 return status in ("up_to_date", "upcoming")
 
         return False

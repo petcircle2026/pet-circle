@@ -204,7 +204,6 @@ def _generate_deworming_nudges(db: Session, pet_id, pet_name: str, species: str)
 def _generate_flea_nudges(db: Session, pet_id, pet_name: str, species: str) -> list[Nudge]:
     """Generate nudges for overdue/upcoming flea & tick treatment."""
     nudges = []
-    today = date.today()
     records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
     latest_by_name: dict[str, PreventiveRecord] = {}
