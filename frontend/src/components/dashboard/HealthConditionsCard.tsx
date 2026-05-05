@@ -1,6 +1,6 @@
 "use client";
 
-import type { DashboardData, HealthConditionSummary } from "@/lib/api";
+import type { DashboardData } from "@/lib/api";
 import { normalizeConditions } from "./dashboard-utils";
 
 interface HealthConditionsCardProps {
@@ -10,12 +10,6 @@ interface HealthConditionsCardProps {
   isExtracting?: boolean;
 }
 
-function shouldLimitInsights(items: HealthConditionSummary[]): boolean {
-  return !items.some((item) => {
-    const label = (item.trend_label || "").toLowerCase();
-    return label.includes("active") || label.includes("recurrent") || label.includes("recurring");
-  });
-}
 
 export default function HealthConditionsCard({
   data,
@@ -187,7 +181,7 @@ export default function HealthConditionsCard({
 
   // Fallback: legacy health_conditions_summary path.
   const allConditions = normalizeConditions(data);
-  const visible = shouldLimitInsights(allConditions) ? allConditions.slice(0, 2) : allConditions;
+  const visible = allConditions;
 
   return (
     <div className={compact ? undefined : "card"}>
