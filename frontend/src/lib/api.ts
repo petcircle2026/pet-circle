@@ -251,25 +251,21 @@ export interface HealthConditionSummary {
 export interface HealthConditionV2 {
   id: string;
   name: string;
-  type: "chronic" | "recurrent" | "acute";
-  status: "needs_attention" | "active" | "monitoring" | "managed" | "resolved";
+  type: "chronic" | "recurrent" | "episodic";
+  status: "active" | "monitoring";
   severity: "red" | "yellow" | "green";
   trend_label: string;
   insight: string;
-  display_line: string;
-  recurrence_watch?: boolean;
-  soft_resolution?: boolean;
 }
 
 export interface HealthConditionsV2 {
-  headline_state: "needs_attention" | "active" | "monitoring" | "managed" | "resolved" | "clean";
+  headline_state: string;
+  summary_body?: string;
   conditions: HealthConditionV2[];
-  summary: string;
   meta: {
     total_conditions: number;
-    red_count: number;
-    yellow_count: number;
-    green_count: number;
+    displayed_count: number;
+    resolved_count: number;
   };
 }
 

@@ -106,11 +106,20 @@ def _generate_vaccine_nudges(db: Session, pet_id, pet_name: str, species: str) -
 
     records = preventive_repo.find_active_by_pet_id(pet_id)
 
+    # Keep only the most recent record per vaccine type so old overdue entries
+    # don't produce false nudges when a newer up-to-date record exists.
+    latest_by_name: dict[str, PreventiveRecord] = {}
     for rec in records:
         item_name = _record_item_name(rec)
         if _classify_item(item_name) != "vaccine":
             continue
+        existing = latest_by_name.get(item_name)
+        rec_date = rec.last_done_date or date.min
+        existing_date = existing.last_done_date if existing else date.min
+        if existing is None or rec_date > existing_date:
+            latest_by_name[item_name] = rec
 
+    for item_name, rec in latest_by_name.items():
         if rec.status == "overdue":
             nudges.append(_make_nudge(
                 pet_id, "vaccine", "urgent",
@@ -163,11 +172,18 @@ def _generate_deworming_nudges(db: Session, pet_id, pet_name: str, species: str)
     today = date.today()
     records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
+    latest_by_name: dict[str, PreventiveRecord] = {}
     for rec in records:
         item_name = _record_item_name(rec)
         if _classify_item(item_name) != "deworming":
             continue
+        existing = latest_by_name.get(item_name)
+        rec_date = rec.last_done_date or date.min
+        existing_date = existing.last_done_date if existing else date.min
+        if existing is None or rec_date > existing_date:
+            latest_by_name[item_name] = rec
 
+    for item_name, rec in latest_by_name.items():
         warning = _get_medicine_warning(rec.medicine_name, db)
         if rec.status == "overdue":
             nudges.append(_make_nudge(
@@ -193,11 +209,18 @@ def _generate_flea_nudges(db: Session, pet_id, pet_name: str, species: str) -> l
     today = date.today()
     records = PreventiveRepository(db).find_active_by_pet_id(pet_id)
 
+    latest_by_name: dict[str, PreventiveRecord] = {}
     for rec in records:
         item_name = _record_item_name(rec)
         if _classify_item(item_name) != "flea":
             continue
+        existing = latest_by_name.get(item_name)
+        rec_date = rec.last_done_date or date.min
+        existing_date = existing.last_done_date if existing else date.min
+        if existing is None or rec_date > existing_date:
+            latest_by_name[item_name] = rec
 
+    for item_name, rec in latest_by_name.items():
         warning = _get_medicine_warning(rec.medicine_name, db)
         if rec.status == "overdue":
             nudges.append(_make_nudge(

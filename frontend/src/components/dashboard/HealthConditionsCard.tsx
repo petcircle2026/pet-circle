@@ -10,15 +10,6 @@ interface HealthConditionsCardProps {
   isExtracting?: boolean;
 }
 
-const HEADLINE_STATE_LABEL: Record<string, string> = {
-  needs_attention: "needs attention",
-  active: "under treatment",
-  monitoring: "under monitoring",
-  managed: "managed",
-  resolved: "all clear",
-  clean: "no concerns",
-};
-
 function shouldLimitInsights(items: HealthConditionSummary[]): boolean {
   return !items.some((item) => {
     const label = (item.trend_label || "").toLowerCase();
@@ -47,8 +38,6 @@ export default function HealthConditionsCard({
     const allConditions = health.conditions.filter((c) =>
       (["red", "yellow", "green"] as const).includes(c.severity)
     );
-    const headlineLabel = HEADLINE_STATE_LABEL[health.headline_state] ?? "no concerns";
-
     const severityDotColor = (severity: string) => {
       if (severity === "red") return "var(--red)";
       if (severity === "yellow") return "var(--amber)";
@@ -119,10 +108,21 @@ export default function HealthConditionsCard({
         >
           📋 See detailed analysis →
         </button>
-        <div style={{ fontSize: 13, color: "var(--t2)", marginBottom: 10, lineHeight: 1.5 }}>
-          {health.meta.total_conditions} condition{health.meta.total_conditions !== 1 ? "s" : ""} identified —{" "}
-          {headlineLabel}.
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--t1)", marginBottom: 6, lineHeight: 1.4 }}>
+          {health.headline_state}
         </div>
+        {health.summary_body && (
+          <div style={{
+            fontSize: 13,
+            color: "var(--t2)",
+            lineHeight: 1.6,
+            marginBottom: 12,
+            paddingBottom: 12,
+            borderBottom: "1px solid var(--border)",
+          }}>
+            {health.summary_body}
+          </div>
+        )}
 
         {allConditions.map((c) => (
           <div key={c.id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
